@@ -8,11 +8,16 @@ import (
 
 	"github.com/bbedward/DankMaterialShell/dankgop/models"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
 func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool) ([]*models.ProcessInfo, error) {
+	return self.GetProcessesWithSample(sortBy, limit, enableCPU, nil)
+}
+
+func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enableCPU bool, sampleData []models.ProcessSampleData) ([]*models.ProcessInfo, error) {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil, err
@@ -21,9 +26,17 @@ func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool)
 	procList := make([]*models.ProcessInfo, 0)
 	totalMem, _ := mem.VirtualMemory()
 	numCPU := float64(runtime.NumCPU())
+	
+	// Create sample data map for quick lookup
+	sampleMap := make(map[int32]*models.ProcessSampleData)
+	if sampleData != nil {
+		for i := range sampleData {
+			sampleMap[sampleData[i].PID] = &sampleData[i]
+		}
+	}
 
-	// CPU measurement setup - only if enabled
-	if enableCPU {
+	// CPU measurement setup - only if enabled and no sample data provided
+	if enableCPU && len(sampleMap) == 0 {
 		// First pass: Initialize CPU measurement for all processes
 		for _, p := range procs {
 			p.CPUPercent() // Initialize
@@ -44,8 +57,14 @@ func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool)
 		// Get CPU percentage only if enabled
 		cpuPercent := 0.0
 		if enableCPU {
-			rawCpuPercent, _ := p.CPUPercent()
-			cpuPercent = rawCpuPercent / numCPU
+			if sample, hasSample := sampleMap[p.Pid]; hasSample {
+				// Use sample data to calculate CPU percentage
+				cpuPercent = calculateProcessCPUPercentage(sample, times)
+			} else {
+				// Fallback to gopsutil measurement
+				rawCpuPercent, _ := p.CPUPercent()
+				cpuPercent = rawCpuPercent / numCPU
+			}
 		}
 
 		// Calculate memory percentage and KB
@@ -132,4 +151,30 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 		r.Map()["ProcSortBy"] = schemaRef
 	}
 	return &huma.Schema{Ref: "#/components/schemas/ProcSortBy"}
+}
+
+func calculateProcessCPUPercentage(sample *models.ProcessSampleData, times *cpu.TimesStat) float64 {
+	if times == nil || sample.SampleTime == 0 {
+		return 0
+	}
+	
+	currentTicks := uint64(times.User + times.System)
+	if currentTicks <= sample.PreviousTicks {
+		return 0
+	}
+	
+	ticksDiff := currentTicks - sample.PreviousTicks
+	timeDiff := time.Now().UnixMilli() - sample.SampleTime
+	
+	if timeDiff <= 0 {
+		return 0
+	}
+	
+	// Convert to CPU percentage
+	cpuPercent := float64(ticksDiff) / float64(timeDiff) * 1000.0 / float64(runtime.NumCPU())
+	if cpuPercent > 100.0 {
+		cpuPercent = 100.0
+	}
+	
+	return cpuPercent
 }

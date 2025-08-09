@@ -27,10 +27,12 @@ func (self *GopsUtil) GetModules() (*models.ModulesInfo, error) {
 }
 
 type MetaParams struct {
-	SortBy    ProcSortBy
-	ProcLimit int
-	EnableCPU bool
-	GPUPciIds []string
+	SortBy         ProcSortBy
+	ProcLimit      int
+	EnableCPU      bool
+	GPUPciIds      []string
+	CPUSampleData  *models.CPUSampleData
+	ProcSampleData []models.ProcessSampleData
 }
 
 func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.MetaInfo, error) {
@@ -42,7 +44,7 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 			// Load all modules
 			return self.loadAllModules(params)
 		case "cpu":
-			if cpu, err := self.GetCPUInfo(); err == nil {
+			if cpu, err := self.GetCPUInfoWithSample(params.CPUSampleData); err == nil {
 				meta.CPU = cpu
 			}
 		case "memory":
@@ -62,7 +64,7 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 				meta.DiskMounts = mounts
 			}
 		case "processes":
-			if procs, err := self.GetProcesses(params.SortBy, params.ProcLimit, params.EnableCPU); err == nil {
+			if procs, err := self.GetProcessesWithSample(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcSampleData); err == nil {
 				meta.Processes = procs
 			}
 		case "system":
@@ -95,7 +97,7 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 	meta := &models.MetaInfo{}
 
 	// Load all modules (ignore errors for individual modules)
-	if cpu, err := self.GetCPUInfo(); err == nil {
+	if cpu, err := self.GetCPUInfoWithSample(params.CPUSampleData); err == nil {
 		meta.CPU = cpu
 	}
 
@@ -115,7 +117,7 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 		meta.DiskMounts = mounts
 	}
 
-	if procs, err := self.GetProcesses(params.SortBy, params.ProcLimit, params.EnableCPU); err == nil {
+	if procs, err := self.GetProcessesWithSample(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcSampleData); err == nil {
 		meta.Processes = procs
 	}
 

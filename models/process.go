@@ -12,3 +12,10 @@ type ProcessInfo struct {
 	Command       string  `json:"command"`
 	FullCommand   string  `json:"fullCommand"`
 }
+
+type ProcessSampleData struct {
+	PID            int32   `json:"pid"`
+	PreviousTicks  uint64  `json:"previousTicks,omitempty"`
+	PreviousCPU    float64 `json:"previousCPU,omitempty"`
+	SampleTime     int64   `json:"sampleTime,omitempty"`
+}

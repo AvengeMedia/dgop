@@ -12,7 +12,11 @@ func NewGopsUtil() *GopsUtil {
 }
 
 func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool) (*models.SystemMetrics, error) {
-	cpuInfo, err := self.GetCPUInfo()
+	return self.GetAllMetricsWithSample(procSortBy, procLimit, enableProcessCPU, nil, nil)
+}
+
+func (self *GopsUtil) GetAllMetricsWithSample(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, cpuSample *models.CPUSampleData, procSample []models.ProcessSampleData) (*models.SystemMetrics, error) {
+	cpuInfo, err := self.GetCPUInfoWithSample(cpuSample)
 	if err != nil {
 		log.Errorf("Failed to get CPU info: %v", err)
 	}
@@ -37,7 +41,7 @@ func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enable
 		log.Errorf("Failed to get disk mounts: %v", err)
 	}
 
-	processes, err := self.GetProcesses(procSortBy, procLimit, enableProcessCPU)
+	processes, err := self.GetProcessesWithSample(procSortBy, procLimit, enableProcessCPU, procSample)
 	if err != nil {
 		log.Errorf("Failed to get processes: %v", err)
 	}

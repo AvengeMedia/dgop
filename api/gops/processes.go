@@ -10,9 +10,10 @@ import (
 )
 
 type ProcessInput struct {
-	SortBy         gops.ProcSortBy `json:"sort_by" required:"true" default:"cpu"`
-	Limit          int             `json:"limit"`
-	DisableProcCPU bool            `json:"disable_proc_cpu" default:"false"`
+	SortBy         gops.ProcSortBy `query:"sort_by" required:"true" default:"cpu"`
+	Limit          int             `query:"limit"`
+	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
+	SampleData     string          `query:"sample_data" required:"false"`
 }
 
 type ProcessResponse struct {
@@ -24,7 +25,14 @@ type ProcessResponse struct {
 // GET /processes
 func (self *HandlerGroup) Processes(ctx context.Context, input *ProcessInput) (*ProcessResponse, error) {
 	enableCPU := !input.DisableProcCPU
-	processInfo, err := self.srv.Gops.GetProcesses(input.SortBy, input.Limit, enableCPU)
+	
+	var sampleData []models.ProcessSampleData
+	if input.SampleData != "" {
+		// Client can encode sample data as JSON in query parameter
+		// Implementation would decode it here
+	}
+	
+	processInfo, err := self.srv.Gops.GetProcessesWithSample(input.SortBy, input.Limit, enableCPU, sampleData)
 	if err != nil {
 		log.Error("Error getting process info")
 		return nil, huma.Error500InternalServerError("Unable to retrieve process info")

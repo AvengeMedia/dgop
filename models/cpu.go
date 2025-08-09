@@ -10,3 +10,9 @@ type CPUInfo struct {
 	Total       []uint64   `json:"total"`
 	Cores       [][]uint64 `json:"cores"`
 }
+
+type CPUSampleData struct {
+	PreviousTotal []uint64   `json:"previousTotal,omitempty"`
+	PreviousCores [][]uint64 `json:"previousCores,omitempty"`
+	SampleTime    int64      `json:"sampleTime,omitempty"`
+}

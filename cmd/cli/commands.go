@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -85,7 +86,23 @@ var modulesCmd = &cobra.Command{
 func runAllCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	metrics, err := gopsUtil.GetAllMetrics(sortBy, procLimit, enableCPU)
+	
+	var cpuSample *models.CPUSampleData
+	if cpuSampleData != "" {
+		cpuSample = &models.CPUSampleData{}
+		if err := json.Unmarshal([]byte(cpuSampleData), cpuSample); err != nil {
+			return fmt.Errorf("failed to parse CPU sample data: %w", err)
+		}
+	}
+	
+	var procSample []models.ProcessSampleData
+	if procSampleData != "" {
+		if err := json.Unmarshal([]byte(procSampleData), &procSample); err != nil {
+			return fmt.Errorf("failed to parse process sample data: %w", err)
+		}
+	}
+	
+	metrics, err := gopsUtil.GetAllMetricsWithSample(sortBy, procLimit, enableCPU, cpuSample, procSample)
 	if err != nil {
 		return fmt.Errorf("failed to get system metrics: %w", err)
 	}
@@ -99,7 +116,15 @@ func runAllCommand(gopsUtil *gops.GopsUtil) error {
 }
 
 func runCpuCommand(gopsUtil *gops.GopsUtil) error {
-	cpuInfo, err := gopsUtil.GetCPUInfo()
+	var sampleData *models.CPUSampleData
+	if cpuSampleData != "" {
+		sampleData = &models.CPUSampleData{}
+		if err := json.Unmarshal([]byte(cpuSampleData), sampleData); err != nil {
+			return fmt.Errorf("failed to parse CPU sample data: %w", err)
+		}
+	}
+	
+	cpuInfo, err := gopsUtil.GetCPUInfoWithSample(sampleData)
 	if err != nil {
 		return fmt.Errorf("failed to get CPU info: %w", err)
 	}
@@ -169,7 +194,15 @@ func runDiskCommand(gopsUtil *gops.GopsUtil) error {
 func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	processes, err := gopsUtil.GetProcesses(sortBy, procLimit, enableCPU)
+	
+	var sampleData []models.ProcessSampleData
+	if procSampleData != "" {
+		if err := json.Unmarshal([]byte(procSampleData), &sampleData); err != nil {
+			return fmt.Errorf("failed to parse process sample data: %w", err)
+		}
+	}
+	
+	processes, err := gopsUtil.GetProcessesWithSample(sortBy, procLimit, enableCPU, sampleData)
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
 	}
@@ -239,11 +272,28 @@ func runGPUTempCommand(gopsUtil *gops.GopsUtil) error {
 }
 
 func runMetaCommand(gopsUtil *gops.GopsUtil) error {
+	var cpuSample *models.CPUSampleData
+	if cpuSampleData != "" {
+		cpuSample = &models.CPUSampleData{}
+		if err := json.Unmarshal([]byte(cpuSampleData), cpuSample); err != nil {
+			return fmt.Errorf("failed to parse CPU sample data: %w", err)
+		}
+	}
+	
+	var procSample []models.ProcessSampleData
+	if procSampleData != "" {
+		if err := json.Unmarshal([]byte(procSampleData), &procSample); err != nil {
+			return fmt.Errorf("failed to parse process sample data: %w", err)
+		}
+	}
+
 	params := gops.MetaParams{
-		SortBy:    parseProcessSortBy(procSortBy, disableProcCPU),
-		ProcLimit: procLimit,
-		EnableCPU: !disableProcCPU,
-		GPUPciIds: metaGPUPciIds,
+		SortBy:         parseProcessSortBy(procSortBy, disableProcCPU),
+		ProcLimit:      procLimit,
+		EnableCPU:      !disableProcCPU,
+		GPUPciIds:      metaGPUPciIds,
+		CPUSampleData:  cpuSample,
+		ProcSampleData: procSample,
 	}
 
 	metaInfo, err := gopsUtil.GetMeta(metaModules, params)

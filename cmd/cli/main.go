@@ -19,6 +19,8 @@ var (
 	metaModules    []string
 	gpuPciId       string
 	metaGPUPciIds  []string
+	cpuSampleData  string
+	procSampleData string
 )
 
 var style = lipgloss.NewStyle().
@@ -63,14 +65,21 @@ func init() {
 
 	allCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	allCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
+	allCmd.Flags().StringVar(&cpuSampleData, "cpu-sample", "", "CPU sample data (JSON encoded)")
+	allCmd.Flags().StringVar(&procSampleData, "proc-sample", "", "Process sample data (JSON encoded)")
+
+	cpuCmd.Flags().StringVar(&cpuSampleData, "sample", "", "CPU sample data (JSON encoded)")
 
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	processesCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
+	processesCmd.Flags().StringVar(&procSampleData, "sample", "", "Process sample data (JSON encoded)")
 
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	metaCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", []string{}, "PCI IDs for GPU temperatures (e.g., 10de:2684,1002:164e)")
+	metaCmd.Flags().StringVar(&cpuSampleData, "cpu-sample", "", "CPU sample data (JSON encoded)")
+	metaCmd.Flags().StringVar(&procSampleData, "proc-sample", "", "Process sample data (JSON encoded)")
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
 	gpuTempCmd.MarkFlagRequired("pci-id")
