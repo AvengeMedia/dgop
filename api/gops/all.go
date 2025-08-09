@@ -10,9 +10,9 @@ import (
 )
 
 type AllInput struct {
-	SortBy         gops.ProcSortBy `json:"ps_sort_by" required:"true" default:"cpu"`
-	Limit          int             `json:"ps_limit"`
-	DisableProcCPU bool            `json:"disable_proc_cpu" default:"false"`
+	SortBy         gops.ProcSortBy `query:"ps_sort_by" required:"true" default:"cpu"`
+	Limit          int             `query:"ps_limit"`
+	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
 }
 
 type AllResponse struct {
