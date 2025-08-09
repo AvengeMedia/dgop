@@ -20,7 +20,7 @@ go run ./cmd/cli [command]
 ## Basic Commands
 
 ```bash
-# See all your shit at once
+# See all at once
 dankgop all
 
 # Just CPU info
@@ -174,4 +174,6 @@ make clean
 
 ## Why Another Monitoring Tool?
 
-Because I got tired of parsing htop output and wanted something that just works without XML configuration files or enterprise bullshit.
+Because nothing did what i wanted, i didnt want to run a metrics server, I wanted GO because its fast and compiles to a single binary, bash scripts got too messy.
+
+TL;DR single binary cli and server with json output, openapi spec, and a bunch of data.
