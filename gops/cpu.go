@@ -1,6 +1,8 @@
 package gops
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -34,10 +36,10 @@ type CPUTracker struct {
 var cpuTracker = &CPUTracker{}
 
 func (self *GopsUtil) GetCPUInfo() (*models.CPUInfo, error) {
-	return self.GetCPUInfoWithSample(nil)
+	return self.GetCPUInfoWithCursor("")
 }
 
-func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*models.CPUInfo, error) {
+func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, error) {
 	cpuInfo := models.CPUInfo{}
 
 	cpuTracker.mu.Lock()
@@ -88,15 +90,23 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 
 	currentTime := now.UnixMilli()
 
-	if sampleData != nil && len(sampleData.PreviousTotal) > 0 && len(cpuInfo.Total) > 0 && sampleData.Timestamp > 0 {
-		timeDiff := float64(currentTime - sampleData.Timestamp) / 1000.0
+	var cursorData models.CPUCursorData
+	if cursor != "" {
+		jsonBytes, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err == nil {
+			json.Unmarshal(jsonBytes, &cursorData)
+		}
+	}
+
+	if len(cursorData.Total) > 0 && len(cpuInfo.Total) > 0 && cursorData.Timestamp > 0 {
+		timeDiff := float64(currentTime - cursorData.Timestamp) / 1000.0
 		if timeDiff > 0 {
-			cpuInfo.Usage = calculateCPUPercentage(sampleData.PreviousTotal, cpuInfo.Total)
+			cpuInfo.Usage = calculateCPUPercentage(cursorData.Total, cpuInfo.Total)
 			
-			if len(sampleData.PreviousCores) > 0 && len(cpuInfo.Cores) > 0 {
+			if len(cursorData.Cores) > 0 && len(cpuInfo.Cores) > 0 {
 				cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
-				for i := 0; i < len(cpuInfo.Cores) && i < len(sampleData.PreviousCores); i++ {
-					cpuInfo.CoreUsage[i] = calculateCPUPercentage(sampleData.PreviousCores[i], cpuInfo.Cores[i])
+				for i := 0; i < len(cpuInfo.Cores) && i < len(cursorData.Cores); i++ {
+					cpuInfo.CoreUsage[i] = calculateCPUPercentage(cursorData.Cores[i], cpuInfo.Cores[i])
 				}
 			}
 		}
@@ -112,11 +122,13 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 		}
 	}
 
-	cpuInfo.Cursor = &models.CPUCursor{
+	newCursor := models.CPUCursorData{
 		Total:     cpuInfo.Total,
 		Cores:     cpuInfo.Cores,
 		Timestamp: currentTime,
 	}
+	cursorBytes, _ := json.Marshal(newCursor)
+	cpuInfo.Cursor = base64.RawURLEncoding.EncodeToString(cursorBytes)
 
 	return &cpuInfo, nil
 }

@@ -13,14 +13,13 @@ type ProcessInfo struct {
 	FullCommand   string  `json:"fullCommand"`
 }
 
-type ProcessSampleData struct {
-	PID           int32   `json:"pid"`
-	PreviousTicks float64 `json:"previousTicks,omitempty"`
-	Timestamp     int64   `json:"timestamp,omitempty"`
-}
-
-type ProcessCursor struct {
+type ProcessCursorData struct {
 	PID       int32   `json:"pid"`
 	Ticks     float64 `json:"ticks"`
 	Timestamp int64   `json:"timestamp"`
+}
+
+type ProcessListResponse struct {
+	Processes []*ProcessInfo `json:"processes"`
+	Cursor    string         `json:"cursor,omitempty"`
 }

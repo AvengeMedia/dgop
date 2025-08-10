@@ -10,15 +10,16 @@ import (
 )
 
 type ProcessInput struct {
-	SortBy         gops.ProcSortBy `query:"sort_by" required:"true" default:"cpu"`
-	Limit          int             `query:"limit"`
-	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
-	SampleData     string          `query:"sample_data" required:"false"`
+	SortBy         gops.ProcSortBy   `query:"sort_by" required:"true" default:"cpu"`
+	Limit          int               `query:"limit"`
+	DisableProcCPU bool              `query:"disable_proc_cpu" default:"false"`
+	Cursor         string            `query:"cursor" required:"false"`
 }
 
 type ProcessResponse struct {
 	Body struct {
-		Data []*models.ProcessInfo `json:"data"`
+		Data   []*models.ProcessInfo `json:"data"`
+		Cursor string                `json:"cursor,omitempty"`
 	}
 }
 
@@ -26,19 +27,14 @@ type ProcessResponse struct {
 func (self *HandlerGroup) Processes(ctx context.Context, input *ProcessInput) (*ProcessResponse, error) {
 	enableCPU := !input.DisableProcCPU
 	
-	var sampleData []models.ProcessSampleData
-	if input.SampleData != "" {
-		// Client can encode sample data as JSON in query parameter
-		// Implementation would decode it here
-	}
-	
-	processInfo, err := self.srv.Gops.GetProcessesWithSample(input.SortBy, input.Limit, enableCPU, sampleData)
+	result, err := self.srv.Gops.GetProcessesWithCursor(input.SortBy, input.Limit, enableCPU, input.Cursor)
 	if err != nil {
 		log.Error("Error getting process info")
 		return nil, huma.Error500InternalServerError("Unable to retrieve process info")
 	}
 
 	resp := &ProcessResponse{}
-	resp.Body.Data = processInfo
+	resp.Body.Data = result.Processes
+	resp.Body.Cursor = result.Cursor
 	return resp, nil
 }

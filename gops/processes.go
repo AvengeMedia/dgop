@@ -1,6 +1,8 @@
 package gops
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"reflect"
 	"runtime"
 	"sort"
@@ -12,11 +14,11 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool) ([]*models.ProcessInfo, error) {
-	return self.GetProcessesWithSample(sortBy, limit, enableCPU, nil)
+func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool) (*models.ProcessListResponse, error) {
+	return self.GetProcessesWithCursor(sortBy, limit, enableCPU, "")
 }
 
-func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enableCPU bool, sampleData []models.ProcessSampleData) ([]*models.ProcessInfo, error) {
+func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enableCPU bool, cursor string) (*models.ProcessListResponse, error) {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil, err
@@ -26,16 +28,22 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 	totalMem, _ := mem.VirtualMemory()
 	currentTime := time.Now().UnixMilli()
 	
-	// Create sample data map for quick lookup
-	sampleMap := make(map[int32]*models.ProcessSampleData)
-	if sampleData != nil {
-		for i := range sampleData {
-			sampleMap[sampleData[i].PID] = &sampleData[i]
+	// Decode cursor string into cursor data map
+	cursorMap := make(map[int32]*models.ProcessCursorData)
+	if cursor != "" {
+		jsonBytes, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err == nil {
+			var cursors []models.ProcessCursorData
+			if json.Unmarshal(jsonBytes, &cursors) == nil {
+				for i := range cursors {
+					cursorMap[cursors[i].PID] = &cursors[i]
+				}
+			}
 		}
 	}
 
-	// CPU measurement setup - only if enabled and no sample data provided
-	if enableCPU && len(sampleMap) == 0 {
+	// CPU measurement setup - only if enabled and no cursor data provided
+	if enableCPU && len(cursorMap) == 0 {
 		// First pass: Initialize CPU measurement for all processes
 		for _, p := range procs {
 			p.CPUPercent() // Initialize
@@ -62,9 +70,9 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 		// Get CPU percentage only if enabled
 		cpuPercent := 0.0
 		if enableCPU {
-			if sample, hasSample := sampleMap[p.Pid]; hasSample {
-				// Use sample data to calculate CPU percentage per core
-				cpuPercent = calculateProcessCPUPercentageWithSample(sample, currentCPUTime, currentTime)
+			if cursorData, hasCursor := cursorMap[p.Pid]; hasCursor {
+				// Use cursor data to calculate CPU percentage per core
+				cpuPercent = calculateProcessCPUPercentageWithCursor(cursorData, currentCPUTime, currentTime)
 			} else {
 				// Fallback to gopsutil measurement (normalize to per-CPU like htop)
 				rawCpuPercent, _ := p.CPUPercent()
@@ -123,7 +131,24 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 		procList = procList[:limit]
 	}
 
-	return procList, nil
+	// Create cursor data for all processes
+	cursorList := make([]models.ProcessCursorData, 0, len(procList))
+	for _, proc := range procList {
+		cursorList = append(cursorList, models.ProcessCursorData{
+			PID:       proc.PID,
+			Ticks:     proc.PTicks,
+			Timestamp: currentTime,
+		})
+	}
+	
+	// Encode cursor list as single base64 string
+	cursorBytes, _ := json.Marshal(cursorList)
+	cursorStr := base64.RawURLEncoding.EncodeToString(cursorBytes)
+	
+	return &models.ProcessListResponse{
+		Processes: procList,
+		Cursor:    cursorStr,
+	}, nil
 }
 
 type ProcSortBy string
@@ -152,13 +177,13 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 	return &huma.Schema{Ref: "#/components/schemas/ProcSortBy"}
 }
 
-func calculateProcessCPUPercentageWithSample(sample *models.ProcessSampleData, currentCPUTime float64, currentTime int64) float64 {
-	if sample.Timestamp == 0 || currentCPUTime <= sample.PreviousTicks {
+func calculateProcessCPUPercentageWithCursor(cursor *models.ProcessCursorData, currentCPUTime float64, currentTime int64) float64 {
+	if cursor.Timestamp == 0 || currentCPUTime <= cursor.Ticks {
 		return 0
 	}
 	
-	cpuTimeDiff := currentCPUTime - sample.PreviousTicks
-	wallTimeDiff := float64(currentTime - sample.Timestamp) / 1000.0
+	cpuTimeDiff := currentCPUTime - cursor.Ticks
+	wallTimeDiff := float64(currentTime - cursor.Timestamp) / 1000.0
 	
 	if wallTimeDiff <= 0 {
 		return 0

@@ -31,8 +31,8 @@ type MetaParams struct {
 	ProcLimit      int
 	EnableCPU      bool
 	GPUPciIds      []string
-	CPUSampleData  *models.CPUSampleData
-	ProcSampleData []models.ProcessSampleData
+	CPUCursor      string
+	ProcCursor     string
 }
 
 func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.MetaInfo, error) {
@@ -44,7 +44,7 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 			// Load all modules
 			return self.loadAllModules(params)
 		case "cpu":
-			if cpu, err := self.GetCPUInfoWithSample(params.CPUSampleData); err == nil {
+			if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
 				meta.CPU = cpu
 			}
 		case "memory":
@@ -64,8 +64,8 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 				meta.DiskMounts = mounts
 			}
 		case "processes":
-			if procs, err := self.GetProcessesWithSample(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcSampleData); err == nil {
-				meta.Processes = procs
+			if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
+				meta.Processes = result.Processes
 			}
 		case "system":
 			if sys, err := self.GetSystemInfo(); err == nil {
@@ -97,7 +97,7 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 	meta := &models.MetaInfo{}
 
 	// Load all modules (ignore errors for individual modules)
-	if cpu, err := self.GetCPUInfoWithSample(params.CPUSampleData); err == nil {
+	if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
 		meta.CPU = cpu
 	}
 
@@ -117,8 +117,8 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 		meta.DiskMounts = mounts
 	}
 
-	if procs, err := self.GetProcessesWithSample(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcSampleData); err == nil {
-		meta.Processes = procs
+	if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
+		meta.Processes = result.Processes
 	}
 
 	if sys, err := self.GetSystemInfo(); err == nil {

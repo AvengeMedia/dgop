@@ -9,7 +9,7 @@ import (
 )
 
 type CpuInput struct {
-	SampleData string `query:"sample_data" required:"false"`
+	Cursor string `query:"cursor" required:"false"`
 }
 
 type CpuResponse struct {
@@ -20,13 +20,7 @@ type CpuResponse struct {
 
 // GET /cpu
 func (self *HandlerGroup) Cpu(ctx context.Context, input *CpuInput) (*CpuResponse, error) {
-	var sampleData *models.CPUSampleData
-	if input.SampleData != "" {
-		// Client can encode sample data as JSON in query parameter
-		// Implementation would decode it here
-	}
-	
-	cpuInfo, err := self.srv.Gops.GetCPUInfoWithSample(sampleData)
+	cpuInfo, err := self.srv.Gops.GetCPUInfoWithCursor(input.Cursor)
 	if err != nil {
 		log.Error("Error getting CPU info")
 		return nil, huma.Error500InternalServerError("Unable to retrieve CPU info")
