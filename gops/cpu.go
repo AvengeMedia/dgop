@@ -13,8 +13,8 @@ import (
 )
 
 type CPUTracker struct {
-	lastTotal  []uint64
-	lastCores  [][]uint64
+	lastTotal  []float64
+	lastCores  [][]float64
 	lastUpdate time.Time
 
 	// Cache for expensive operations
@@ -43,7 +43,6 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 	cpuTracker.mu.Lock()
 	defer cpuTracker.mu.Unlock()
 
-	// Get static CPU info (cache this - it never changes)
 	if !cpuTracker.modelCached {
 		cpuTracker.cpuCount, _ = cpu.Counts(true)
 		info, err := cpu.Info()
@@ -58,7 +57,6 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 	cpuInfo.Model = cpuTracker.cpuModel
 	cpuInfo.Frequency = cpuTracker.cpuFreq
 
-	// Get CPU temperature (cache for 5 seconds)
 	now := time.Now()
 	if now.Sub(cpuTracker.tempLastRead) > 5*time.Second {
 		cpuTracker.tempValue = getCPUTemperatureCached()
@@ -66,61 +64,54 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 	}
 	cpuInfo.Temperature = cpuTracker.tempValue
 
-	// Get current CPU times
 	times, err := cpu.Times(false)
 	if err == nil && len(times) > 0 {
 		t := times[0]
-		cpuInfo.Total = []uint64{
-			uint64(t.User), uint64(t.Nice), uint64(t.System),
-			uint64(t.Idle), uint64(t.Iowait), uint64(t.Irq),
-			uint64(t.Softirq), uint64(t.Steal),
+		cpuInfo.Total = []float64{
+			t.User, t.Nice, t.System,
+			t.Idle, t.Iowait, t.Irq,
+			t.Softirq, t.Steal,
 		}
 	}
 
-	// Per-core CPU times
 	perCore, err := cpu.Times(true)
 	if err == nil {
-		cpuInfo.Cores = make([][]uint64, len(perCore))
+		cpuInfo.Cores = make([][]float64, len(perCore))
 		for i, c := range perCore {
-			cpuInfo.Cores[i] = []uint64{
-				uint64(c.User), uint64(c.Nice), uint64(c.System),
-				uint64(c.Idle), uint64(c.Iowait), uint64(c.Irq),
-				uint64(c.Softirq), uint64(c.Steal),
+			cpuInfo.Cores[i] = []float64{
+				c.User, c.Nice, c.System,
+				c.Idle, c.Iowait, c.Irq,
+				c.Softirq, c.Steal,
 			}
 		}
 	}
 
 	currentTime := now.UnixMilli()
 
-	// Calculate CPU usage - use sample data if provided, otherwise use gopsutil
 	if sampleData != nil && len(sampleData.PreviousTotal) > 0 && len(cpuInfo.Total) > 0 && sampleData.Timestamp > 0 {
 		timeDiff := float64(currentTime - sampleData.Timestamp) / 1000.0
 		if timeDiff > 0 {
-			cpuInfo.Usage = calculateCPUPercentageWithTime(sampleData.PreviousTotal, cpuInfo.Total, timeDiff)
+			cpuInfo.Usage = calculateCPUPercentage(sampleData.PreviousTotal, cpuInfo.Total)
 			
-			// Calculate per-core usage if we have previous core data
 			if len(sampleData.PreviousCores) > 0 && len(cpuInfo.Cores) > 0 {
 				cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
 				for i := 0; i < len(cpuInfo.Cores) && i < len(sampleData.PreviousCores); i++ {
-					cpuInfo.CoreUsage[i] = calculateCPUPercentageWithTime(sampleData.PreviousCores[i], cpuInfo.Cores[i], timeDiff)
+					cpuInfo.CoreUsage[i] = calculateCPUPercentage(sampleData.PreviousCores[i], cpuInfo.Cores[i])
 				}
 			}
 		}
 	} else {
-		// Fallback to gopsutil for real-time measurement
 		cpuPercent, err := cpu.Percent(100*time.Millisecond, false)
 		if err == nil && len(cpuPercent) > 0 {
 			cpuInfo.Usage = cpuPercent[0]
 		}
 
-		// Get per-core CPU usage percentages
 		corePercent, err := cpu.Percent(100*time.Millisecond, true)
 		if err == nil {
 			cpuInfo.CoreUsage = corePercent
 		}
 	}
 
-	// Create cursor for next sampling
 	cpuInfo.Cursor = &models.CPUCursor{
 		Total:     cpuInfo.Total,
 		Cores:     cpuInfo.Cores,
@@ -131,7 +122,6 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 }
 
 func getCPUTemperatureCached() float64 {
-	// If we already found the temp path, use it
 	if cpuTracker.tempPath != "" {
 		tempBytes, err := os.ReadFile(cpuTracker.tempPath)
 		if err == nil {
@@ -142,7 +132,6 @@ func getCPUTemperatureCached() float64 {
 		}
 	}
 
-	// Otherwise, search for it (and cache the path)
 	hwmonPath := "/sys/class/hwmon"
 	entries, err := os.ReadDir(hwmonPath)
 	if err != nil {
@@ -164,7 +153,7 @@ func getCPUTemperatureCached() float64 {
 			if err == nil {
 				temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
 				if err == nil {
-					cpuTracker.tempPath = tempPath // Cache the path
+					cpuTracker.tempPath = tempPath
 					return float64(temp) / 1000.0
 				}
 			}
@@ -174,66 +163,41 @@ func getCPUTemperatureCached() float64 {
 	return 0
 }
 
-func calculateCPUPercentage(prev, curr []uint64) float64 {
-	if len(prev) < 4 || len(curr) < 4 {
-		return 0
-	}
-	
-	// CPU times: user, nice, system, idle, iowait, irq, softirq, steal
-	prevIdle := prev[3]
-	prevTotal := uint64(0)
-	for _, v := range prev {
-		prevTotal += v
-	}
-	
-	currIdle := curr[3]
-	currTotal := uint64(0)
-	for _, v := range curr {
-		currTotal += v
-	}
-	
-	totalDiff := currTotal - prevTotal
-	idleDiff := currIdle - prevIdle
-	
-	if totalDiff == 0 {
-		return 0
-	}
-	
-	usage := float64(totalDiff-idleDiff) / float64(totalDiff) * 100.0
-	if usage < 0 {
-		return 0
-	}
-	return usage
-}
 
-func calculateCPUPercentageWithTime(prev, curr []uint64, timeDiffSecs float64) float64 {
-	if len(prev) < 4 || len(curr) < 4 || timeDiffSecs <= 0 {
+func calculateCPUPercentage(prev, curr []float64) float64 {
+	if len(prev) < 8 || len(curr) < 8 {
 		return 0
 	}
 	
-	// CPU times: user, nice, system, idle, iowait, irq, softirq, steal
-	prevIdle := prev[3]
-	prevTotal := uint64(0)
-	for _, v := range prev {
-		prevTotal += v
-	}
+	prevUser, prevNice, prevSystem := prev[0], prev[1], prev[2]
+	prevIdle, prevIowait := prev[3], prev[4]
+	prevIrq, prevSoftirq, prevSteal := prev[5], prev[6], prev[7]
 	
-	currIdle := curr[3]
-	currTotal := uint64(0)
-	for _, v := range curr {
-		currTotal += v
-	}
+	currUser, currNice, currSystem := curr[0], curr[1], curr[2]
+	currIdle, currIowait := curr[3], curr[4]
+	currIrq, currSoftirq, currSteal := curr[5], curr[6], curr[7]
 	
-	totalDiff := currTotal - prevTotal
-	idleDiff := currIdle - prevIdle
+	prevTotal := prevUser + prevNice + prevSystem + prevIdle + prevIowait + prevIrq + prevSoftirq + prevSteal
+	currTotal := currUser + currNice + currSystem + currIdle + currIowait + currIrq + currSoftirq + currSteal
 	
-	if totalDiff == 0 {
+	prevBusy := prevTotal - prevIdle - prevIowait
+	currBusy := currTotal - currIdle - currIowait
+	
+	if currBusy <= prevBusy {
 		return 0
 	}
+	if currTotal <= prevTotal {
+		return 100
+	}
 	
-	usage := float64(totalDiff-idleDiff) / float64(totalDiff) * 100.0
+	usage := (currBusy - prevBusy) / (currTotal - prevTotal) * 100.0
+	
 	if usage < 0 {
 		return 0
 	}
+	if usage > 100 {
+		return 100
+	}
+	
 	return usage
 }
