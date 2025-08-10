@@ -88,8 +88,6 @@ func init() {
 
 var rootCmd = &cobra.Command{
 	Use:   "dankgop",
-	Short: "A system monitoring tool",
-	Long:  "dankgop provides APIs and CLI commands to monitor system metrics such as CPU, GPU, memory, disk, network, and processes.",
 	Run: func(cmd *cobra.Command, args []string) {
 		printHeader()
 		cmd.Help()
