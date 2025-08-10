@@ -93,14 +93,17 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 	currentTime := now.UnixMilli()
 
 	// Calculate CPU usage - use sample data if provided, otherwise use gopsutil
-	if sampleData != nil && len(sampleData.PreviousTotal) > 0 && len(cpuInfo.Total) > 0 {
-		cpuInfo.Usage = calculateCPUPercentage(sampleData.PreviousTotal, cpuInfo.Total)
-		
-		// Calculate per-core usage if we have previous core data
-		if len(sampleData.PreviousCores) > 0 && len(cpuInfo.Cores) > 0 {
-			cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
-			for i := 0; i < len(cpuInfo.Cores) && i < len(sampleData.PreviousCores); i++ {
-				cpuInfo.CoreUsage[i] = calculateCPUPercentage(sampleData.PreviousCores[i], cpuInfo.Cores[i])
+	if sampleData != nil && len(sampleData.PreviousTotal) > 0 && len(cpuInfo.Total) > 0 && sampleData.Timestamp > 0 {
+		timeDiff := float64(currentTime - sampleData.Timestamp) / 1000.0
+		if timeDiff > 0 {
+			cpuInfo.Usage = calculateCPUPercentageWithTime(sampleData.PreviousTotal, cpuInfo.Total, timeDiff)
+			
+			// Calculate per-core usage if we have previous core data
+			if len(sampleData.PreviousCores) > 0 && len(cpuInfo.Cores) > 0 {
+				cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
+				for i := 0; i < len(cpuInfo.Cores) && i < len(sampleData.PreviousCores); i++ {
+					cpuInfo.CoreUsage[i] = calculateCPUPercentageWithTime(sampleData.PreviousCores[i], cpuInfo.Cores[i], timeDiff)
+				}
 			}
 		}
 	} else {
@@ -110,8 +113,8 @@ func (self *GopsUtil) GetCPUInfoWithSample(sampleData *models.CPUSampleData) (*m
 			cpuInfo.Usage = cpuPercent[0]
 		}
 
-		// Get per-core CPU usage percentages with longer sampling for stability
-		corePercent, err := cpu.Percent(500*time.Millisecond, true)
+		// Get per-core CPU usage percentages
+		corePercent, err := cpu.Percent(100*time.Millisecond, true)
 		if err == nil {
 			cpuInfo.CoreUsage = corePercent
 		}
@@ -203,4 +206,34 @@ func calculateCPUPercentage(prev, curr []uint64) float64 {
 	return usage
 }
 
-
+func calculateCPUPercentageWithTime(prev, curr []uint64, timeDiffSecs float64) float64 {
+	if len(prev) < 4 || len(curr) < 4 || timeDiffSecs <= 0 {
+		return 0
+	}
+	
+	// CPU times: user, nice, system, idle, iowait, irq, softirq, steal
+	prevIdle := prev[3]
+	prevTotal := uint64(0)
+	for _, v := range prev {
+		prevTotal += v
+	}
+	
+	currIdle := curr[3]
+	currTotal := uint64(0)
+	for _, v := range curr {
+		currTotal += v
+	}
+	
+	totalDiff := currTotal - prevTotal
+	idleDiff := currIdle - prevIdle
+	
+	if totalDiff == 0 {
+		return 0
+	}
+	
+	usage := float64(totalDiff-idleDiff) / float64(totalDiff) * 100.0
+	if usage < 0 {
+		return 0
+	}
+	return usage
+}
