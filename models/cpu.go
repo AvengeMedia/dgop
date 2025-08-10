@@ -9,10 +9,17 @@ type CPUInfo struct {
 	CoreUsage   []float64  `json:"coreUsage"`
 	Total       []uint64   `json:"total"`
 	Cores       [][]uint64 `json:"cores"`
+	Cursor      *CPUCursor `json:"cursor,omitempty"`
 }
 
 type CPUSampleData struct {
 	PreviousTotal []uint64   `json:"previousTotal,omitempty"`
 	PreviousCores [][]uint64 `json:"previousCores,omitempty"`
-	SampleTime    int64      `json:"sampleTime,omitempty"`
+	Timestamp     int64      `json:"timestamp,omitempty"`
+}
+
+type CPUCursor struct {
+	Total     []uint64   `json:"total"`
+	Cores     [][]uint64 `json:"cores"`
+	Timestamp int64      `json:"timestamp"`
 }

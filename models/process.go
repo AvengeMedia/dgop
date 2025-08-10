@@ -14,8 +14,13 @@ type ProcessInfo struct {
 }
 
 type ProcessSampleData struct {
-	PID            int32   `json:"pid"`
-	PreviousTicks  uint64  `json:"previousTicks,omitempty"`
-	PreviousCPU    float64 `json:"previousCPU,omitempty"`
-	SampleTime     int64   `json:"sampleTime,omitempty"`
+	PID           int32  `json:"pid"`
+	PreviousTicks uint64 `json:"previousTicks,omitempty"`
+	Timestamp     int64  `json:"timestamp,omitempty"`
+}
+
+type ProcessCursor struct {
+	PID       int32  `json:"pid"`
+	Ticks     uint64 `json:"ticks"`
+	Timestamp int64  `json:"timestamp"`
 }

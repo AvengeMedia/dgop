@@ -1,4 +1,4 @@
-# DankGop
+# dankgop
 
 System monitoring tool with CLI and REST API.
 
@@ -144,6 +144,28 @@ curl http://localhost:63484/gops/meta?modules=cpu,memory
 ### API: Get GPU with temperature
 ```bash
 curl "http://localhost:63484/gops/meta?modules=gpu&gpu_pci_ids=10de:2684"
+```
+
+## Real-time Monitoring with Sampling
+
+dankgop supports cursor-based sampling for building real-time monitoring tools like htop. Instead of relying on instantaneous snapshots, you can track system state changes over time for more accurate CPU usage calculations.
+
+The sampling system works by:
+- Taking an initial measurement that establishes baseline CPU times and process ticks
+- Returning a cursor object containing the current state and timestamp
+- Using that cursor data in subsequent calls to calculate precise usage percentages over the sampling interval
+
+This approach accounts for the actual time elapsed between measurements, making it ideal for monitoring tools that poll every few seconds. Process CPU usage is normalized per single core, and system CPU usage reflects the overall load across all cores.
+
+```bash
+# First call - establishes baseline
+dankgop meta --modules cpu,processes --json > baseline.json
+
+# Wait 5 seconds, then use cursor data for accurate measurements
+sleep 5
+dankgop meta --modules cpu,processes --json \
+  --cpu-sample '{"previousTotal":[1690,1,391,53692,23,233,44,0],"timestamp":1754784779057}' \
+  --proc-sample '[{"pid":1234,"previousTicks":93,"timestamp":1754784779057}]'
 ```
 
 ## Development

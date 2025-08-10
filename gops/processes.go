@@ -8,7 +8,6 @@ import (
 
 	"github.com/bbedward/DankMaterialShell/dankgop/models"
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -25,7 +24,7 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 
 	procList := make([]*models.ProcessInfo, 0)
 	totalMem, _ := mem.VirtualMemory()
-	numCPU := float64(runtime.NumCPU())
+	currentTime := time.Now().UnixMilli()
 	
 	// Create sample data map for quick lookup
 	sampleMap := make(map[int32]*models.ProcessSampleData)
@@ -54,16 +53,22 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 		memInfo, _ := p.MemoryInfo()
 		times, _ := p.Times()
 
+		// Calculate current CPU time in seconds (gopsutil already converts to seconds)
+		currentCPUTime := float64(0)
+		if times != nil {
+			currentCPUTime = times.User + times.System
+		}
+
 		// Get CPU percentage only if enabled
 		cpuPercent := 0.0
 		if enableCPU {
 			if sample, hasSample := sampleMap[p.Pid]; hasSample {
-				// Use sample data to calculate CPU percentage
-				cpuPercent = calculateProcessCPUPercentage(sample, times)
+				// Use sample data to calculate CPU percentage per core
+				cpuPercent = calculateProcessCPUPercentageWithSample(sample, currentCPUTime, currentTime)
 			} else {
-				// Fallback to gopsutil measurement
+				// Fallback to gopsutil measurement (normalize to per-CPU like htop)
 				rawCpuPercent, _ := p.CPUPercent()
-				cpuPercent = rawCpuPercent / numCPU
+				cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
 			}
 		}
 
@@ -75,17 +80,11 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 			memPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
 		}
 
-		// Calculate ticks (user + system time)
-		ticks := uint64(0)
-		if times != nil {
-			ticks = uint64(times.User + times.System)
-		}
-
 		procList = append(procList, &models.ProcessInfo{
 			PID:           p.Pid,
 			PPID:          ppid,
 			CPU:           cpuPercent,
-			PTicks:        ticks,
+			PTicks:        uint64(currentCPUTime * 100), // Convert seconds back to ticks for compatibility
 			MemoryPercent: memPercent,
 			MemoryKB:      memKB,
 			PSSKB:         memKB,
@@ -153,27 +152,30 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 	return &huma.Schema{Ref: "#/components/schemas/ProcSortBy"}
 }
 
-func calculateProcessCPUPercentage(sample *models.ProcessSampleData, times *cpu.TimesStat) float64 {
-	if times == nil || sample.SampleTime == 0 {
+func calculateProcessCPUPercentageWithSample(sample *models.ProcessSampleData, currentCPUTime float64, currentTime int64) float64 {
+	// Convert previous ticks back to seconds (since gopsutil uses seconds)
+	previousCPUTime := float64(sample.PreviousTicks) / 100.0
+	
+	if sample.Timestamp == 0 || currentCPUTime <= previousCPUTime {
 		return 0
 	}
 	
-	currentTicks := uint64(times.User + times.System)
-	if currentTicks <= sample.PreviousTicks {
+	cpuTimeDiff := currentCPUTime - previousCPUTime
+	wallTimeDiff := float64(currentTime - sample.Timestamp) / 1000.0
+	
+	if wallTimeDiff <= 0 {
 		return 0
 	}
 	
-	ticksDiff := currentTicks - sample.PreviousTicks
-	timeDiff := time.Now().UnixMilli() - sample.SampleTime
+	// Calculate percentage: (cpu_time_used / wall_time_elapsed) * 100
+	// This gives us the percentage of one CPU core used
+	cpuPercent := (cpuTimeDiff / wallTimeDiff) * 100.0
 	
-	if timeDiff <= 0 {
-		return 0
-	}
-	
-	// Convert to CPU percentage
-	cpuPercent := float64(ticksDiff) / float64(timeDiff) * 1000.0 / float64(runtime.NumCPU())
 	if cpuPercent > 100.0 {
 		cpuPercent = 100.0
+	}
+	if cpuPercent < 0 {
+		cpuPercent = 0
 	}
 	
 	return cpuPercent
