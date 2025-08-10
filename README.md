@@ -10,7 +10,7 @@
 </div>
 
 <div align="center">
-<img src="https://github.com/user-attachments/assets/f2bca8ce-4b10-4699-ba85-a0bbf2f68ad1" width="600" alt="dankgop" />
+<img src="https://github.com/user-attachments/assets/397d5bb3-cac3-4c09-9ebc-afc7533c433b" width="600" alt="dankgop" />
 </div>
 
 System monitoring tool with CLI and REST API.
