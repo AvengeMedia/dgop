@@ -1,11 +1,37 @@
 # dankgop
 
+<div align=center>
+
+![GitHub last commit](https://img.shields.io/github/last-commit/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=9ccbfb)
+![GitHub License](https://img.shields.io/github/license/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=b9c8da)
+![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=a6da95)
+[![AUR](https://img.shields.io/aur/version/dankgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://aur.archlinux.org/packages/dankgop)
+
+</div>
+
+<div align="center">
+<img src="https://github.com/user-attachments/assets/f2bca8ce-4b10-4699-ba85-a0bbf2f68ad1" width="600" alt="dankgop" />
+</div>
+
 System monitoring tool with CLI and REST API.
 
 Can be used standalone, or as a  companion for [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) to unlock system information functionality.
 
-## Quick Start
+## Installation
 
+### Latest Release
+Download the latest binary from [GitHub Releases](https://github.com/AvengeMedia/dankgop/releases/latest)
+
+### Arch Linux (AUR)
+```bash
+# Using yay
+yay -S dankgop
+
+# Using paru  
+paru -S dankgop
+```
+
+### Build from Source
 ```bash
 # Build it
 make
