@@ -1,0 +1,125 @@
+name: Create Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 🔨 Build Binaries
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runs-on: ubuntu-24.04
+          - goos: linux
+            goarch: arm64
+            runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go with cache
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+      
+      - name: Build CLI Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ github.ref_name }}
+          BINARY_NAME="dankgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cd cmd/cli && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
+          cd ../..
+      
+      - name: Generate checksums
+        run: |
+          VERSION=${{ github.ref_name }}
+          BINARY_NAME="dankgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+            dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+
+  create_release:
+    name: 📦 Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch full history for changelog generation
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      # Generate changelog
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous tag found, using all commits"
+            CHANGELOG=$(git log --oneline --pretty=format:"- %s (%h)" | head -50)
+          else
+            echo "Generating changelog from $PREVIOUS_TAG to HEAD"
+            CHANGELOG=$(git log --oneline --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+          fi
+
+          # Create the changelog with proper formatting
+          cat > CHANGELOG.md << EOF
+          ## What's Changed
+
+          $CHANGELOG
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${{ github.ref_name }}
+          EOF
+
+          # Set output for use in release step
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat CHANGELOG.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # Create GitHub Release
+      - name: Create GitHub Release
+        id: create_release
+        uses: comnoco/create-release-action@v2.0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Upload release assets
+      - name: Upload release assets
+        run: |
+          VERSION=${{ github.ref_name }}
+          
+          # Find and upload all binaries and checksums
+          find ./artifacts -name "dankgop-*" -type f | while read file; do
+            echo "Uploading: $file"
+            filename=$(basename "$file")
+            gh release upload "$VERSION" "$file" --clobber
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
