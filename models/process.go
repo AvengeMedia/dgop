@@ -4,7 +4,7 @@ type ProcessInfo struct {
 	PID           int32   `json:"pid"`
 	PPID          int32   `json:"ppid"`
 	CPU           float64 `json:"cpu"`
-	PTicks        uint64  `json:"pticks"`
+	PTicks        float64 `json:"pticks"`
 	MemoryPercent float32 `json:"memoryPercent"`
 	MemoryKB      uint64  `json:"memoryKB"`
 	PSSKB         uint64  `json:"pssKB"`
@@ -14,13 +14,13 @@ type ProcessInfo struct {
 }
 
 type ProcessSampleData struct {
-	PID           int32  `json:"pid"`
-	PreviousTicks uint64 `json:"previousTicks,omitempty"`
-	Timestamp     int64  `json:"timestamp,omitempty"`
+	PID           int32   `json:"pid"`
+	PreviousTicks float64 `json:"previousTicks,omitempty"`
+	Timestamp     int64   `json:"timestamp,omitempty"`
 }
 
 type ProcessCursor struct {
-	PID       int32  `json:"pid"`
-	Ticks     uint64 `json:"ticks"`
-	Timestamp int64  `json:"timestamp"`
+	PID       int32   `json:"pid"`
+	Ticks     float64 `json:"ticks"`
+	Timestamp int64   `json:"timestamp"`
 }

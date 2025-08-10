@@ -84,7 +84,7 @@ func (self *GopsUtil) GetProcessesWithSample(sortBy ProcSortBy, limit int, enabl
 			PID:           p.Pid,
 			PPID:          ppid,
 			CPU:           cpuPercent,
-			PTicks:        uint64(currentCPUTime * 100), // Convert seconds back to ticks for compatibility
+			PTicks:        currentCPUTime,
 			MemoryPercent: memPercent,
 			MemoryKB:      memKB,
 			PSSKB:         memKB,
@@ -153,22 +153,17 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 }
 
 func calculateProcessCPUPercentageWithSample(sample *models.ProcessSampleData, currentCPUTime float64, currentTime int64) float64 {
-	// Convert previous ticks back to seconds (since gopsutil uses seconds)
-	previousCPUTime := float64(sample.PreviousTicks) / 100.0
-	
-	if sample.Timestamp == 0 || currentCPUTime <= previousCPUTime {
+	if sample.Timestamp == 0 || currentCPUTime <= sample.PreviousTicks {
 		return 0
 	}
 	
-	cpuTimeDiff := currentCPUTime - previousCPUTime
+	cpuTimeDiff := currentCPUTime - sample.PreviousTicks
 	wallTimeDiff := float64(currentTime - sample.Timestamp) / 1000.0
 	
 	if wallTimeDiff <= 0 {
 		return 0
 	}
 	
-	// Calculate percentage: (cpu_time_used / wall_time_elapsed) * 100
-	// This gives us the percentage of one CPU core used
 	cpuPercent := (cpuTimeDiff / wallTimeDiff) * 100.0
 	
 	if cpuPercent > 100.0 {
