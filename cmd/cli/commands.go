@@ -11,6 +11,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show version information",
+	Long:  "Display the current version of dankgop.",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("dankgop version %s\n", Version)
+	},
+}
+
 var allCmd = &cobra.Command{
 	Use:   "all",
 	Short: "Get all system metrics",

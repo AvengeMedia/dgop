@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	Version        = "dev"
 	jsonOutput     bool
 	procSortBy     string
 	procLimit      int
@@ -112,6 +113,7 @@ func main() {
 }
 
 func setupCommands(gopsUtil *gops.GopsUtil) {
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(allCmd)
 	rootCmd.AddCommand(cpuCmd)
 	rootCmd.AddCommand(memoryCmd)
