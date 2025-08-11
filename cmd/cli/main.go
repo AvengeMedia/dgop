@@ -87,7 +87,7 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use: "dankgop",
+	Use: "dgop",
 	Run: func(cmd *cobra.Command, args []string) {
 		printHeader()
 		cmd.Help()

@@ -13,9 +13,9 @@ import (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
-	Long:  "Display the current version of dankgop.",
+	Long:  "Display the current version of dgop.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("dankgop version %s\n", Version)
+		fmt.Printf("dgop version %s\n", Version)
 	},
 }
 

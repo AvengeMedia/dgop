@@ -135,7 +135,7 @@ func startAPI(cfg *config.Config) error {
 		// Register huma error function
 		huma.NewError = errdefs.HumaErrorFunc
 
-		config := NewHumaConfig("DankGop API", "1.0.0")
+		config := NewHumaConfig("dgop API", "1.0.0")
 		config.DocsPath = ""
 		api := humachi.New(r, config)
 
@@ -175,7 +175,7 @@ func startAPI(cfg *config.Config) error {
 
 	// Start the server
 	addr := ":63484"
-	log.Infof(" Starting DankGop API server on %s", addr)
+	log.Infof(" Starting dgop API server on %s", addr)
 	log.Infof(" API Documentation: http://localhost%s/docs", addr)
 	log.Infof(" OpenAPI Spec: http://localhost%s/openapi.json", addr)
 	log.Infof(" Health Check: http://localhost%s/health", addr)
