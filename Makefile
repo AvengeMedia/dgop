@@ -1,7 +1,7 @@
-# Makefile for dankgop
+# Makefile for dgop
 
 # Project settings
-BINARY_NAME=dankgop
+BINARY_NAME=dgop
 SOURCE_DIR=cmd/cli
 BUILD_DIR=bin
 INSTALL_DIR=/usr/local/bin

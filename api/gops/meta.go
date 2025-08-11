@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
-	"github.com/bbedward/DankMaterialShell/dankgop/internal/log"
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -17,7 +17,11 @@ type MetaInput struct {
 	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
 
 	// Module-specific parameters
-	GPUPciIds []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs for GPU temperatures (when gpu module is requested)"`
+	GPUPciIds      []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs for GPU temperatures (when gpu module is requested)"`
+	CPUCursor      string   `query:"cpu_cursor" doc:"CPU cursor from previous request"`
+	ProcCursor     string   `query:"proc_cursor" doc:"Process cursor from previous request"`
+	NetRateCursor  string   `query:"net_rate_cursor" doc:"Network rate cursor from previous request"`
+	DiskRateCursor string   `query:"disk_rate_cursor" doc:"Disk rate cursor from previous request"`
 }
 
 type MetaResponse struct {
@@ -43,10 +47,14 @@ func (self *HandlerGroup) Meta(ctx context.Context, input *MetaInput) (*MetaResp
 	}
 
 	params := gops.MetaParams{
-		SortBy:    input.SortBy,
-		ProcLimit: input.Limit,
-		EnableCPU: !input.DisableProcCPU,
-		GPUPciIds: input.GPUPciIds,
+		SortBy:         input.SortBy,
+		ProcLimit:      input.Limit,
+		EnableCPU:      !input.DisableProcCPU,
+		GPUPciIds:      input.GPUPciIds,
+		CPUCursor:      input.CPUCursor,
+		ProcCursor:     input.ProcCursor,
+		NetRateCursor:  input.NetRateCursor,
+		DiskRateCursor: input.DiskRateCursor,
 	}
 
 	metaInfo, err := self.srv.Gops.GetMeta(modules, params)

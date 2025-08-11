@@ -15,3 +15,18 @@ type DiskMountInfo struct {
 	Avail   string `json:"avail"`
 	Percent string `json:"percent"`
 }
+
+type DiskRateInfo struct {
+	Device     string  `json:"device"`
+	ReadRate   float64 `json:"readrate"`
+	WriteRate  float64 `json:"writerate"`
+	ReadTotal  uint64  `json:"readtotal"`
+	WriteTotal uint64  `json:"writetotal"`
+	ReadCount  uint64  `json:"readcount"`
+	WriteCount uint64  `json:"writecount"`
+}
+
+type DiskRateResponse struct {
+	Disks  []*DiskRateInfo `json:"disks"`
+	Cursor string          `json:"cursor"`
+}

@@ -3,9 +3,9 @@ package gops_handler
 import (
 	"context"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
-	"github.com/bbedward/DankMaterialShell/dankgop/internal/log"
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
 

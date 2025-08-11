@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/process"

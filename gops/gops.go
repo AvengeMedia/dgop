@@ -1,8 +1,8 @@
 package gops
 
 import (
-	"github.com/bbedward/DankMaterialShell/dankgop/internal/log"
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dgop/models"
 )
 
 type GopsUtil struct{}
@@ -55,7 +55,7 @@ func (self *GopsUtil) GetAllMetricsWithCursors(procSortBy ProcSortBy, procLimit 
 	if processResult != nil {
 		processes = processResult.Processes
 	}
-	
+
 	return &models.SystemMetrics{
 		Memory:     memInfo,
 		CPU:        cpuInfo,

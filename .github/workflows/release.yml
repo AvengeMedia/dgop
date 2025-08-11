@@ -36,23 +36,23 @@ jobs:
           CGO_ENABLED: 0
         run: |
           VERSION=${{ github.ref_name }}
-          BINARY_NAME="dankgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="dgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
           cd cmd/cli && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
           cd ../..
       
       - name: Generate checksums
         run: |
           VERSION=${{ github.ref_name }}
-          BINARY_NAME="dankgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="dgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
           sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
-            dankgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+            dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+            dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
 
   create_release:
     name: 📦 Create GitHub Release
@@ -116,7 +116,7 @@ jobs:
           VERSION=${{ github.ref_name }}
           
           # Find and upload all binaries and checksums
-          find ./artifacts -name "dankgop-*" -type f | while read file; do
+          find ./artifacts -name "dgop-*" -type f | while read file; do
             echo "Uploading: $file"
             filename=$(basename "$file")
             gh release upload "$VERSION" "$file" --clobber

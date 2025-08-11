@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 )
 
 var availableModules = []string{
 	"cpu",
 	"memory",
 	"network",
+	"net-rate",
 	"disk",
+	"disk-rate",
 	"diskmounts",
 	"processes",
 	"system",
@@ -33,6 +35,8 @@ type MetaParams struct {
 	GPUPciIds      []string
 	CPUCursor      string
 	ProcCursor     string
+	NetRateCursor  string
+	DiskRateCursor string
 }
 
 func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.MetaInfo, error) {
@@ -55,9 +59,17 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 			if net, err := self.GetNetworkInfo(); err == nil {
 				meta.Network = net
 			}
+		case "net-rate":
+			if netRate, err := self.GetNetworkRates(params.NetRateCursor); err == nil {
+				meta.NetRate = netRate
+			}
 		case "disk":
 			if disk, err := self.GetDiskInfo(); err == nil {
 				meta.Disk = disk
+			}
+		case "disk-rate":
+			if diskRate, err := self.GetDiskRates(params.DiskRateCursor); err == nil {
+				meta.DiskRate = diskRate
 			}
 		case "diskmounts":
 			if mounts, err := self.GetDiskMounts(); err == nil {
@@ -109,8 +121,16 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 		meta.Network = net
 	}
 
+	if netRate, err := self.GetNetworkRates(params.NetRateCursor); err == nil {
+		meta.NetRate = netRate
+	}
+
 	if disk, err := self.GetDiskInfo(); err == nil {
 		meta.Disk = disk
+	}
+
+	if diskRate, err := self.GetDiskRates(params.DiskRateCursor); err == nil {
+		meta.DiskRate = diskRate
 	}
 
 	if mounts, err := self.GetDiskMounts(); err == nil {

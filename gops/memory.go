@@ -1,7 +1,7 @@
 package gops
 
 import (
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/mem"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
+	"github.com/AvengeMedia/dgop/gops"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -22,6 +22,8 @@ var (
 	metaGPUPciIds  []string
 	cpuCursor      string
 	procCursor     string
+	netRateCursor  string
+	diskRateCursor string
 )
 
 var style = lipgloss.NewStyle().
@@ -71,6 +73,10 @@ func init() {
 
 	cpuCmd.Flags().StringVar(&cpuCursor, "cursor", "", "Cursor from previous CPU request")
 
+	netRateCmd.Flags().StringVar(&netRateCursor, "cursor", "", "Cursor from previous network rate request")
+
+	diskRateCmd.Flags().StringVar(&diskRateCursor, "cursor", "", "Cursor from previous disk rate request")
+
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	processesCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	processesCmd.Flags().StringVar(&procCursor, "cursor", "", "Cursor from previous process request")
@@ -81,16 +87,18 @@ func init() {
 	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", []string{}, "PCI IDs for GPU temperatures (e.g., 10de:2684,1002:164e)")
 	metaCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	metaCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
+	metaCmd.Flags().StringVar(&netRateCursor, "net-rate-cursor", "", "Network rate cursor from previous request")
+	metaCmd.Flags().StringVar(&diskRateCursor, "disk-rate-cursor", "", "Disk rate cursor from previous request")
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
 	gpuTempCmd.MarkFlagRequired("pci-id")
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "dankgop",
+	Use: "dankgop",
 	Run: func(cmd *cobra.Command, args []string) {
-		printHeader()
-		cmd.Help()
+		gopsUtil := gops.NewGopsUtil()
+		runTopCommand(gopsUtil)
 	},
 }
 
@@ -111,6 +119,7 @@ func main() {
 }
 
 func setupCommands(gopsUtil *gops.GopsUtil) {
+	rootCmd.AddCommand(helpCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(allCmd)
 	rootCmd.AddCommand(cpuCmd)
@@ -124,6 +133,9 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 	rootCmd.AddCommand(gpuTempCmd)
 	rootCmd.AddCommand(metaCmd)
 	rootCmd.AddCommand(modulesCmd)
+	rootCmd.AddCommand(netRateCmd)
+	rootCmd.AddCommand(diskRateCmd)
+	rootCmd.AddCommand(topCmd)
 	rootCmd.AddCommand(serverCmd)
 
 	// Set gopsUtil for all commands
@@ -141,6 +153,14 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 
 	networkCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runNetworkCommand(gopsUtil)
+	}
+
+	netRateCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runNetRateCommand(gopsUtil)
+	}
+
+	diskRateCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runDiskRateCommand(gopsUtil)
 	}
 
 	diskCmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -173,6 +193,14 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 
 	modulesCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runModulesCommand(gopsUtil)
+	}
+
+	topCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runTopCommand(gopsUtil)
+	}
+
+	helpCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runHelpCommand(gopsUtil)
 	}
 }
 

@@ -21,7 +21,9 @@ type MetaInfo struct {
 	CPU        *CPUInfo         `json:"cpu,omitempty"`
 	Memory     *MemoryInfo      `json:"memory,omitempty"`
 	Network    []*NetworkInfo   `json:"network,omitempty"`
+	NetRate    *NetworkRateResponse `json:"netrate,omitempty"`
 	Disk       []*DiskInfo      `json:"disk,omitempty"`
+	DiskRate   *DiskRateResponse `json:"diskrate,omitempty"`
 	DiskMounts []*DiskMountInfo `json:"diskmounts,omitempty"`
 	Processes  []*ProcessInfo   `json:"processes,omitempty"`
 	System     *SystemInfo      `json:"system,omitempty"`

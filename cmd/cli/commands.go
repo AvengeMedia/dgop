@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +41,18 @@ var networkCmd = &cobra.Command{
 	Use:   "network",
 	Short: "Get network interface information",
 	Long:  "Display network interface statistics including throughput and connection data.",
+}
+
+var netRateCmd = &cobra.Command{
+	Use:   "net-rate",
+	Short: "Get network transfer rates",
+	Long:  "Display network transfer rates with cursor-based sampling for accurate rate calculations.",
+}
+
+var diskRateCmd = &cobra.Command{
+	Use:   "disk-rate",
+	Short: "Get disk I/O rates",
+	Long:  "Display disk I/O rates with cursor-based sampling for accurate rate calculations.",
 }
 
 var diskCmd = &cobra.Command{
@@ -91,10 +103,16 @@ var modulesCmd = &cobra.Command{
 	Long:  "Display all available modules for the meta command.",
 }
 
+var topCmd = &cobra.Command{
+	Use:   "top",
+	Short: "Launch interactive system monitor",
+	Long:  "Launch an interactive system monitor for real-time system monitoring.",
+}
+
 func runAllCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	
+
 	metrics, err := gopsUtil.GetAllMetricsWithCursors(sortBy, procLimit, enableCPU, cpuCursor, procCursor)
 	if err != nil {
 		return fmt.Errorf("failed to get system metrics: %w", err)
@@ -179,7 +197,7 @@ func runDiskCommand(gopsUtil *gops.GopsUtil) error {
 func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	
+
 	result, err := gopsUtil.GetProcessesWithCursor(sortBy, procLimit, enableCPU, procCursor)
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
@@ -257,6 +275,8 @@ func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 		GPUPciIds:      metaGPUPciIds,
 		CPUCursor:      cpuCursor,
 		ProcCursor:     procCursor,
+		NetRateCursor:  netRateCursor,
+		DiskRateCursor: diskRateCursor,
 	}
 
 	metaInfo, err := gopsUtil.GetMeta(metaModules, params)
@@ -575,8 +595,18 @@ func displayMetaInfo(meta *models.MetaInfo) {
 		fmt.Println()
 	}
 
+	if meta.NetRate != nil {
+		displayNetworkRates(meta.NetRate)
+		fmt.Println()
+	}
+
 	if len(meta.Disk) > 0 || len(meta.DiskMounts) > 0 {
 		displayDiskInfo(meta.Disk, meta.DiskMounts)
+		fmt.Println()
+	}
+
+	if meta.DiskRate != nil {
+		displayDiskRates(meta.DiskRate)
 		fmt.Println()
 	}
 
@@ -607,4 +637,111 @@ func displayGPUTempInfo(gpuTemp *models.GPUTempInfo) {
 	}
 
 	printTable(rows)
+}
+
+func displayNetworkRates(netRates *models.NetworkRateResponse) {
+	fmt.Println(titleStyle.Render("NETWORK RATES"))
+
+	if len(netRates.Interfaces) == 0 {
+		fmt.Println(valueStyle.Render("  No network interfaces found"))
+		return
+	}
+
+	for i, iface := range netRates.Interfaces {
+		if i > 0 {
+			fmt.Println()
+		}
+
+		fmt.Println(keyStyle.Render(fmt.Sprintf("Interface: %s", iface.Interface)))
+
+		rows := [][]string{
+			{"RX Rate:", formatRate(iface.RxRate)},
+			{"TX Rate:", formatRate(iface.TxRate)},
+			{"RX Total:", formatBytes(iface.RxTotal)},
+			{"TX Total:", formatBytes(iface.TxTotal)},
+		}
+
+		printTable(rows)
+	}
+
+	fmt.Printf("\nCursor: %s\n", netRates.Cursor)
+}
+
+func displayDiskRates(diskRates *models.DiskRateResponse) {
+	fmt.Println(titleStyle.Render("DISK I/O RATES"))
+
+	if len(diskRates.Disks) == 0 {
+		fmt.Println(valueStyle.Render("  No disk devices found"))
+		return
+	}
+
+	for i, disk := range diskRates.Disks {
+		if i > 0 {
+			fmt.Println()
+		}
+
+		fmt.Println(keyStyle.Render(fmt.Sprintf("Device: %s", disk.Device)))
+
+		rows := [][]string{
+			{"Read Rate:", formatRate(disk.ReadRate)},
+			{"Write Rate:", formatRate(disk.WriteRate)},
+			{"Read Total:", formatBytes(disk.ReadTotal)},
+			{"Write Total:", formatBytes(disk.WriteTotal)},
+			{"Read Count:", fmt.Sprintf("%d", disk.ReadCount)},
+			{"Write Count:", fmt.Sprintf("%d", disk.WriteCount)},
+		}
+
+		printTable(rows)
+	}
+
+	fmt.Printf("\nCursor: %s\n", diskRates.Cursor)
+}
+
+func formatRate(bytesPerSecond float64) string {
+	return fmt.Sprintf("%s/s", formatBytesFloat(bytesPerSecond))
+}
+
+func formatBytesFloat(bytes float64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%.2f B", bytes)
+	}
+	div, exp := float64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", bytes/div, "KMGTPE"[exp])
+}
+
+func runNetRateCommand(gopsUtil *gops.GopsUtil) error {
+	netRateInfo, err := gopsUtil.GetNetworkRates(netRateCursor)
+	if err != nil {
+		return fmt.Errorf("failed to get network rates: %w", err)
+	}
+
+	if jsonOutput {
+		return outputJSON(netRateInfo)
+	}
+
+	displayNetworkRates(netRateInfo)
+	return nil
+}
+
+func runDiskRateCommand(gopsUtil *gops.GopsUtil) error {
+	diskRateInfo, err := gopsUtil.GetDiskRates(diskRateCursor)
+	if err != nil {
+		return fmt.Errorf("failed to get disk rates: %w", err)
+	}
+
+	if jsonOutput {
+		return outputJSON(diskRateInfo)
+	}
+
+	displayDiskRates(diskRateInfo)
+	return nil
+}
+
+func runTopCommand(gopsUtil *gops.GopsUtil) error {
+	return runTUI(gopsUtil)
 }

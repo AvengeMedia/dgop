@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/internal/log"
-	"github.com/bbedward/DankMaterialShell/dankgop/utils"
+	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dgop/utils"
 )
 
 // for defining context keys was copied from Go 1.7's new use of context in net/http.

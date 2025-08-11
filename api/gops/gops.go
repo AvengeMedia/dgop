@@ -3,7 +3,7 @@ package gops_handler
 import (
 	"net/http"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/api/server"
+	"github.com/AvengeMedia/dgop/api/server"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -62,6 +62,30 @@ func RegisterHandlers(server *server.Server, grp *huma.Group) {
 			Method:      http.MethodGet,
 		},
 		handlers.Network,
+	)
+
+	huma.Register(
+		grp,
+		huma.Operation{
+			OperationID: "net-rate",
+			Summary:     "Get Network Rates",
+			Description: "Get network transfer rates with cursor-based sampling for accurate rate calculations",
+			Path:        "/net-rate",
+			Method:      http.MethodGet,
+		},
+		handlers.NetRate,
+	)
+
+	huma.Register(
+		grp,
+		huma.Operation{
+			OperationID: "disk-rate",
+			Summary:     "Get Disk I/O Rates",
+			Description: "Get disk I/O rates with cursor-based sampling for accurate rate calculations",
+			Path:        "/disk-rate",
+			Method:      http.MethodGet,
+		},
+		handlers.DiskRate,
 	)
 
 	huma.Register(
