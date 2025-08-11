@@ -172,26 +172,78 @@ curl http://localhost:63484/gops/meta?modules=cpu,memory
 curl "http://localhost:63484/gops/meta?modules=gpu&gpu_pci_ids=10de:2684"
 ```
 
-## Real-time Monitoring with Sampling
+## Real-time Monitoring with Cursors
 
-dgop supports cursor-based sampling for building real-time monitoring tools like htop. Instead of relying on instantaneous snapshots, you can track system state changes over time for more accurate CPU usage calculations.
+dgop supports cursor-based sampling for building real-time monitoring tools like htop. Instead of relying on instantaneous snapshots, you can track system state changes over time for more accurate CPU usage calculations and network/disk rates.
 
-The sampling system works by:
-- Taking an initial measurement that establishes baseline CPU times and process ticks
-- Returning a cursor object containing the current state and timestamp
-- Using that cursor data in subsequent calls to calculate precise usage percentages over the sampling interval
+The cursor system works by:
+- Taking an initial measurement that establishes baseline metrics and timestamps
+- Returning a base64-encoded cursor containing the current state data
+- Using that cursor in subsequent calls to calculate precise percentages and rates over the sampling interval
 
-This approach accounts for the actual time elapsed between measurements, making it ideal for monitoring tools that poll every few seconds. Process CPU usage is normalized per single core, and system CPU usage reflects the overall load across all cores.
+This approach accounts for the actual time elapsed between measurements, making it ideal for monitoring tools that poll every few seconds.
+
+### CPU Usage with Cursors
 
 ```bash
-# First call - establishes baseline
-dgop meta --modules cpu,processes --json > baseline.json
+# First call - establishes baseline and returns cursor
+dgop cpu --json
+# Returns: {"usage":1.68, ..., "cursor":"eyJ0b3RhbCI6WzE2MjMwLjAzLDUuOTUsNTEyMy4yNV0..."}
 
-# Wait 5 seconds, then use cursor data for accurate measurements
-sleep 5
-dgop meta --modules cpu,processes --json \
-  --cpu-sample '{"previousTotal":[1690,1,391,53692,23,233,44,0],"timestamp":1754784779057}' \
-  --proc-sample '[{"pid":1234,"previousTicks":93,"timestamp":1754784779057}]'
+# Wait a few seconds, then use cursor for accurate CPU calculations
+sleep 3
+dgop cpu --json --cursor "eyJ0b3RhbCI6WzE2MjMwLjAzLDUuOTUsNTEyMy4yNV0..."
+# Returns more accurate usage percentages based on time delta
+```
+
+### Process Monitoring with Cursors
+
+```bash
+# First call - establishes process baseline
+dgop processes --json --limit 5
+# Returns: {"processes":[...], "cursor":"W3sicGlkIjoyODE2NTYsInRpY2tzIjozOS43Mix9XQ..."}
+
+# Use cursor for accurate per-process CPU calculations
+sleep 2
+dgop processes --json --limit 5 --cursor "W3sicGlkIjoyODE2NTYsInRpY2tzIjozOS43Mix9XQ..."
+```
+
+### Network Rate Monitoring
+
+```bash
+# First call - establishes network baseline
+dgop net-rate --json
+# Returns: {"interfaces":[...], "cursor":"eyJ0aW1lc3RhbXAiOiIyMDI1LTA4LTExVDE2OjE1OjM1..."}
+
+# Get real-time transfer rates
+sleep 3
+dgop net-rate --json --cursor "eyJ0aW1lc3RhbXAiOiIyMDI1LTA4LTExVDE2OjE1OjM1..."
+# Returns: {"interfaces":[{"interface":"wlp99s0","rxrate":67771,"txrate":16994}]}
+```
+
+### Disk I/O Rate Monitoring
+
+```bash
+# Establish disk I/O baseline
+dgop disk-rate --json
+# Returns cursor for disk rate calculations
+
+# Get real-time disk I/O rates
+sleep 2
+dgop disk-rate --json --cursor "eyJ0aW1lc3RhbXAiOiIyMDI1LTA4LTExVDE2OjE2..."
+```
+
+### Combined Monitoring with Meta Command
+
+```bash
+# Monitor CPU, processes, and network rates together
+dgop meta --modules cpu,processes,net-rate --json --limit 10
+
+# Use multiple cursors for comprehensive monitoring
+dgop meta --modules cpu,processes,net-rate --json --limit 10 \
+  --cpu-cursor "eyJ0b3RhbCI6WzE2MjMwLjAz..." \
+  --proc-cursor "W3sicGlkIjoyODE2NTYsInRpY2tzIjo..." \
+  --net-rate-cursor "eyJ0aW1lc3RhbXAiOiIyMDI1LTA4LTEx..."
 ```
 
 ## Development
