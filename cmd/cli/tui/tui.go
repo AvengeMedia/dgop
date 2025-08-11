@@ -547,7 +547,12 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 			content.WriteString(fmt.Sprintf("PPID: %d\n", proc.PPID))
 			content.WriteString(fmt.Sprintf("USER: %s\n", proc.Username))
 			content.WriteString(fmt.Sprintf("CPU: %.1f%%\n", proc.CPU))
-			content.WriteString(fmt.Sprintf("Memory: %.1f%%\n", proc.MemoryPercent))
+			memGB := float64(proc.MemoryKB) / 1024 / 1024
+			if memGB >= 1.0 {
+				content.WriteString(fmt.Sprintf("Memory: %.1f%% (%.1f GB)\n", proc.MemoryPercent, memGB))
+			} else {
+				content.WriteString(fmt.Sprintf("Memory: %.1f%% (%.0f MB)\n", proc.MemoryPercent, memGB*1024))
+			}
 			content.WriteString(fmt.Sprintf("Command: %s\n", proc.Command))
 
 			// Show full command with word wrapping
@@ -854,19 +859,19 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 	availableWidth := totalWidth - bordersPadding
 	
 	// Define minimum widths that can shrink if needed
-	pidWidth := 8  
-	userWidth := 10  
-	cpuWidth := 6   
-	memWidth := 6   
+	pidWidth := 5  
+	userWidth := 6  
+	cpuWidth := 5   
+	memWidth := 13   
 	
 	// If space is really tight, shrink fixed columns further
 	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
 	if availableWidth < fixedColumnsWidth + 10 {
 		// Emergency shrink mode
-		pidWidth = 6
-		userWidth = 8
+		pidWidth = 5
+		userWidth = 6
 		cpuWidth = 5
-		memWidth = 5
+		memWidth = 11
 		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
 	}
 	

@@ -15,11 +15,11 @@ import (
 
 func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
 	columns := []table.Column{
-		{Title: "PID", Width: 10},
-		{Title: "USER", Width: 12},
-		{Title: "CPU%", Width: 8},
-		{Title: "MEM%", Width: 8},
-		{Title: "COMMAND", Width: 45},
+		{Title: "PID", Width: 5},
+		{Title: "USER", Width: 4},
+		{Title: "CPU", Width: 3},
+		{Title: "MEMORY", Width: 18},
+		{Title: "COMMAND", Width: 53},
 	}
 
 	t := table.New(
