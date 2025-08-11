@@ -9,6 +9,7 @@ type ProcessInfo struct {
 	MemoryKB      uint64  `json:"memoryKB"`
 	PSSKB         uint64  `json:"pssKB"`
 	PSSPercent    float32 `json:"pssPercent"`
+	Username      string  `json:"username"`
 	Command       string  `json:"command"`
 	FullCommand   string  `json:"fullCommand"`
 }

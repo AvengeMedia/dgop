@@ -12,6 +12,7 @@ import (
 
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/sensors"
 )
 
 type CPUTracker struct {
@@ -141,6 +142,21 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 }
 
 func getCPUTemperatureCached() float64 {
+	// Try gopsutil sensors first (preferred method)
+	temps, err := sensors.SensorsTemperatures()
+	if err == nil {
+		for _, temp := range temps {
+			// Look for CPU temperature sensors
+			if strings.Contains(temp.SensorKey, "coretemp_core_0") ||
+				strings.Contains(temp.SensorKey, "k10temp_tdie") ||
+				strings.Contains(temp.SensorKey, "cpu_thermal") ||
+				strings.Contains(temp.SensorKey, "package_id_0") {
+				return temp.Temperature
+			}
+		}
+	}
+
+	// Fallback to hwmon if gopsutil doesn't work
 	if cpuTracker.tempPath != "" {
 		tempBytes, err := os.ReadFile(cpuTracker.tempPath)
 		if err == nil {

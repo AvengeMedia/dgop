@@ -60,6 +60,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		ppid, _ := p.Ppid()
 		memInfo, _ := p.MemoryInfo()
 		times, _ := p.Times()
+		username, _ := p.Username()
 
 		// Calculate current CPU time in seconds (gopsutil already converts to seconds)
 		currentCPUTime := float64(0)
@@ -97,6 +98,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 			MemoryKB:      memKB,
 			PSSKB:         memKB,
 			PSSPercent:    memPercent,
+			Username:      username,
 			Command:       name,
 			FullCommand:   cmdline,
 		})

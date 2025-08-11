@@ -2,15 +2,20 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/AvengeMedia/dgop/gops"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
+var Version = "dev"
+
 func (m *ResponsiveTUIModel) Init() tea.Cmd {
-	return tea.Batch(tick(), m.fetchData())
+	return tea.Batch(tick(), m.fetchData(), m.fetchTemperatureData())
 }
 
 func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -22,54 +27,79 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		
-		tableHeight := m.height - 25
-		if tableHeight < 10 {
-			tableHeight = 10
-		}
-		m.processTable.SetHeight(tableHeight)
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "r":
+			return m, m.fetchData()
 		case "d":
 			m.showDetails = !m.showDetails
+		case "c":
+			m.sortBy = gops.SortByCPU
+			return m, m.fetchData()
+		case "m":
+			m.sortBy = gops.SortByMemory
+			return m, m.fetchData()
+		case "n":
+			m.sortBy = gops.SortByName
+			return m, m.fetchData()
+		case "p":
+			m.sortBy = gops.SortByPID
+			return m, m.fetchData()
 		case "up", "k":
-			if !m.showDetails {
-				m.selectedPID = -1
-			}
+			oldCursor := m.processTable.Cursor()
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
-			m.updateSelectedPID()
+
+			// Update selected PID when cursor moves
+			newCursor := m.processTable.Cursor()
+			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
+				m.selectedPID = m.metrics.Processes[newCursor].PID
+			}
 		case "down", "j":
-			if !m.showDetails {
-				m.selectedPID = -1
-			}
+			oldCursor := m.processTable.Cursor()
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
-			m.updateSelectedPID()
+
+			// Update selected PID when cursor moves
+			newCursor := m.processTable.Cursor()
+			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
+				m.selectedPID = m.metrics.Processes[newCursor].PID
+			}
 		default:
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 
 	case tickMsg:
+		cmds = append(cmds, tick())
+
 		now := time.Now()
-		
+
+		// Update main metrics every second
 		if now.Sub(m.lastUpdate) >= 1*time.Second {
 			cmds = append(cmds, m.fetchData())
 		}
-		
+
+		// Update network rates every 2 seconds
 		if now.Sub(m.lastNetworkUpdate) >= 2*time.Second {
 			cmds = append(cmds, m.fetchNetworkData())
+			m.lastNetworkUpdate = now
 		}
-		
+
+		// Update disk rates every 2 seconds
 		if now.Sub(m.lastDiskUpdate) >= 2*time.Second {
 			cmds = append(cmds, m.fetchDiskData())
+			m.lastDiskUpdate = now
 		}
-		
-		cmds = append(cmds, tick())
+
+		// Update temperatures every 10 seconds
+		if now.Sub(m.lastTempUpdate) >= 10*time.Second {
+			cmds = append(cmds, m.fetchTemperatureData())
+			m.lastTempUpdate = now
+		}
 
 	case fetchDataMsg:
 		m.metrics = msg.metrics
@@ -79,14 +109,13 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchNetworkMsg:
 		if msg.rates != nil && len(msg.rates.Interfaces) > 0 {
-			m.lastNetworkUpdate = time.Now()
 			m.networkCursor = msg.rates.Cursor
-			
+
 			for _, iface := range msg.rates.Interfaces {
 				if iface.Interface == "lo" || strings.HasPrefix(iface.Interface, "docker") {
 					continue
 				}
-				
+
 				sample := NetworkSample{
 					timestamp: time.Now(),
 					rxBytes:   iface.RxTotal,
@@ -94,7 +123,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rxRate:    iface.RxRate,
 					txRate:    iface.TxRate,
 				}
-				
+
 				m.networkHistory = append(m.networkHistory, sample)
 				if len(m.networkHistory) > m.maxNetHistory {
 					m.networkHistory = m.networkHistory[1:]
@@ -105,25 +134,37 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchDiskMsg:
 		if msg.rates != nil && len(msg.rates.Disks) > 0 {
-			m.lastDiskUpdate = time.Now()
 			m.diskCursor = msg.rates.Cursor
-			
+
+			// Aggregate all disk rates
+			var totalReadRate, totalWriteRate float64
+			var totalReadBytes, totalWriteBytes uint64
+
 			for _, disk := range msg.rates.Disks {
-				sample := DiskSample{
-					timestamp:   time.Now(),
-					readBytes:   disk.ReadTotal,
-					writeBytes:  disk.WriteTotal,
-					readRate:    disk.ReadRate,
-					writeRate:   disk.WriteRate,
-					device:      disk.Device,
-				}
-				
-				m.diskHistory = append(m.diskHistory, sample)
-				if len(m.diskHistory) > m.maxDiskHistory {
-					m.diskHistory = m.diskHistory[1:]
-				}
-				break
+				totalReadRate += disk.ReadRate
+				totalWriteRate += disk.WriteRate
+				totalReadBytes += disk.ReadTotal
+				totalWriteBytes += disk.WriteTotal
 			}
+
+			sample := DiskSample{
+				timestamp:  time.Now(),
+				readBytes:  totalReadBytes,
+				writeBytes: totalWriteBytes,
+				readRate:   totalReadRate,
+				writeRate:  totalWriteRate,
+				device:     "total",
+			}
+
+			m.diskHistory = append(m.diskHistory, sample)
+			if len(m.diskHistory) > m.maxDiskHistory {
+				m.diskHistory = m.diskHistory[1:]
+			}
+		}
+
+	case fetchTempMsg:
+		if msg.err == nil {
+			m.systemTemperatures = msg.temps
 		}
 	}
 
@@ -135,57 +176,1017 @@ func (m *ResponsiveTUIModel) View() string {
 		return "Loading..."
 	}
 
-	title := fmt.Sprintf("dgop %s", getVersion())
-	header := headerStyle.Width(m.width).Render(title)
-
-	leftWidth := m.width / 2
-	rightWidth := m.width - leftWidth
-
-	systemPanel := m.renderSystemInfoPanel(leftWidth)
-	cpuPanel := m.renderCPUPanel(rightWidth)
-
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, systemPanel, cpuPanel)
-
-	memoryPanel := m.renderMemoryPanel(leftWidth)
-	diskPanel := m.renderDiskPanel(rightWidth)
-
-	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, memoryPanel, diskPanel)
-
-	diskChartPanel := m.renderDiskChart(rightWidth)
-
-	diskRow := lipgloss.JoinHorizontal(lipgloss.Top, 
-		strings.Repeat(" ", leftWidth), diskChartPanel)
-
-	networkChartPanel := m.renderNetworkChart(leftWidth)
-	networkRow := lipgloss.JoinHorizontal(lipgloss.Top, 
-		networkChartPanel, strings.Repeat(" ", rightWidth))
-
-	processPanel := panelStyle.Width(m.width).Render(m.processTable.View())
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		"",
-		topRow,
-		"",
-		middleRow,
-		"",
-		diskRow,
-		"",
-		networkRow,
-		"",
-		processPanel,
-	)
-
-	if m.err != nil {
-		content += fmt.Sprintf("\nError: %v", m.err)
-	}
-
-	return content
+	return m.renderLayout()
 }
 
-var Version = "dev"
+func (m *ResponsiveTUIModel) renderLayout() string {
+	// Pre-render header and footer to measure their heights
+	header := m.renderHeader()
+	footer := m.renderFooter()
 
-func getVersion() string {
-	return Version
+	var sections []string
+	sections = append(sections, header)
+
+	// Main content gets exact remaining space
+	mainContent := m.renderMainContent()
+
+	// Ensure main content doesn't exceed available space
+	headerHeight := lipgloss.Height(header)
+	footerHeight := lipgloss.Height(footer)
+	maxMainHeight := m.height - headerHeight - footerHeight
+
+	if maxMainHeight > 0 {
+		mainContent = lipgloss.NewStyle().MaxHeight(maxMainHeight).Render(mainContent)
+	}
+
+	sections = append(sections, mainContent)
+	sections = append(sections, footer)
+
+	return strings.Join(sections, "\n")
+}
+
+func clamp(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+
+type panelSpec struct{ min, max, weight int }
+
+// shrink-aware allocator: shrinks when needed, grows by weight within limits
+func allocCapped(total int, specs []panelSpec, floor int, shrinkOrder []int) []int {
+	out := make([]int, len(specs))
+	sum := 0
+	for i, s := range specs {
+		out[i] = s.min
+		sum += s.min
+	}
+
+	// If too big, shrink to fit (never below floor)
+	for sum > total {
+		shrunk := false
+		for _, i := range shrinkOrder {
+			if out[i] > floor {
+				out[i]--
+				sum--
+				shrunk = true
+				if sum == total {
+					break
+				}
+			}
+		}
+		if !shrunk {
+			break // nothing left to shrink
+		}
+	}
+
+	// If room left, grow toward max by weight
+	if sum < total {
+		rem := total - sum
+		for rem > 0 {
+			progressed := false
+			for i, s := range specs {
+				if out[i] < s.max && s.weight > 0 {
+					out[i]++
+					rem--
+					progressed = true
+					if rem == 0 {
+						break
+					}
+				}
+			}
+			if !progressed {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func (m *ResponsiveTUIModel) minSystemLines(width int) int {
+	// distro, user@hostname, kernel, bios maker, bios version+date, CPU count, uptime - 7 lines
+	// accommodate logos up to 9 lines (like fedora) with vertical centering
+	return 9 // increased to accommodate 9-line logos
+}
+
+func (m *ResponsiveTUIModel) minCPULines(width int) int {
+	// title + usage bar
+	lines := 2
+	// core rows (3 cores per row)
+	if m.metrics != nil && m.metrics.CPU != nil {
+		cores := len(m.metrics.CPU.CoreUsage)
+		if cores > 0 {
+			rows := (cores + 2) / 3
+			lines += rows
+			// system info line under cores if System present
+			if m.metrics.System != nil {
+				lines += 1
+			}
+		}
+	}
+	return lines
+}
+
+func (m *ResponsiveTUIModel) minMemDiskLines(width int) int {
+	// MEMORY: 2 lines min (bar + numbers)
+	lines := 2
+	if m.metrics != nil && m.metrics.Memory != nil && m.metrics.Memory.SwapTotal > 0 {
+		lines += 2 // swap bar + numbers
+	}
+	// DISKS header + at least 2 disks (2 lines each)
+	lines += 1 + 4
+	// disk chart + rates when history exists (reduced)
+	if len(m.diskHistory) > 0 {
+		lines += 4 // reduced from 8
+	}
+	// sensors block if present (all sensors)
+	if len(m.systemTemperatures) > 0 {
+		lines += 2 + len(m.systemTemperatures) // header + blank line + all sensors
+	}
+	return lines
+}
+
+func (m *ResponsiveTUIModel) minNetworkLines(width int) int {
+	// header + rates + chart + totals
+	// Give network more height to balance with right column
+	return 12 // increased further to match processes better
+}
+
+
+func (m *ResponsiveTUIModel) renderMainContent() string {
+	// Calculate layout dimensions with cushioned right width
+	leftWidth := m.width * 40 / 100 // 40% for left panels
+	spacer := 1
+	rightWidth := m.width - leftWidth - spacer - 4 // 4-col cushion to ensure right border visible
+	if rightWidth < 10 {
+		rightWidth = 10 // safety
+	}
+
+	// DYNAMIC HEIGHT CALCULATION - measure header/footer first
+	header := m.renderHeader()
+	footer := m.renderFooter()
+	headerHeight := lipgloss.Height(header)
+	footerHeight := lipgloss.Height(footer)
+
+	// Available height = total - header - footer (remove extra -2)
+	availableHeight := m.height - headerHeight - footerHeight
+	if availableHeight < 8 {
+		availableHeight = 8
+	}
+
+	// Chrome calculation (full borders only - gaps are rendered but not budgeted)
+	leftPanels := 3
+	rightPanels := 2
+	if m.showDetails {
+		rightPanels = 3
+	}
+
+	leftChrome := leftPanels * 2 // full borders only
+	rightChrome := rightPanels * 2
+
+	leftInnerTotal := availableHeight - leftChrome
+	rightInnerTotal := availableHeight - rightChrome
+	if leftInnerTotal < 3 {
+		leftInnerTotal = 3
+	}
+	if rightInnerTotal < 3 {
+		rightInnerTotal = 3
+	}
+
+	// Left column: System (exact content), Mem/Disk (realistic), Network (tight)
+	sysMin := m.minSystemLines(leftWidth)
+	sysMax := sysMin // exact content only
+
+	memMin := m.minMemDiskLines(leftWidth)
+	memMax := 999 // DISK gets the slack
+
+	netMin := m.minNetworkLines(leftWidth)
+	netMax := netMin + 8 // give network much more flex to fill space
+
+	leftSpecs := []panelSpec{
+		{sysMin, sysMax, 0}, // System: no flex
+		{memMin, memMax, 3}, // Mem/Disk: medium weight
+		{netMin, netMax, 5}, // Network: highest weight to fill space
+	}
+	leftShrinkOrder := []int{2, 1, 0} // net→mem→system
+	leftInner := allocCapped(leftInnerTotal, leftSpecs, 3, leftShrinkOrder)
+	leftHeights := []int{leftInner[0] + 2, leftInner[1] + 2, leftInner[2] + 2}
+
+	// Right column: CPU (exact content), Processes (main flex)
+	cpuMin := m.minCPULines(rightWidth)
+	cpuMax := cpuMin // no empty space, content only
+
+	procMin := 6 // reduced to balance left/right columns
+	procMax := 999 // main flex sink
+	detMin := 5
+	detMax := 24
+
+	var rightHeights []int
+	if m.showDetails {
+		rightSpecs := []panelSpec{
+			{cpuMin, cpuMax, 0},   // CPU: no flex
+			{procMin, procMax, 3}, // Processes: main flex
+			{detMin, detMax, 1},   // Details: light flex
+		}
+		rightShrinkOrder := []int{2, 1, 0} // details→processes→cpu
+		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, rightShrinkOrder)
+		rightHeights = []int{rightInner[0] + 2, rightInner[1] + 2, rightInner[2] + 2}
+	} else {
+		rightSpecs := []panelSpec{
+			{cpuMin, cpuMax, 0},   // CPU: no flex
+			{procMin, procMax, 5}, // processes: main flex sink
+		}
+		rightShrinkOrder := []int{1, 0} // processes→cpu
+		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, rightShrinkOrder)
+		rightHeights = []int{rightInner[0] + 2, rightInner[1] + 2}
+	}
+
+	// Render panels with exact allocated heights
+	systemPanel := m.renderSystemInfoPanel(leftWidth, leftHeights[0])
+	memPanel := m.renderMemDiskPanel(leftWidth, leftHeights[1])
+	networkPanel := m.renderNetworkPanel(leftWidth, leftHeights[2])
+
+	cpuPanel := m.renderCPUPanel(rightWidth, rightHeights[0])
+	var processColumn string
+	if m.showDetails {
+		processPanel := m.renderProcessPanel(rightWidth, rightHeights[1])
+		detailsPanel := m.renderProcessDetailsPanel(rightWidth, rightHeights[2])
+
+		// Stack with borders only
+		processColumn = lipgloss.JoinVertical(lipgloss.Left, processPanel, detailsPanel)
+	} else {
+		// Processes get ALL the available space
+		processPanel := m.renderProcessPanel(rightWidth, rightHeights[1])
+		processColumn = processPanel
+	}
+
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left, systemPanel, memPanel, networkPanel)
+	rightColumn := lipgloss.JoinVertical(lipgloss.Left, cpuPanel, processColumn)
+
+	// Join the two complete columns with spacer
+	spacerCol := lipgloss.NewStyle().Width(spacer).Render(" ")
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, spacerCol, rightColumn)
+
+	return mainContent
+}
+
+func (m *ResponsiveTUIModel) renderHeader() string {
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#7D56F4")).
+		Bold(true).
+		Width(m.width).
+		Padding(0, 2)
+
+	// Just show current time in header
+	currentTime := time.Now().Format("15:04:05")
+	rightText := currentTime
+
+	title := fmt.Sprintf("dgop %s", Version)
+	// rightText already set above
+	spaces := m.width - len(title) - len(rightText) - 4
+	if spaces < 0 {
+		spaces = 0
+	}
+	headerText := fmt.Sprintf("%s%s%s", title, strings.Repeat(" ", spaces), rightText)
+
+	return style.Render(headerText)
+}
+
+func (m *ResponsiveTUIModel) renderFooter() string {
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C7C7C")).
+		Background(lipgloss.Color("#2A2A2A")).
+		Width(m.width).
+		Padding(0, 2)
+
+	controls := "Controls: [q]uit [r]efresh [d]etails | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate"
+	return style.Render(controls)
+}
+
+func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#8B5FBF")).
+		Padding(0, 1).
+		Margin(0, 0, 0, 0).
+		Width(width).
+		MaxHeight(height)
+
+	var content strings.Builder
+
+	// Sort indicator
+	sortIndicator := ""
+	switch m.sortBy {
+	case gops.SortByCPU:
+		sortIndicator = " ↓CPU"
+	case gops.SortByMemory:
+		sortIndicator = " ↓MEM"
+	case gops.SortByName:
+		sortIndicator = " ↓NAME"
+	case gops.SortByPID:
+		sortIndicator = " ↓PID"
+	}
+
+	processCount := 0
+	if m.metrics != nil {
+		processCount = len(m.metrics.Processes)
+	}
+
+	title := fmt.Sprintf("PROCESSES (%d)%s", processCount, sortIndicator)
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#8B5FBF"))
+
+	content.WriteString(titleStyle.Render(title) + "\n")
+
+	// Update table dimensions and column widths for this panel
+	tableHeight := height - 3 // 2 borders + 1 title line
+	if tableHeight < 3 {
+		tableHeight = 3 // Never exceed container by forcing 8
+	}
+
+	// Update process table for this panel
+	m.updateProcessColumnWidthsForPanel(width - 4)
+	m.processTable.SetHeight(tableHeight)
+
+	content.WriteString(m.processTable.View())
+
+	return style.Render(content.String())
+}
+
+func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#8B5FBF")).
+		Padding(0, 1).
+		Margin(0, 0, 0, 0).
+		Width(width).
+		MaxHeight(height)
+
+	var content strings.Builder
+
+	title := "PROCESS DETAILS"
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#8B5FBF"))
+
+	content.WriteString(titleStyle.Render(title) + "\n")
+
+	if m.metrics != nil && len(m.metrics.Processes) > 0 {
+		selectedIdx := m.processTable.Cursor()
+		if selectedIdx < len(m.metrics.Processes) {
+			proc := m.metrics.Processes[selectedIdx]
+
+			content.WriteString(fmt.Sprintf("PID: %d\n", proc.PID))
+			content.WriteString(fmt.Sprintf("PPID: %d\n", proc.PPID))
+			content.WriteString(fmt.Sprintf("USER: %s\n", proc.Username))
+			content.WriteString(fmt.Sprintf("CPU: %.1f%%\n", proc.CPU))
+			content.WriteString(fmt.Sprintf("Memory: %.1f%%\n", proc.MemoryPercent))
+			content.WriteString(fmt.Sprintf("Command: %s\n", proc.Command))
+
+			// Show full command with word wrapping
+			maxWidth := width - 6
+			if len(proc.FullCommand) > maxWidth {
+				content.WriteString("Full Command:\n")
+				words := strings.Fields(proc.FullCommand)
+				currentLine := ""
+				for _, word := range words {
+					if len(currentLine)+len(word)+1 > maxWidth {
+						if currentLine != "" {
+							content.WriteString(currentLine + "\n")
+							currentLine = word
+						} else {
+							content.WriteString(word[:maxWidth-3] + "...\n")
+						}
+					} else {
+						if currentLine != "" {
+							currentLine += " "
+						}
+						currentLine += word
+					}
+				}
+				if currentLine != "" {
+					content.WriteString(currentLine)
+				}
+			} else {
+				content.WriteString(fmt.Sprintf("Full Command: %s", proc.FullCommand))
+			}
+		} else {
+			content.WriteString("No process selected")
+		}
+	} else {
+		content.WriteString("Loading process data...")
+	}
+
+
+	return style.Render(content.String())
+}
+
+func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#8B5FBF")).
+		Padding(0, 1).
+		Margin(0, 0, 0, 0).
+		Width(width).
+		MaxHeight(height)
+
+	var content strings.Builder
+
+	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("MEMORY") + "\n")
+
+	if m.metrics != nil && m.metrics.Memory != nil {
+		mem := m.metrics.Memory
+		totalGB := float64(mem.Total) / 1024 / 1024
+		usedGB := float64(mem.Total-mem.Available) / 1024 / 1024
+		usedPercent := usedGB / totalGB * 100
+
+		barWidth := width - 15
+		if barWidth < 8 {
+			barWidth = 8
+		}
+		memBar := m.renderProgressBar(uint64(usedPercent*100), 10000, barWidth)
+
+		content.WriteString(fmt.Sprintf("%s %.1f%%\n", memBar, usedPercent))
+		content.WriteString(fmt.Sprintf("%.1f/%.1fGB\n", usedGB, totalGB))
+
+		swapTotalGB := float64(mem.SwapTotal) / 1024 / 1024
+		swapUsedGB := float64(mem.SwapTotal-mem.SwapFree) / 1024 / 1024
+		if swapTotalGB > 0 {
+			swapPercent := swapUsedGB / swapTotalGB * 100
+			swapBar := m.renderProgressBar(uint64(swapPercent*100), 10000, barWidth)
+			content.WriteString(fmt.Sprintf("%s %.1f%%\n", swapBar, swapPercent))
+			content.WriteString(fmt.Sprintf("%.1f/%.1fGB Swap\n", swapUsedGB, swapTotalGB))
+		}
+	} else {
+		content.WriteString("Loading...\n")
+	}
+
+	content.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("DISKS") + "\n")
+
+	innerHeight := height - 2 // Always calculate this
+	
+	if m.metrics == nil || m.metrics.DiskMounts == nil || len(m.metrics.DiskMounts) == 0 {
+		content.WriteString("Loading...\n")
+	} else {
+		// Track lines used and compute remaining budget dynamically
+		used := lipgloss.Height(content.String())
+
+		// Show disks first (each disk takes 2 lines)
+		remaining := innerHeight - used
+		maxDisks := remaining / 2
+		if maxDisks < 2 {
+			maxDisks = 2 // minimum
+		}
+		if maxDisks > 15 {
+			maxDisks = 15 // reasonable max
+		}
+
+		diskCount := len(m.metrics.DiskMounts)
+		if diskCount > maxDisks {
+			diskCount = maxDisks
+		}
+
+		for i := 0; i < diskCount; i++ {
+			mount := m.metrics.DiskMounts[i]
+			// Parse the size information
+			percentStr := strings.TrimSuffix(mount.Percent, "%")
+			percent, err := strconv.ParseFloat(percentStr, 64)
+			if err == nil {
+				// Header: device → mount 
+				maxHeaderWidth := width - 4
+				headerText := fmt.Sprintf("%s → %s", mount.Device, mount.Mount)
+				truncatedHeader := m.truncate(headerText, maxHeaderWidth)
+				content.WriteString(fmt.Sprintf("%s\n", truncatedHeader))
+
+				// Calculate bar width more conservatively to prevent wrapping
+				diskBarWidth := width - 25
+				if diskBarWidth < 4 {
+					diskBarWidth = 4
+				}
+
+				usedBar := m.renderDiskBar(percent, 100.0, diskBarWidth, true)
+				content.WriteString(fmt.Sprintf("%s %.1f%% - %s\n", usedBar, percent, mount.Used))
+			}
+		}
+
+		if len(m.metrics.DiskMounts) > maxDisks {
+			content.WriteString(fmt.Sprintf("... and %d more\n", len(m.metrics.DiskMounts)-maxDisks))
+		}
+
+		// Update used lines and check remaining for chart
+		used = lipgloss.Height(content.String())
+		remaining = innerHeight - used
+
+		// Add disk I/O chart if there's space and history
+		if len(m.diskHistory) > 0 && remaining >= 3 { // need at least 3 lines for chart
+			// Reserve space for sensors if we have them
+			sensorLines := 0
+			if len(m.systemTemperatures) > 0 {
+				sensorLines = 2 + min(len(m.systemTemperatures), 5) // header + up to 5 sensors
+			}
+			
+			const minNeeded = 2 // rates line + totals line
+			chartHeight := remaining - minNeeded - sensorLines
+			if chartHeight < 1 {
+				chartHeight = 1
+			}
+			if chartHeight > 6 {
+				chartHeight = 6 // Give disk chart more space
+			}
+
+			content.WriteString("\n")
+			latest := m.diskHistory[len(m.diskHistory)-1]
+			readRateStr := m.formatBytes(uint64(latest.readRate))
+			writeRateStr := m.formatBytes(uint64(latest.writeRate))
+
+			content.WriteString(fmt.Sprintf("R:%s/s W:%s/s\n", readRateStr, writeRateStr))
+
+			diskGraph := m.renderSplitDiskGraph(m.diskHistory, width-2, chartHeight)
+			content.WriteString(diskGraph)
+
+			// Add totals
+			totalRead := m.formatBytes(latest.readBytes)
+			totalWrite := m.formatBytes(latest.writeBytes)
+			content.WriteString(fmt.Sprintf("\nR: %s W: %s", totalRead, totalWrite))
+		}
+
+		// Update used and check remaining for sensors
+		used = lipgloss.Height(content.String())
+		remaining = innerHeight - used
+
+		// Always show sensors if we have them
+		if len(m.systemTemperatures) > 0 {
+			content.WriteString("\n\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("SENSORS") + "\n")
+			used = lipgloss.Height(content.String())
+			remaining = innerHeight - used
+			sensorsToShow := min(len(m.systemTemperatures), remaining)
+			if sensorsToShow < 0 {
+				sensorsToShow = 0
+			}
+
+			for i := 0; i < sensorsToShow; i++ {
+				sensor := m.systemTemperatures[i]
+				// Use full sensor name, don't truncate unnecessarily
+				name := sensor.Name
+				if len(name) > 20 { // Only truncate if really long
+					name = name[:20]
+				}
+
+				// Color based on temperature
+				tempStr := fmt.Sprintf("%.0f°C", sensor.Temperature)
+				if sensor.Temperature > 70 {
+					tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(tempStr)
+				} else if sensor.Temperature > 50 {
+					tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(tempStr)
+				}
+
+				content.WriteString(fmt.Sprintf("%s: %s\n", name, tempStr))
+			}
+		}
+	}
+
+	// Ensure content fills allocated height
+	contentStr := content.String()
+	lines := strings.Split(contentStr, "\n")
+	// innerHeight already defined above
+	for len(lines) < innerHeight {
+		lines = append(lines, "")
+	}
+	if len(lines) > innerHeight {
+		lines = lines[:innerHeight]
+	}
+
+	return style.Render(strings.Join(lines, "\n"))
+}
+
+func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#8B5FBF")).
+		Padding(0, 1).
+		Margin(0, 0, 0, 0).
+		Width(width).
+		MaxHeight(height)
+
+	var content strings.Builder
+
+	// Use interface name as header instead of "NETWORK"
+	interfaceName := "NETWORK"
+	if m.metrics != nil && len(m.metrics.Network) > 0 {
+		interfaceName = m.metrics.Network[0].Name
+	}
+
+	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render(interfaceName) + "\n")
+
+	innerHeight := height - 2
+	
+	if len(m.networkHistory) == 0 {
+		content.WriteString("Loading...")
+		// Pad to fill height even when loading
+		contentStr := content.String()
+		lines := strings.Split(contentStr, "\n")
+		for len(lines) < innerHeight {
+			lines = append(lines, "")
+		}
+		return style.Render(strings.Join(lines, "\n"))
+	}
+
+	// Get latest rates
+	latest := m.networkHistory[len(m.networkHistory)-1]
+
+	// Format rates in human readable format
+	rxRateStr := m.formatBytes(uint64(latest.rxRate))
+	txRateStr := m.formatBytes(uint64(latest.txRate))
+
+	content.WriteString(fmt.Sprintf("↓%s/s ↑%s/s\n", rxRateStr, txRateStr))
+
+	// Build totals line first to know exact space needed
+	totalRx := m.formatBytes(latest.rxBytes)
+	totalTx := m.formatBytes(latest.txBytes)
+	bottomLine := fmt.Sprintf("RX: %s TX: %s", totalRx, totalTx)
+	if len(bottomLine) > width-4 {
+		bottomLine = m.truncate(bottomLine, width-4)
+	}
+	
+	// Calculate exact chart height to fill space
+	used := lipgloss.Height(content.String())
+	remaining := innerHeight - used - 1 // -1 for the totals line
+	chartHeight := remaining
+	if chartHeight < 1 {
+		chartHeight = 1
+	}
+	
+	// Render chart to fill exact space
+	if chartHeight > 0 {
+		content.WriteString(m.renderSplitNetworkGraph(m.networkHistory, width-2, chartHeight))
+	}
+	
+	// Add totals at bottom
+	content.WriteString("\n" + bottomLine)
+	
+	// Ensure content exactly fills inner height to prevent shrinking
+	contentStr := content.String()
+	contentHeight := lipgloss.Height(contentStr)
+	
+	// Add padding to reach exactly innerHeight lines
+	if contentHeight < innerHeight {
+		padding := strings.Repeat("\n", innerHeight - contentHeight)
+		contentStr = contentStr + padding
+	} else if contentHeight > innerHeight {
+		// If too tall, truncate to fit
+		lines := strings.Split(contentStr, "\n")
+		contentStr = strings.Join(lines[:innerHeight], "\n")
+	}
+
+	return style.Render(contentStr)
+}
+
+func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
+	// Calculate column widths with dynamic 5th column
+	bordersPadding := 16 // Increased padding for safety
+	availableWidth := totalWidth - bordersPadding
+	
+	// Define minimum widths that can shrink if needed
+	pidWidth := 8  
+	userWidth := 10  
+	cpuWidth := 6   
+	memWidth := 6   
+	
+	// If space is really tight, shrink fixed columns further
+	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
+	if availableWidth < fixedColumnsWidth + 10 {
+		// Emergency shrink mode
+		pidWidth = 6
+		userWidth = 8
+		cpuWidth = 5
+		memWidth = 5
+		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
+	}
+	
+	// Check if we have enough space for 5th column (FULL COMMAND)
+	minCommandWidth := 15
+	minFullCommandWidth := 20
+	remainingWidth := availableWidth - fixedColumnsWidth
+	
+	var columns []table.Column
+	if remainingWidth >= minCommandWidth + minFullCommandWidth + 2 { // +2 for spacing
+		// 5-column layout with separate COMMAND and FULL COMMAND
+		commandWidth := minCommandWidth
+		fullCommandWidth := remainingWidth - commandWidth
+		if fullCommandWidth > 60 {
+			fullCommandWidth = 60 // reasonable max
+			commandWidth = remainingWidth - fullCommandWidth
+		}
+		
+		columns = []table.Column{
+			{Title: "PID", Width: pidWidth},
+			{Title: "USER", Width: userWidth},
+			{Title: "CPU%", Width: cpuWidth},
+			{Title: "MEM%", Width: memWidth},
+			{Title: "COMMAND", Width: commandWidth},
+			{Title: "FULL COMMAND", Width: fullCommandWidth},
+		}
+	} else {
+		// 4-column layout (original)
+		commandWidth := remainingWidth
+		if commandWidth < 8 {
+			commandWidth = 8 // Absolute minimum
+		}
+		if commandWidth > 80 {
+			commandWidth = 80 // Reasonable max
+		}
+		
+		columns = []table.Column{
+			{Title: "PID", Width: pidWidth},
+			{Title: "USER", Width: userWidth},
+			{Title: "CPU%", Width: cpuWidth},
+			{Title: "MEM%", Width: memWidth},
+			{Title: "COMMAND", Width: commandWidth},
+		}
+	}
+	
+	// Clear table completely before changing column structure to prevent panic
+	m.processTable.SetRows([]table.Row{})
+	m.processTable.SetColumns(columns)
+	// Force table to update viewport with new column structure
+	m.processTable.UpdateViewport()
+	// Now repopulate with correct column structure
+	m.updateProcessTable()
+}
+
+
+func (m *ResponsiveTUIModel) renderDiskBar(current, max float64, width int, isUsed bool) string {
+	if max == 0 || width <= 0 {
+		return strings.Repeat("░", width)
+	}
+
+	filled := int((current / max) * float64(width))
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+
+	var bar strings.Builder
+	for i := 0; i < width; i++ {
+		if i < filled {
+			bar.WriteString("▓")
+		} else {
+			bar.WriteString("░")
+		}
+	}
+
+	result := bar.String()
+
+	if isUsed {
+		if current > 90 {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(result) // Bright purple for high usage
+		} else if current > 70 {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(result) // Medium purple for medium usage
+		}
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render(result) // Theme purple for used space
+	} else {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#6B46C1")).Render(result) // Slightly different purple for free space
+	}
+}
+
+func (m *ResponsiveTUIModel) formatBytes(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func (m *ResponsiveTUIModel) truncate(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 2 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-2] + ".."
+}
+
+func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, width, height int) string {
+	if len(history) == 0 || width < 10 || height < 3 {
+		return strings.Repeat("─", width) + "\n"
+	}
+
+	// Find max rates for scaling
+	var maxRxRate, maxTxRate float64
+	for _, sample := range history {
+		if sample.rxRate > maxRxRate {
+			maxRxRate = sample.rxRate
+		}
+		if sample.txRate > maxTxRate {
+			maxTxRate = sample.txRate
+		}
+	}
+
+	// Use separate scaling for rx and tx to make both visible
+	if maxRxRate == 0 && maxTxRate == 0 {
+		return strings.Repeat("─", width) + "\n"
+	}
+
+	// Ensure minimum scaling to make small values visible
+	if maxRxRate > 0 && maxRxRate < 1024 {
+		maxRxRate = 1024 // Minimum 1KB for scaling
+	}
+	if maxTxRate > 0 && maxTxRate < 1024 {
+		maxTxRate = 1024 // Minimum 1KB for scaling
+	}
+
+	// Create split graph - download above center line, upload below
+	centerLine := height / 2
+	upRows := centerLine
+	downRows := height - centerLine - 1 // -1 for center line
+
+	var result strings.Builder
+
+	// Use all available samples, but sample them to fit the width
+	// This preserves history better than just taking the last `width` samples
+	samplesPerCol := 1
+	if len(history) > width {
+		samplesPerCol = len(history) / width
+		if len(history)%width != 0 {
+			samplesPerCol++
+		}
+	}
+
+	// Render from top to bottom
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			// Sample from the history using intelligent sampling
+			histIdx := col * samplesPerCol
+			if histIdx >= len(history) {
+				result.WriteString(" ")
+				continue
+			}
+
+			// If we have multiple samples per column, average them
+			var avgRx, avgTx float64
+			sampleCount := 0
+			for i := 0; i < samplesPerCol && histIdx+i < len(history); i++ {
+				sample := history[histIdx+i]
+				avgRx += sample.rxRate
+				avgTx += sample.txRate
+				sampleCount++
+			}
+			if sampleCount > 0 {
+				avgRx /= float64(sampleCount)
+				avgTx /= float64(sampleCount)
+			}
+
+			sample := NetworkSample{rxRate: avgRx, txRate: avgTx}
+
+			if row == centerLine {
+				result.WriteString("─") // Center line
+			} else if row < centerLine {
+				// Download (above center) - row 0 is top, use separate scaling
+				downloadHeight := int((sample.rxRate / maxRxRate) * float64(upRows))
+				if downloadHeight >= (upRows - row) {
+					// Use bright purple for download
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render("█")
+					result.WriteString(colored)
+				} else {
+					result.WriteString(" ")
+				}
+			} else {
+				// Upload (below center) - use separate scaling for better visibility
+				uploadHeight := int((sample.txRate / maxTxRate) * float64(downRows))
+				if uploadHeight >= (row - centerLine) {
+					// Use different purple shade for upload
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render("▓")
+					result.WriteString(colored)
+				} else {
+					result.WriteString(" ")
+				}
+			}
+		}
+		if row < height-1 {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
+}
+
+func (m *ResponsiveTUIModel) renderSplitDiskGraph(history []DiskSample, width, height int) string {
+	if len(history) == 0 || width < 10 || height < 3 {
+		return strings.Repeat("─", width) + "\n"
+	}
+
+	// Find max rates for scaling
+	var maxReadRate, maxWriteRate float64
+	for _, sample := range history {
+		if sample.readRate > maxReadRate {
+			maxReadRate = sample.readRate
+		}
+		if sample.writeRate > maxWriteRate {
+			maxWriteRate = sample.writeRate
+		}
+	}
+
+	// Use separate scaling for read and write to make both visible
+	if maxReadRate == 0 && maxWriteRate == 0 {
+		return strings.Repeat("─", width) + "\n"
+	}
+
+	// Ensure minimum scaling to make small values visible
+	if maxReadRate > 0 && maxReadRate < 1024 {
+		maxReadRate = 1024 // Minimum 1KB for scaling
+	}
+	if maxWriteRate > 0 && maxWriteRate < 1024 {
+		maxWriteRate = 1024 // Minimum 1KB for scaling
+	}
+
+	// Create split graph - read above center line, write below
+	centerLine := height / 2
+	upRows := centerLine
+	downRows := height - centerLine - 1 // -1 for center line
+
+	var result strings.Builder
+
+	// Use all available samples, but sample them to fit the width
+	samplesPerCol := 1
+	if len(history) > width {
+		samplesPerCol = len(history) / width
+		if len(history)%width != 0 {
+			samplesPerCol++
+		}
+	}
+
+	// Render from top to bottom
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			// Sample from the history using intelligent sampling
+			histIdx := col * samplesPerCol
+			if histIdx >= len(history) {
+				result.WriteString(" ")
+				continue
+			}
+
+			// If we have multiple samples per column, average them
+			var avgRead, avgWrite float64
+			sampleCount := 0
+			for i := 0; i < samplesPerCol && histIdx+i < len(history); i++ {
+				sample := history[histIdx+i]
+				avgRead += sample.readRate
+				avgWrite += sample.writeRate
+				sampleCount++
+			}
+			if sampleCount > 0 {
+				avgRead /= float64(sampleCount)
+				avgWrite /= float64(sampleCount)
+			}
+
+			sample := DiskSample{readRate: avgRead, writeRate: avgWrite}
+
+			if row == centerLine {
+				result.WriteString("─") // Center line
+			} else if row < centerLine {
+				// Read (above center) - row 0 is top, use separate scaling
+				readHeight := int((sample.readRate / maxReadRate) * float64(upRows))
+				if readHeight >= (upRows - row) {
+					// Use bright purple for read
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render("█")
+					result.WriteString(colored)
+				} else {
+					result.WriteString(" ")
+				}
+			} else {
+				// Write (below center) - use separate scaling for better visibility
+				writeHeight := int((sample.writeRate / maxWriteRate) * float64(downRows))
+				if writeHeight >= (row - centerLine) {
+					// Use different purple shade for write
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render("▓")
+					result.WriteString(colored)
+				} else {
+					result.WriteString(" ")
+				}
+			}
+		}
+		if row < height-1 {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
 }

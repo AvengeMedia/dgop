@@ -58,6 +58,9 @@ type ResponsiveTUIModel struct {
 	diskCursor     string
 	lastDiskUpdate time.Time
 
+	systemTemperatures []models.TemperatureSensor
+	lastTempUpdate     time.Time
+
 	sortBy      gops.ProcSortBy
 	procLimit   int
 	ready       bool

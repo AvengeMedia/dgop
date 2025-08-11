@@ -3,6 +3,7 @@ package gops
 import (
 	"github.com/AvengeMedia/dgop/internal/log"
 	"github.com/AvengeMedia/dgop/models"
+	"github.com/shirou/gopsutil/v4/sensors"
 )
 
 type GopsUtil struct{}
@@ -65,4 +66,25 @@ func (self *GopsUtil) GetAllMetricsWithCursors(procSortBy ProcSortBy, procLimit 
 		System:     systemInfo,
 		DiskMounts: diskMounts,
 	}, nil
+}
+
+// GetSystemTemperatures returns system temperature sensors
+func (self *GopsUtil) GetSystemTemperatures() ([]models.TemperatureSensor, error) {
+	temps, err := sensors.SensorsTemperatures()
+	if err != nil {
+		return nil, err
+	}
+
+	var sensors []models.TemperatureSensor
+	for _, temp := range temps {
+		sensor := models.TemperatureSensor{
+			Name:        temp.SensorKey,
+			Temperature: temp.Temperature,
+			High:        temp.High,
+			Critical:    temp.Critical,
+		}
+		sensors = append(sensors, sensor)
+	}
+
+	return sensors, nil
 }

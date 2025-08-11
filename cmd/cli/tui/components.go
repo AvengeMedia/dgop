@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -14,11 +15,11 @@ import (
 
 func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
 	columns := []table.Column{
-		{Title: "PID", Width: 8},
+		{Title: "PID", Width: 10},
+		{Title: "USER", Width: 12},
 		{Title: "CPU%", Width: 8},
 		{Title: "MEM%", Width: 8},
-		{Title: "COMMAND", Width: 25},
-		{Title: "FULL COMMAND", Width: 35},
+		{Title: "COMMAND", Width: 45},
 	}
 
 	t := table.New(
@@ -60,7 +61,7 @@ func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
 
 func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int) string {
 	if total == 0 {
-		return strings.Repeat("─", width)
+		return strings.Repeat("░", width)
 	}
 
 	percentage := float64(used) / float64(total) * 100.0
@@ -73,68 +74,131 @@ func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int) st
 		usedWidth = width
 	}
 
-	usedBar := strings.Repeat("█", usedWidth)
-	freeBar := strings.Repeat("─", width-usedWidth)
+	// Use the same style as the monolith - solid blocks
+	var bar strings.Builder
+	for i := 0; i < width; i++ {
+		if i < usedWidth {
+			bar.WriteString("▓") // Filled block
+		} else {
+			bar.WriteString("░") // Empty block
+		}
+	}
 
-	return progressBarUsedStyle.Render(usedBar) + progressBarStyle.Render(freeBar) +
-		fmt.Sprintf(" %.1f%%", percentage)
+	result := bar.String()
+
+	// Color based on usage using purple theme
+	if percentage > 80 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(result) // Bright purple for high
+	} else if percentage > 60 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(result) // Medium purple for medium
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render(result) // Theme purple for low
 }
 
-func (m *ResponsiveTUIModel) renderSystemInfoPanel(width int) string {
-	if m.metrics == nil || m.metrics.System == nil {
-		return panelStyle.Width(width).Render("Loading system info...")
-	}
+func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#8B5FBF")).
+		Padding(0, 1).
+		Margin(0).
+		Width(width).
+		MaxHeight(height)
 
-	dankArt := []string{
-		"  ██╗  ██╗",
-		"  ██║  ██║",
-		"  ███████║",
-		"  ██╔══██║",
-		"  ██║  ██║",
-		"  ╚═╝  ╚═╝",
-	}
+	// Use actual system distro
+	logo, color := getDistroInfo(m.hardware)
 
-	content := []string{}
-
-	hostname := "unknown"
+	// Build left content with expanded info
+	var leftLines []string
 	if m.hardware != nil {
-		hostname = m.hardware.Hostname
+		// Use primary purple for distro name
+		distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+		leftLines = append(leftLines, distroStyle.Render(m.hardware.Distro))
+		// Add logged in user with hostname
+		username := os.Getenv("USER")
+		if username == "" {
+			username = "user"
+		}
+		leftLines = append(leftLines, fmt.Sprintf("%s@%s", username, m.hardware.Hostname))
+		leftLines = append(leftLines, m.hardware.Kernel)
+		leftLines = append(leftLines, m.hardware.BIOS.Motherboard)
+		leftLines = append(leftLines, fmt.Sprintf("%s %s", m.hardware.BIOS.Version, m.hardware.BIOS.Date))
+
+		// Add CPU count if available
+		if m.metrics != nil && m.metrics.CPU != nil {
+			cpuCount := len(m.metrics.CPU.CoreUsage)
+			if cpuCount > 0 {
+				leftLines = append(leftLines, fmt.Sprintf("%d threads", cpuCount))
+			}
+		}
+
+		// Add uptime if available
+		if m.metrics != nil && m.metrics.System != nil && m.metrics.System.BootTime != "" {
+			leftLines = append(leftLines, fmt.Sprintf("Uptime: %s", m.metrics.System.BootTime))
+		}
 	}
 
-	uptimeStr := ""
-	if m.metrics.System.BootTime != "" {
-		uptimeStr = fmt.Sprintf("up %s", calculateUptime(m.metrics.System.BootTime))
+	// Build left content as single block
+	leftContent := strings.Join(leftLines, "\n")
+
+	// Build logo as single styled block, right-aligned
+	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	logoBlock := logoStyle.Render(strings.Join(logo, "\n"))
+
+	// Calculate available space and create proper right alignment
+	logoWidth := lipgloss.Width(logoBlock)
+	leftWidth := lipgloss.Width(leftContent)
+	availableWidth := width - 4 // account for borders and padding
+
+	// Create right-aligned logo by padding left content to push logo right
+	leftPadWidth := availableWidth - logoWidth - 2 // -2 for separator
+	var finalContent string
+	if leftPadWidth > leftWidth {
+		// Pad the left content to push logo to the right
+		paddedLeft := lipgloss.NewStyle().Width(leftPadWidth).Align(lipgloss.Left).Render(leftContent)
+		finalContent = lipgloss.JoinHorizontal(lipgloss.Top, paddedLeft, "  ", logoBlock)
+	} else {
+		// If no room for padding, just join normally
+		finalContent = lipgloss.JoinHorizontal(lipgloss.Top, leftContent, "  ", logoBlock)
 	}
 
-	now := time.Now()
-	clock := now.Format("15:04:05")
-
-	headerLine := fmt.Sprintf("%s  %s  %s", hostname, uptimeStr, clock)
-	content = append(content, boldTextStyle.Render(headerLine))
-	content = append(content, "")
-
-	if m.metrics.System != nil {
-		content = append(content, fmt.Sprintf("Load: %s", m.metrics.System.LoadAvg))
-		content = append(content, fmt.Sprintf("Tasks: %d processes", m.metrics.System.Processes))
-		content = append(content, fmt.Sprintf("Threads: %d", m.metrics.System.Threads))
+	// Only truncate if really necessary - be more generous with width
+	if lipgloss.Width(finalContent) > width-2 { // reduced from width-4
+		// Calculate actual available space for left content
+		logoBlockWidth := lipgloss.Width(logoBlock)
+		maxLeftWidth := width - 6 - logoBlockWidth // borders + padding + separator
+		if maxLeftWidth > 15 {                     // only truncate if we have reasonable space
+			truncatedLeft := ""
+			for i, line := range leftLines {
+				if len(line) > maxLeftWidth {
+					if maxLeftWidth > 3 {
+						line = line[:maxLeftWidth-3] + "..."
+					} else {
+						line = line[:maxLeftWidth]
+					}
+				}
+				if i > 0 {
+					truncatedLeft += "\n"
+				}
+				truncatedLeft += line
+			}
+			finalContent = lipgloss.JoinHorizontal(lipgloss.Top, truncatedLeft, "  ", logoBlock)
+		}
+		// If maxLeftWidth <= 15, keep original content and let it overflow slightly
 	}
 
-	contentStr := strings.Join(content, "\n")
-	artStr := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Render(strings.Join(dankArt, "\n"))
+	// Ensure content fills allocated height to show borders
+	contentHeight := lipgloss.Height(finalContent)
+	innerHeight := height - 2 // subtract borders
 
-	combinedContent := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		contentStr,
-		strings.Repeat(" ", 4),
-		artStr,
-	)
+	// Pad content to fill allocated height
+	if contentHeight < innerHeight {
+		padding := strings.Repeat("\n", innerHeight-contentHeight)
+		finalContent = finalContent + padding
+	}
 
-	centeredContent := lipgloss.NewStyle().
-		Width(width - 4).
-		Align(lipgloss.Center).
-		Render(combinedContent)
-
-	return panelStyle.Width(width).Render(centeredContent)
+	// Limit to inner dimensions
+	innerStyle := lipgloss.NewStyle().MaxHeight(height - 2).MaxWidth(width - 4)
+	return style.Render(innerStyle.Render(finalContent))
 }
 
 func formatBytes(bytes uint64) string {
@@ -191,32 +255,134 @@ func getDistroInfo(hardware *models.SystemHardware) ([]string, string) {
 	switch {
 	case strings.Contains(distro, "arch"):
 		return []string{
-			"      /\\      ",
-			"     /  \\     ",
-			"    /\\   \\    ",
-			"   /      \\   ",
-			"  /   ,,   \\  ",
-			" /   |  |  -\\ ",
+			"      /\\",
+			"     /  \\",
+			"    /    \\",
+			"   /      \\",
+			"  /   ,,   \\",
+			" /   |  |   \\",
 			"/_-''    ''-_\\",
 		}, "#1793D1"
 	case strings.Contains(distro, "ubuntu"):
 		return []string{
-			"         _   ",
-			"     ---(_)  ",
-			" _/  ---  \\  ",
-			"(_) |   |    ",
-			"  \\  --- _/  ",
-			"     ---(_)  ",
+			"         _",
+			"     ---(_)",
+			" _/  ---  \\",
+			"(_) |   |",
+			"  \\  --- _/",
+			"     ---(_)",
 		}, "#E95420"
+	case strings.Contains(distro, "fedora"):
+		return []string{
+			"        ,'''''.",
+			"       |   ,.  | ",
+			"       |  |  '_'",
+			"  ,....|  |..",
+			".'  ,_;|   ..'",
+			"|  |   |  |",
+			"|  ',_,'  |",
+			" '.     ,'",
+			"   '''''",
+		}, "#0B57A4"
+	case strings.Contains(distro, "nix"):
+		return []string{
+			"  ▗▄   ▗▄ ▄▖",
+			" ▄▄🬸█▄▄▄🬸█▛ ▃",
+			"   ▟▛    ▜▃▟🬕",
+			"🬋🬋🬫█      █🬛🬋🬋",
+			" 🬷▛🮃▙    ▟▛",
+			" 🮃 ▟█🬴▀▀▀█🬴▀▀",
+			"  ▝▀ ▀▘   ▀▘",
+		}, "#5294e2"
+	case strings.Contains(distro, "debian"):
+		return []string{
+			"  _____",
+			" /  __ \\",
+			"|  /    |",
+			"|  \\___-",
+			"-_",
+			"  --_",
+		}, "#D70A53"
+	case strings.Contains(distro, "mint"):
+		return []string{
+			" __________",
+			"|_          \\",
+			"  | | _____ |",
+			"  | | | | | |",
+			"  | | | | | |",
+			"  | \\____/ |",
+			"  \\_________/",
+		}, "#3EB489"
+	case strings.Contains(distro, "gentoo"):
+		return []string{
+			" *-----*",
+			"(       \\",
+			"\\    0   \\",
+			" \\        )",
+			" /      _/",
+			"(     _-",
+			"\\____-",
+		}, "#54487A"
+	case strings.Contains(distro, "cachyos"):
+		return []string{
+			"   /''''''''''''/",
+			"  /''''''''''''/",
+			" /''''''/",
+			"/''''''/",
+			"\\......\\",
+			" \\......\\",
+			"  \\............../",
+			"   \\............./",
+		}, "#08A283"
+	case strings.Contains(distro, "elementary"):
+		return []string{
+			"  _______",
+			" / ____  \\",
+			"/  |  /  /\\",
+			"|__\\ /  / |",
+			"\\   /__/  /",
+			" \\_______/",
+		}, "#64BAFF"
+	case strings.Contains(distro, "pop"):
+		return []string{
+			"______",
+			"\\   * \\        *_",
+			" \\ \\ \\ \\      / /",
+			"  \\ \\_\\ \\    / /",
+			"   \\  ___\\  /_/",
+			"    \\ \\    _",
+			"   __\\_\\__(_)_",
+			"  (___________)`",
+		}, "#48B9C7"
+	case strings.Contains(distro, "suse"):
+		return []string{
+			"  _______",
+			"**|   ** \\",
+			"     / .\\ \\",
+			"     \\__/ |",
+			"   _______|",
+			"   \\_______",
+			"__________/",
+		}, "#73BA25"
+	case strings.Contains(distro, "endeavour"):
+		return []string{
+			"          /o.",
+			"        /sssso-",
+			"      /ossssssso:",
+			"    /ssssssssssso+",
+			"  /ssssssssssssssso+",
+			"//osssssssssssssso+-",
+			" `+++++++++++++++-`",
+		}, "#7F3FBF"
 	default:
 		return []string{
-			"  ▄▄▄▄▄▄▄▄▄▄▄",
-			"  █         █",
-			"  █  ▄▄▄▄▄  █",
-			"  █  █   █  █",
-			"  █  █▄▄▄█  █",
-			"  █         █",
-			"  ▀▀▀▀▀▀▀▀▀▀▀",
+			"    ___",
+			"   (.. \\",
+			"   (<> |",
+			"  //  \\ \\",
+			" ( |  | /|",
+			"_/\\ __)/_)",
+			"\\/____\\/",
 		}, "#7D56F4"
 	}
 }
