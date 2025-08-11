@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/bbedward/DankMaterialShell/dankgop/config"
+	"github.com/AvengeMedia/dgop/config"
 	"github.com/danielgtaylor/huma/v2"
 )
 

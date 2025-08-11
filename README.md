@@ -1,16 +1,16 @@
-# dankgop
+# dgop
 
 <div align=center>
 
-![GitHub last commit](https://img.shields.io/github/last-commit/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=9ccbfb)
-![GitHub License](https://img.shields.io/github/license/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=b9c8da)
-![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dankgop?style=for-the-badge&labelColor=101418&color=a6da95)
-[![AUR](https://img.shields.io/aur/version/dankgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://aur.archlinux.org/packages/dankgop)
+![GitHub last commit](https://img.shields.io/github/last-commit/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=9ccbfb)
+![GitHub License](https://img.shields.io/github/license/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=b9c8da)
+![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=a6da95)
+[![AUR](https://img.shields.io/aur/version/dgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://aur.archlinux.org/packages/dgop)
 
 </div>
 
 <div align="center">
-<img src="https://github.com/user-attachments/assets/397d5bb3-cac3-4c09-9ebc-afc7533c433b" width="600" alt="dankgop" />
+<img src="https://github.com/user-attachments/assets/397d5bb3-cac3-4c09-9ebc-afc7533c433b" width="600" alt="dgop" />
 </div>
 
 System monitoring tool with CLI and REST API.
@@ -20,15 +20,15 @@ Can be used standalone, or as a  companion for [DankMaterialShell](https://githu
 ## Installation
 
 ### Latest Release
-Download the latest binary from [GitHub Releases](https://github.com/AvengeMedia/dankgop/releases/latest)
+Download the latest binary from [GitHub Releases](https://github.com/AvengeMedia/dgop/releases/latest)
 
 ### Arch Linux (AUR)
 ```bash
 # Using yay
-yay -S dankgop
+yay -S dgop
 
 # Using paru  
-paru -S dankgop
+paru -S dgop
 ```
 
 ### Build from Source
@@ -47,37 +47,37 @@ go run ./cmd/cli [command]
 
 ```bash
 # See all at once
-dankgop all
+dgop all
 
 # Just CPU info
-dankgop cpu
+dgop cpu
 
 # Memory usage
-dankgop memory
+dgop memory
 
 # Network interfaces
-dankgop network
+dgop network
 
 # Disk usage and mounts
-dankgop disk
+dgop disk
 
 # Running processes (sorted by CPU usage)
-dankgop processes
+dgop processes
 
 # System load and uptime
-dankgop system
+dgop system
 
 # Hardware info (BIOS, motherboard, etc)
-dankgop hardware
+dgop hardware
 
 # GPU information
-dankgop gpu
+dgop gpu
 
 # Get temperature for specific GPU
-dankgop gpu-temp --pci-id 10de:2684
+dgop gpu-temp --pci-id 10de:2684
 
 # List available modules
-dankgop modules
+dgop modules
 ```
 
 ## Meta Command
@@ -86,19 +86,19 @@ Mix and match any modules you want:
 
 ```bash
 # Just CPU and memory
-dankgop meta --modules cpu,memory
+dgop meta --modules cpu,memory
 
 # Everything except processes
-dankgop meta --modules cpu,memory,network,disk,system,hardware,gpu
+dgop meta --modules cpu,memory,network,disk,system,hardware,gpu
 
 # GPU with temperatures
-dankgop meta --modules gpu --gpu-pci-ids 10de:2684
+dgop meta --modules gpu --gpu-pci-ids 10de:2684
 
 # Multiple GPU temperatures
-dankgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
+dgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
 
-# Everything (same as 'dankgop all')
-dankgop meta --modules all
+# Everything (same as 'dgop all')
+dgop meta --modules all
 ```
 
 ## JSON Output
@@ -106,24 +106,24 @@ dankgop meta --modules all
 Add `--json` to any command:
 
 ```bash
-dankgop cpu --json
-dankgop meta --modules gpu,memory --json
+dgop cpu --json
+dgop meta --modules gpu,memory --json
 ```
 
 ## Process Options
 
 ```bash
 # Sort by memory instead of CPU
-dankgop processes --sort memory
+dgop processes --sort memory
 
 # Limit to top 10
-dankgop processes --limit 10
+dgop processes --limit 10
 
 # Skip CPU calculation for faster results
-dankgop processes --no-cpu
+dgop processes --no-cpu
 
 # Combine options
-dankgop meta --modules processes --sort memory --limit 20 --no-cpu
+dgop meta --modules processes --sort memory --limit 20 --no-cpu
 ```
 
 ## API Server
@@ -131,7 +131,7 @@ dankgop meta --modules processes --sort memory --limit 20 --no-cpu
 Start the REST API:
 
 ```bash
-dankgop server
+dgop server
 ```
 
 Then hit these endpoints:
@@ -154,12 +154,12 @@ API docs: http://localhost:63484/docs
 
 ### Get GPU temps for both your cards
 ```bash
-dankgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
+dgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
 ```
 
 ### Monitor system without slow CPU calculations
 ```bash
-dankgop meta --modules cpu,memory,network --no-cpu
+dgop meta --modules cpu,memory,network --no-cpu
 ```
 
 ### API: Get CPU and memory as JSON
@@ -174,7 +174,7 @@ curl "http://localhost:63484/gops/meta?modules=gpu&gpu_pci_ids=10de:2684"
 
 ## Real-time Monitoring with Sampling
 
-dankgop supports cursor-based sampling for building real-time monitoring tools like htop. Instead of relying on instantaneous snapshots, you can track system state changes over time for more accurate CPU usage calculations.
+dgop supports cursor-based sampling for building real-time monitoring tools like htop. Instead of relying on instantaneous snapshots, you can track system state changes over time for more accurate CPU usage calculations.
 
 The sampling system works by:
 - Taking an initial measurement that establishes baseline CPU times and process ticks
@@ -185,11 +185,11 @@ This approach accounts for the actual time elapsed between measurements, making 
 
 ```bash
 # First call - establishes baseline
-dankgop meta --modules cpu,processes --json > baseline.json
+dgop meta --modules cpu,processes --json > baseline.json
 
 # Wait 5 seconds, then use cursor data for accurate measurements
 sleep 5
-dankgop meta --modules cpu,processes --json \
+dgop meta --modules cpu,processes --json \
   --cpu-sample '{"previousTotal":[1690,1,391,53692,23,233,44,0],"timestamp":1754784779057}' \
   --proc-sample '[{"pid":1234,"previousTicks":93,"timestamp":1754784779057}]'
 ```

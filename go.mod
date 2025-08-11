@@ -1,4 +1,4 @@
-module github.com/bbedward/DankMaterialShell/dankgop
+module github.com/AvengeMedia/dgop
 
 go 1.23.0
 

@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/bbedward/DankMaterialShell/dankgop/config"
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
+	"github.com/AvengeMedia/dgop/config"
+	"github.com/AvengeMedia/dgop/gops"
 )
 
 // EmptyInput can be used when no input is needed.

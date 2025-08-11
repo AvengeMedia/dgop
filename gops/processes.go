@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
@@ -27,7 +27,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 	procList := make([]*models.ProcessInfo, 0)
 	totalMem, _ := mem.VirtualMemory()
 	currentTime := time.Now().UnixMilli()
-	
+
 	// Decode cursor string into cursor data map
 	cursorMap := make(map[int32]*models.ProcessCursorData)
 	if cursor != "" {
@@ -140,11 +140,11 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 			Timestamp: currentTime,
 		})
 	}
-	
+
 	// Encode cursor list as single base64 string
 	cursorBytes, _ := json.Marshal(cursorList)
 	cursorStr := base64.RawURLEncoding.EncodeToString(cursorBytes)
-	
+
 	return &models.ProcessListResponse{
 		Processes: procList,
 		Cursor:    cursorStr,
@@ -181,22 +181,22 @@ func calculateProcessCPUPercentageWithCursor(cursor *models.ProcessCursorData, c
 	if cursor.Timestamp == 0 || currentCPUTime <= cursor.Ticks {
 		return 0
 	}
-	
+
 	cpuTimeDiff := currentCPUTime - cursor.Ticks
-	wallTimeDiff := float64(currentTime - cursor.Timestamp) / 1000.0
-	
+	wallTimeDiff := float64(currentTime-cursor.Timestamp) / 1000.0
+
 	if wallTimeDiff <= 0 {
 		return 0
 	}
-	
+
 	cpuPercent := (cpuTimeDiff / wallTimeDiff) * 100.0
-	
+
 	if cpuPercent > 100.0 {
 		cpuPercent = 100.0
 	}
 	if cpuPercent < 0 {
 		cpuPercent = 0
 	}
-	
+
 	return cpuPercent
 }

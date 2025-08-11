@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/cpu"
 )
 
@@ -99,10 +99,10 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	}
 
 	if len(cursorData.Total) > 0 && len(cpuInfo.Total) > 0 && cursorData.Timestamp > 0 {
-		timeDiff := float64(currentTime - cursorData.Timestamp) / 1000.0
+		timeDiff := float64(currentTime-cursorData.Timestamp) / 1000.0
 		if timeDiff > 0 {
 			cpuInfo.Usage = calculateCPUPercentage(cursorData.Total, cpuInfo.Total)
-			
+
 			if len(cursorData.Cores) > 0 && len(cpuInfo.Cores) > 0 {
 				cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
 				for i := 0; i < len(cpuInfo.Cores) && i < len(cursorData.Cores); i++ {
@@ -175,41 +175,40 @@ func getCPUTemperatureCached() float64 {
 	return 0
 }
 
-
 func calculateCPUPercentage(prev, curr []float64) float64 {
 	if len(prev) < 8 || len(curr) < 8 {
 		return 0
 	}
-	
+
 	prevUser, prevNice, prevSystem := prev[0], prev[1], prev[2]
 	prevIdle, prevIowait := prev[3], prev[4]
 	prevIrq, prevSoftirq, prevSteal := prev[5], prev[6], prev[7]
-	
+
 	currUser, currNice, currSystem := curr[0], curr[1], curr[2]
 	currIdle, currIowait := curr[3], curr[4]
 	currIrq, currSoftirq, currSteal := curr[5], curr[6], curr[7]
-	
+
 	prevTotal := prevUser + prevNice + prevSystem + prevIdle + prevIowait + prevIrq + prevSoftirq + prevSteal
 	currTotal := currUser + currNice + currSystem + currIdle + currIowait + currIrq + currSoftirq + currSteal
-	
+
 	prevBusy := prevTotal - prevIdle - prevIowait
 	currBusy := currTotal - currIdle - currIowait
-	
+
 	if currBusy <= prevBusy {
 		return 0
 	}
 	if currTotal <= prevTotal {
 		return 100
 	}
-	
+
 	usage := (currBusy - prevBusy) / (currTotal - prevTotal) * 100.0
-	
+
 	if usage < 0 {
 		return 0
 	}
 	if usage > 100 {
 		return 100
 	}
-	
+
 	return usage
 }

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +94,7 @@ var modulesCmd = &cobra.Command{
 func runAllCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	
+
 	metrics, err := gopsUtil.GetAllMetricsWithCursors(sortBy, procLimit, enableCPU, cpuCursor, procCursor)
 	if err != nil {
 		return fmt.Errorf("failed to get system metrics: %w", err)
@@ -179,7 +179,7 @@ func runDiskCommand(gopsUtil *gops.GopsUtil) error {
 func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
-	
+
 	result, err := gopsUtil.GetProcessesWithCursor(sortBy, procLimit, enableCPU, procCursor)
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
@@ -251,12 +251,12 @@ func runGPUTempCommand(gopsUtil *gops.GopsUtil) error {
 
 func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 	params := gops.MetaParams{
-		SortBy:         parseProcessSortBy(procSortBy, disableProcCPU),
-		ProcLimit:      procLimit,
-		EnableCPU:      !disableProcCPU,
-		GPUPciIds:      metaGPUPciIds,
-		CPUCursor:      cpuCursor,
-		ProcCursor:     procCursor,
+		SortBy:     parseProcessSortBy(procSortBy, disableProcCPU),
+		ProcLimit:  procLimit,
+		EnableCPU:  !disableProcCPU,
+		GPUPciIds:  metaGPUPciIds,
+		CPUCursor:  cpuCursor,
+		ProcCursor: procCursor,
 	}
 
 	metaInfo, err := gopsUtil.GetMeta(metaModules, params)

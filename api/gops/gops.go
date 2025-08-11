@@ -3,7 +3,7 @@ package gops_handler
 import (
 	"net/http"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/api/server"
+	"github.com/AvengeMedia/dgop/api/server"
 	"github.com/danielgtaylor/huma/v2"
 )
 

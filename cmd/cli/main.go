@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/gops"
+	"github.com/AvengeMedia/dgop/gops"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -87,7 +87,7 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "dankgop",
+	Use: "dankgop",
 	Run: func(cmd *cobra.Command, args []string) {
 		printHeader()
 		cmd.Help()

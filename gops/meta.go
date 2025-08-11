@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bbedward/DankMaterialShell/dankgop/models"
+	"github.com/AvengeMedia/dgop/models"
 )
 
 var availableModules = []string{
@@ -27,12 +27,12 @@ func (self *GopsUtil) GetModules() (*models.ModulesInfo, error) {
 }
 
 type MetaParams struct {
-	SortBy         ProcSortBy
-	ProcLimit      int
-	EnableCPU      bool
-	GPUPciIds      []string
-	CPUCursor      string
-	ProcCursor     string
+	SortBy     ProcSortBy
+	ProcLimit  int
+	EnableCPU  bool
+	GPUPciIds  []string
+	CPUCursor  string
+	ProcCursor string
 }
 
 func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.MetaInfo, error) {
