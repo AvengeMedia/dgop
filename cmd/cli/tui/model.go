@@ -69,4 +69,9 @@ type ResponsiveTUIModel struct {
 
 	distroLogo  []string
 	distroColor string
+	
+	// Logo cycling for testing
+	logoTestMode     bool
+	currentLogoIndex int
+	lastLogoUpdate   time.Time
 }

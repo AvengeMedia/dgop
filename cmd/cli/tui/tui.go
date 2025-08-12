@@ -101,6 +101,20 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastTempUpdate = now
 		}
 
+		// Logo cycling for testing - cycle every 3 seconds
+		if m.logoTestMode && now.Sub(m.lastLogoUpdate) >= 3*time.Second {
+			allLogos := getAllDistroLogos()
+			m.currentLogoIndex = (m.currentLogoIndex + 1) % len(allLogos)
+			currentLogo := allLogos[m.currentLogoIndex]
+			m.distroLogo = currentLogo.logo
+			m.distroColor = currentLogo.color
+			// Update the hardware distro name to show which logo we're displaying
+			if m.hardware != nil {
+				m.hardware.Distro = currentLogo.name
+			}
+			m.lastLogoUpdate = now
+		}
+
 	case fetchDataMsg:
 		m.metrics = msg.metrics
 		m.err = msg.err
