@@ -147,6 +147,21 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fetchDiskMsg:
+		// Force some data into history to test rendering
+		if len(m.diskHistory) == 0 {
+			// Add some initial samples to get started
+			for i := 0; i < 5; i++ {
+				m.diskHistory = append(m.diskHistory, DiskSample{
+					timestamp:  time.Now().Add(time.Duration(-i) * time.Second),
+					readBytes:  uint64(i * 1000000),
+					writeBytes: uint64(i * 2000000),
+					readRate:   float64(i * 100000),
+					writeRate:  float64(i * 200000),
+					device:     "test",
+				})
+			}
+		}
+		
 		if msg.rates != nil && len(msg.rates.Disks) > 0 {
 			m.diskCursor = msg.rates.Cursor
 
@@ -647,7 +662,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		content.WriteString("Loading...\n")
 	}
 
-	content.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("DISKS") + "\n")
+	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("DISKS") + "\n")
 
 	innerHeight := height - 2 // Always calculate this
 	
@@ -703,37 +718,17 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		used = lipgloss.Height(content.String())
 		remaining = innerHeight - used
 
-		// Add disk I/O chart if there's space and history
-		if len(m.diskHistory) > 0 && remaining >= 3 { // need at least 3 lines for chart
-			// Reserve space for sensors if we have them
-			sensorLines := 0
-			if len(m.systemTemperatures) > 0 {
-				sensorLines = 2 + min(len(m.systemTemperatures), 5) // header + up to 5 sensors
-			}
-			
-			const minNeeded = 2 // rates line + totals line
-			chartHeight := remaining - minNeeded - sensorLines
-			if chartHeight < 1 {
-				chartHeight = 1
-			}
-			if chartHeight > 6 {
-				chartHeight = 6 // Give disk chart more space
-			}
-
-			content.WriteString("\n")
+		// Add disk I/O rates and totals
+		if len(m.diskHistory) > 0 {
 			latest := m.diskHistory[len(m.diskHistory)-1]
 			readRateStr := m.formatBytes(uint64(latest.readRate))
 			writeRateStr := m.formatBytes(uint64(latest.writeRate))
-
-			content.WriteString(fmt.Sprintf("R:%s/s W:%s/s\n", readRateStr, writeRateStr))
-
-			diskGraph := m.renderSplitDiskGraph(m.diskHistory, width-2, chartHeight)
-			content.WriteString(diskGraph)
-
-			// Add totals
 			totalRead := m.formatBytes(latest.readBytes)
 			totalWrite := m.formatBytes(latest.writeBytes)
-			content.WriteString(fmt.Sprintf("\nR: %s W: %s", totalRead, totalWrite))
+			
+			content.WriteString("\n")
+			content.WriteString(fmt.Sprintf("R:%s/s W:%s/s\n", readRateStr, writeRateStr))
+			content.WriteString(fmt.Sprintf("Total: R:%s W:%s", totalRead, totalWrite))
 		}
 
 		// Update used and check remaining for sensors
@@ -742,7 +737,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 
 		// Always show sensors if we have them
 		if len(m.systemTemperatures) > 0 {
-			content.WriteString("\n\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("SENSORS") + "\n")
+			content.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("SENSORS") + "\n")
 			used = lipgloss.Height(content.String())
 			remaining = innerHeight - used
 			sensorsToShow := min(len(m.systemTemperatures), remaining)
@@ -1107,105 +1102,10 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 	return result.String()
 }
 
-func (m *ResponsiveTUIModel) renderSplitDiskGraph(history []DiskSample, width, height int) string {
-	if len(history) == 0 || width < 10 || height < 3 {
-		return strings.Repeat("─", width) + "\n"
+
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-
-	// Find max rates for scaling
-	var maxReadRate, maxWriteRate float64
-	for _, sample := range history {
-		if sample.readRate > maxReadRate {
-			maxReadRate = sample.readRate
-		}
-		if sample.writeRate > maxWriteRate {
-			maxWriteRate = sample.writeRate
-		}
-	}
-
-	// Use separate scaling for read and write to make both visible
-	if maxReadRate == 0 && maxWriteRate == 0 {
-		return strings.Repeat("─", width) + "\n"
-	}
-
-	// Ensure minimum scaling to make small values visible
-	if maxReadRate > 0 && maxReadRate < 1024 {
-		maxReadRate = 1024 // Minimum 1KB for scaling
-	}
-	if maxWriteRate > 0 && maxWriteRate < 1024 {
-		maxWriteRate = 1024 // Minimum 1KB for scaling
-	}
-
-	// Create split graph - read above center line, write below
-	centerLine := height / 2
-	upRows := centerLine
-	downRows := height - centerLine - 1 // -1 for center line
-
-	var result strings.Builder
-
-	// Use all available samples, but sample them to fit the width
-	samplesPerCol := 1
-	if len(history) > width {
-		samplesPerCol = len(history) / width
-		if len(history)%width != 0 {
-			samplesPerCol++
-		}
-	}
-
-	// Render from top to bottom
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
-			// Sample from the history using intelligent sampling
-			histIdx := col * samplesPerCol
-			if histIdx >= len(history) {
-				result.WriteString(" ")
-				continue
-			}
-
-			// If we have multiple samples per column, average them
-			var avgRead, avgWrite float64
-			sampleCount := 0
-			for i := 0; i < samplesPerCol && histIdx+i < len(history); i++ {
-				sample := history[histIdx+i]
-				avgRead += sample.readRate
-				avgWrite += sample.writeRate
-				sampleCount++
-			}
-			if sampleCount > 0 {
-				avgRead /= float64(sampleCount)
-				avgWrite /= float64(sampleCount)
-			}
-
-			sample := DiskSample{readRate: avgRead, writeRate: avgWrite}
-
-			if row == centerLine {
-				result.WriteString("─") // Center line
-			} else if row < centerLine {
-				// Read (above center) - row 0 is top, use separate scaling
-				readHeight := int((sample.readRate / maxReadRate) * float64(upRows))
-				if readHeight >= (upRows - row) {
-					// Use bright purple for read
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render("█")
-					result.WriteString(colored)
-				} else {
-					result.WriteString(" ")
-				}
-			} else {
-				// Write (below center) - use separate scaling for better visibility
-				writeHeight := int((sample.writeRate / maxWriteRate) * float64(downRows))
-				if writeHeight >= (row - centerLine) {
-					// Use different purple shade for write
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render("▓")
-					result.WriteString(colored)
-				} else {
-					result.WriteString(" ")
-				}
-			}
-		}
-		if row < height-1 {
-			result.WriteString("\n")
-		}
-	}
-
-	return result.String()
+	return b
 }

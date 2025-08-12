@@ -157,6 +157,7 @@ func (m *ResponsiveTUIModel) renderMemoryPanel(width int) string {
 	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
 }
 
+
 func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 	var content []string
 	content = append(content, boldTextStyle.Render("DISK"))
@@ -218,63 +219,8 @@ func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 		latest := m.diskHistory[len(m.diskHistory)-1]
 		content = append(content, fmt.Sprintf("R: %s/s W: %s/s", formatBytes(uint64(latest.readRate)), formatBytes(uint64(latest.writeRate))))
 
-		// Mini chart
-		chartHeight := 4
-		chartWidth := width - 4
-		chart := m.renderMiniDiskChart(chartWidth, chartHeight)
-		content = append(content, chart)
 	}
 
 	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
 }
 
-func (m *ResponsiveTUIModel) renderMiniDiskChart(width, height int) string {
-	if len(m.diskHistory) < 2 {
-		return ""
-	}
-
-	var maxRate float64
-	for _, sample := range m.diskHistory {
-		if sample.readRate > maxRate {
-			maxRate = sample.readRate
-		}
-		if sample.writeRate > maxRate {
-			maxRate = sample.writeRate
-		}
-	}
-
-	if maxRate == 0 {
-		return strings.Repeat("─", width)
-	}
-
-	// Simple sparkline
-	result := ""
-	samplesShown := min(len(m.diskHistory), width)
-
-	for i := 0; i < samplesShown; i++ {
-		sample := m.diskHistory[len(m.diskHistory)-samplesShown+i]
-		combinedRate := sample.readRate + sample.writeRate
-		level := int((combinedRate / (maxRate * 2)) * 8)
-
-		switch level {
-		case 0:
-			result += "▁"
-		case 1:
-			result += "▂"
-		case 2:
-			result += "▃"
-		case 3:
-			result += "▄"
-		case 4:
-			result += "▅"
-		case 5:
-			result += "▆"
-		case 6:
-			result += "▇"
-		default:
-			result += "█"
-		}
-	}
-
-	return result
-}
