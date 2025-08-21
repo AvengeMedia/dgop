@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AvengeMedia/dgop/config"
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
@@ -14,6 +15,10 @@ import (
 )
 
 func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
+	colorManager, err := config.NewColorManager()
+	if err != nil {
+		colorManager = nil
+	}
 	columns := []table.Column{
 		{Title: "PID", Width: 5},
 		{Title: "USER", Width: 4},
@@ -29,38 +34,89 @@ func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
 	)
 
 	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		BorderBottom(true).
-		Bold(true)
+	if colorManager != nil {
+		colors := colorManager.GetPalette()
+		s.Header = s.Header.
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(colors.UI.BorderPrimary)).
+			BorderBottom(true).
+			Bold(true)
 
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("#FAFAFA")).
-		Background(lipgloss.Color("#7D56F4")).
-		Bold(false)
+		s.Selected = s.Selected.
+			Foreground(lipgloss.Color(colors.UI.SelectionText)).
+			Background(lipgloss.Color(colors.UI.SelectionBackground)).
+			Bold(false)
+	} else {
+		colors := models.DefaultColorPalette()
+		s.Header = s.Header.
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(colors.UI.BorderPrimary)).
+			BorderBottom(true).
+			Bold(true)
+
+		s.Selected = s.Selected.
+			Foreground(lipgloss.Color(colors.UI.SelectionText)).
+			Background(lipgloss.Color(colors.UI.SelectionBackground)).
+			Bold(false)
+	}
 
 	t.SetStyles(s)
 
 	model := &ResponsiveTUIModel{
 		gops:           gopsUtil,
+		colorManager:   colorManager,
 		processTable:   t,
 		sortBy:         gops.SortByCPU,
 		procLimit:      50,
 		maxNetHistory:  60,
 		maxDiskHistory: 60,
 		selectedPID:    -1,
-		logoTestMode:   false, // Disable logo test mode
+		logoTestMode:   false,
 	}
 
 	hardware, _ := gopsUtil.GetSystemHardware()
 	model.hardware = hardware
 	model.distroLogo, model.distroColor = getDistroInfo(hardware)
 
+	// Color change monitoring will be handled in the update loop
+
 	return model
 }
 
-func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int) string {
+func (m *ResponsiveTUIModel) updateTableStyles() {
+	colors := m.getColors()
+	
+	columns := m.processTable.Columns()
+	rows := m.processTable.Rows()
+	cursor := m.processTable.Cursor()
+	height := m.processTable.Height()
+	focused := m.processTable.Focused()
+	
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithHeight(height),
+		table.WithFocused(focused),
+	)
+	
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(colors.UI.BorderPrimary)).
+		BorderBottom(true).
+		Bold(true)
+
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color(colors.UI.SelectionText)).
+		Background(lipgloss.Color(colors.UI.SelectionBackground)).
+		Bold(false)
+	
+	t.SetStyles(s)
+	t.SetCursor(cursor)
+	m.processTable = t
+}
+
+func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int, colorType string) string {
 	if total == 0 {
 		return strings.Repeat("░", width)
 	}
@@ -75,35 +131,22 @@ func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int) st
 		usedWidth = width
 	}
 
-	// Use the same style as the monolith - solid blocks
 	var bar strings.Builder
 	for i := 0; i < width; i++ {
 		if i < usedWidth {
-			bar.WriteString("▓") // Filled block
+			bar.WriteString("▓")
 		} else {
-			bar.WriteString("░") // Empty block
+			bar.WriteString("░")
 		}
 	}
 
 	result := bar.String()
-
-	// Color based on usage using purple theme
-	if percentage > 80 {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(result) // Bright purple for high
-	} else if percentage > 60 {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(result) // Medium purple for medium
-	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render(result) // Theme purple for low
+	color := m.getProgressBarColor(percentage, colorType)
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(result)
 }
 
 func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	// Use current logo (either system distro or test cycling logo)
 	logo := m.distroLogo
@@ -114,7 +157,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 	var styledLeftLines []string
 	if m.hardware != nil {
 		// Use primary purple for distro name
-		distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+		distroStyle := m.titleStyle()
 		leftLines = append(leftLines, m.hardware.Distro)
 		styledLeftLines = append(styledLeftLines, distroStyle.Render(m.hardware.Distro))
 		
@@ -191,14 +234,14 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 				if maxLeftWidth > 3 {
 					truncLen := maxLeftWidth - 3
 					if i == 0 { // distro line is styled
-						distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+						distroStyle := m.titleStyle()
 						truncatedStyledLines[i] = distroStyle.Render(rawLine[:truncLen]) + "..."
 					} else {
 						truncatedStyledLines[i] = rawLine[:truncLen] + "..."
 					}
 				} else {
 					if i == 0 { // distro line is styled
-						distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+						distroStyle := m.titleStyle()
 						truncatedStyledLines[i] = distroStyle.Render(rawLine[:maxLeftWidth])
 					} else {
 						truncatedStyledLines[i] = rawLine[:maxLeftWidth]
@@ -262,7 +305,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 				truncatedRawLines[i] = rawLine[:truncLen] + "..."
 				// For styled line, need to handle the styling properly
 				if i == 0 { // distro line is styled
-					distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+					distroStyle := m.titleStyle()
 					truncatedStyledLines[i] = distroStyle.Render(rawLine[:truncLen]) + "..."
 				} else {
 					truncatedStyledLines[i] = rawLine[:truncLen] + "..."
@@ -270,7 +313,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 			} else {
 				truncatedRawLines[i] = rawLine[:maxLeftWidth]
 				if i == 0 { // distro line is styled
-					distroStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Bold(true)
+					distroStyle := m.titleStyle()
 					truncatedStyledLines[i] = distroStyle.Render(rawLine[:maxLeftWidth])
 				} else {
 					truncatedStyledLines[i] = rawLine[:maxLeftWidth]

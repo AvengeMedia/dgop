@@ -3,6 +3,7 @@ package tui
 import (
 	"time"
 
+	"github.com/AvengeMedia/dgop/config"
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
@@ -35,13 +36,16 @@ func tick() tea.Cmd {
 	})
 }
 
+type colorUpdateMsg struct{}
+
 type ResponsiveTUIModel struct {
-	gops       *gops.GopsUtil
-	metrics    *models.SystemMetrics
-	width      int
-	height     int
-	err        error
-	lastUpdate time.Time
+	gops         *gops.GopsUtil
+	colorManager *config.ColorManager
+	metrics      *models.SystemMetrics
+	width        int
+	height       int
+	err          error
+	lastUpdate   time.Time
 
 	processTable table.Model
 	viewport     viewport.Model
@@ -70,8 +74,13 @@ type ResponsiveTUIModel struct {
 	distroLogo  []string
 	distroColor string
 	
-	// Logo cycling for testing
 	logoTestMode     bool
 	currentLogoIndex int
 	lastLogoUpdate   time.Time
+}
+
+func (m *ResponsiveTUIModel) Cleanup() {
+	if m.colorManager != nil {
+		m.colorManager.Close()
+	}
 }

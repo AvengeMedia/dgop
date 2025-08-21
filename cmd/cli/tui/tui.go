@@ -15,7 +15,20 @@ import (
 var Version = "dev"
 
 func (m *ResponsiveTUIModel) Init() tea.Cmd {
-	return tea.Batch(tick(), m.fetchData(), m.fetchTemperatureData())
+	cmds := []tea.Cmd{tick(), m.fetchData(), m.fetchTemperatureData()}
+	
+	if m.colorManager != nil {
+		cmds = append(cmds, m.listenForColorChanges())
+	}
+	
+	return tea.Batch(cmds...)
+}
+
+func (m *ResponsiveTUIModel) listenForColorChanges() tea.Cmd {
+	return func() tea.Msg {
+		<-m.colorManager.ColorChanges()
+		return colorUpdateMsg{}
+	}
 }
 
 func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -195,6 +208,10 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.systemTemperatures = msg.temps
 		}
+
+	case colorUpdateMsg:
+		m.updateTableStyles()
+		cmds = append(cmds, m.listenForColorChanges())
 	}
 
 	return m, tea.Batch(cmds...)
@@ -465,12 +482,7 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 }
 
 func (m *ResponsiveTUIModel) renderHeader() string {
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FAFAFA")).
-		Background(lipgloss.Color("#7D56F4")).
-		Bold(true).
-		Width(m.width).
-		Padding(0, 2)
+	style := m.headerStyle()
 
 	// Just show current time in header
 	currentTime := time.Now().Format("15:04:05")
@@ -488,24 +500,14 @@ func (m *ResponsiveTUIModel) renderHeader() string {
 }
 
 func (m *ResponsiveTUIModel) renderFooter() string {
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7C7C7C")).
-		Background(lipgloss.Color("#2A2A2A")).
-		Width(m.width).
-		Padding(0, 2)
+	style := m.footerStyle()
 
 	controls := "Controls: [q]uit [r]efresh [d]etails | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate"
 	return style.Render(controls)
 }
 
 func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0, 0, 0, 0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	var content strings.Builder
 
@@ -528,9 +530,7 @@ func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
 	}
 
 	title := fmt.Sprintf("PROCESSES (%d)%s", processCount, sortIndicator)
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#8B5FBF"))
+	titleStyle := m.titleStyle()
 
 	content.WriteString(titleStyle.Render(title) + "\n")
 
@@ -550,20 +550,12 @@ func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
 }
 
 func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0, 0, 0, 0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	var content strings.Builder
 
 	title := "PROCESS DETAILS"
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#8B5FBF"))
+	titleStyle := m.titleStyle()
 
 	content.WriteString(titleStyle.Render(title) + "\n")
 
@@ -623,17 +615,11 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 }
 
 func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0, 0, 0, 0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	var content strings.Builder
 
-	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("MEMORY") + "\n")
+	content.WriteString(m.titleStyle().Render("MEMORY") + "\n")
 
 	if m.metrics != nil && m.metrics.Memory != nil {
 		mem := m.metrics.Memory
@@ -645,7 +631,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		if barWidth < 8 {
 			barWidth = 8
 		}
-		memBar := m.renderProgressBar(uint64(usedPercent*100), 10000, barWidth)
+		memBar := m.renderProgressBar(uint64(usedPercent*100), 10000, barWidth, "memory")
 
 		content.WriteString(fmt.Sprintf("%s %.1f%%\n", memBar, usedPercent))
 		content.WriteString(fmt.Sprintf("%.1f/%.1fGB\n", usedGB, totalGB))
@@ -654,7 +640,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		swapUsedGB := float64(mem.SwapTotal-mem.SwapFree) / 1024 / 1024
 		if swapTotalGB > 0 {
 			swapPercent := swapUsedGB / swapTotalGB * 100
-			swapBar := m.renderProgressBar(uint64(swapPercent*100), 10000, barWidth)
+			swapBar := m.renderProgressBar(uint64(swapPercent*100), 10000, barWidth, "memory")
 			content.WriteString(fmt.Sprintf("%s %.1f%%\n", swapBar, swapPercent))
 			content.WriteString(fmt.Sprintf("%.1f/%.1fGB Swap\n", swapUsedGB, swapTotalGB))
 		}
@@ -662,7 +648,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		content.WriteString("Loading...\n")
 	}
 
-	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("DISKS") + "\n")
+	content.WriteString(m.titleStyle().Render("DISKS") + "\n")
 
 	innerHeight := height - 2 // Always calculate this
 	
@@ -737,7 +723,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 
 		// Always show sensors if we have them
 		if len(m.systemTemperatures) > 0 {
-			content.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render("SENSORS") + "\n")
+			content.WriteString("\n" + m.titleStyle().Render("SENSORS") + "\n")
 			used = lipgloss.Height(content.String())
 			remaining = innerHeight - used
 			sensorsToShow := min(len(m.systemTemperatures), remaining)
@@ -755,11 +741,8 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 
 				// Color based on temperature
 				tempStr := fmt.Sprintf("%.0f°C", sensor.Temperature)
-				if sensor.Temperature > 70 {
-					tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(tempStr)
-				} else if sensor.Temperature > 50 {
-					tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(tempStr)
-				}
+				color := m.getTemperatureColor(sensor.Temperature)
+				tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(tempStr)
 
 				content.WriteString(fmt.Sprintf("%s: %s\n", name, tempStr))
 			}
@@ -781,13 +764,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 }
 
 func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0, 0, 0, 0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	var content strings.Builder
 
@@ -797,7 +774,7 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 		interfaceName = m.metrics.Network[0].Name
 	}
 
-	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render(interfaceName) + "\n")
+	content.WriteString(m.titleStyle().Render(interfaceName) + "\n")
 
 	innerHeight := height - 2
 	
@@ -959,17 +936,8 @@ func (m *ResponsiveTUIModel) renderDiskBar(current, max float64, width int, isUs
 	}
 
 	result := bar.String()
-
-	if isUsed {
-		if current > 90 {
-			return lipgloss.NewStyle().Foreground(lipgloss.Color("#D946EF")).Render(result) // Bright purple for high usage
-		} else if current > 70 {
-			return lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render(result) // Medium purple for medium usage
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render(result) // Theme purple for used space
-	} else {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#6B46C1")).Render(result) // Slightly different purple for free space
-	}
+	color := m.getProgressBarColor(current, "disk")
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(result)
 }
 
 func (m *ResponsiveTUIModel) formatBytes(bytes uint64) string {
@@ -1076,8 +1044,8 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 				// Download (above center) - row 0 is top, use separate scaling
 				downloadHeight := int((sample.rxRate / maxRxRate) * float64(upRows))
 				if downloadHeight >= (upRows - row) {
-					// Use bright purple for download
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Render("█")
+					downloadColor, _ := m.getNetworkColors()
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color(downloadColor)).Render("█")
 					result.WriteString(colored)
 				} else {
 					result.WriteString(" ")
@@ -1086,8 +1054,8 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 				// Upload (below center) - use separate scaling for better visibility
 				uploadHeight := int((sample.txRate / maxTxRate) * float64(downRows))
 				if uploadHeight >= (row - centerLine) {
-					// Use different purple shade for upload
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5FBF")).Render("▓")
+					_, uploadColor := m.getNetworkColors()
+					colored := lipgloss.NewStyle().Foreground(lipgloss.Color(uploadColor)).Render("▓")
 					result.WriteString(colored)
 				} else {
 					result.WriteString(" ")

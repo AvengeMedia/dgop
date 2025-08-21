@@ -4,18 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#8B5FBF")).
-		Padding(0, 1).
-		Margin(0, 0, 0, 0).
-		Width(width).
-		MaxHeight(height)
+	style := m.panelStyle(width, height)
 
 	var content strings.Builder
 
@@ -46,7 +38,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 		spaces = 1
 	}
 
-	titleLine := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5FBF")).Render(cpuName)
+	titleLine := m.titleStyle().Render(cpuName)
 	content.WriteString(titleLine + strings.Repeat(" ", spaces) + freqText + "\n")
 
 	// CPU bar with usage and temperature - make bar wider so temp isn't too far left
@@ -55,7 +47,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 		barWidth = 8
 	}
 
-	cpuBar := m.renderProgressBar(uint64(cpu.Usage*100), 10000, barWidth)
+	cpuBar := m.renderProgressBar(uint64(cpu.Usage*100), 10000, barWidth, "cpu")
 	// Format as fixed-width strings for consistent alignment
 	usageText := fmt.Sprintf("%3.0f%%", cpu.Usage) // Always 3 chars for percentage (e.g. " 5%" or "100%")
 	tempText := fmt.Sprintf("%.0f°C", cpu.Temperature)
@@ -78,7 +70,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 
 			// First core - format as "C01[bar]5%" with no spaces, add separator
 			core1 := cpu.CoreUsage[i]
-			core1Bar := m.renderProgressBar(uint64(core1*100), 10000, coreBarWidth)
+			core1Bar := m.renderProgressBar(uint64(core1*100), 10000, coreBarWidth, "cpu")
 			core1Str := fmt.Sprintf("C%02d%s%3.0f%%", i, core1Bar, core1) // No spaces
 			line.WriteString(core1Str)
 			line.WriteString(" ") // Space separator between columns
@@ -86,7 +78,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 			// Second core if exists
 			if i+1 < len(cpu.CoreUsage) {
 				core2 := cpu.CoreUsage[i+1]
-				core2Bar := m.renderProgressBar(uint64(core2*100), 10000, coreBarWidth)
+				core2Bar := m.renderProgressBar(uint64(core2*100), 10000, coreBarWidth, "cpu")
 				core2Str := fmt.Sprintf("C%02d%s%3.0f%%", i+1, core2Bar, core2)
 				line.WriteString(core2Str)
 				line.WriteString(" ") // Space separator between columns
@@ -95,7 +87,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 			// Third core if exists
 			if i+2 < len(cpu.CoreUsage) {
 				core3 := cpu.CoreUsage[i+2]
-				core3Bar := m.renderProgressBar(uint64(core3*100), 10000, coreBarWidth)
+				core3Bar := m.renderProgressBar(uint64(core3*100), 10000, coreBarWidth, "cpu")
 				core3Str := fmt.Sprintf("C%02d%s%3.0f%%", i+2, core3Bar, core3)
 				line.WriteString(core3Str) // No separator after last column
 			}
@@ -129,7 +121,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 
 func (m *ResponsiveTUIModel) renderMemoryPanel(width int) string {
 	if m.metrics == nil || m.metrics.Memory == nil {
-		return panelStyle.Width(width).Render("Loading memory info...")
+		return m.panelStyle(width, 0).Render("Loading memory info...")
 	}
 
 	mem := m.metrics.Memory
@@ -142,7 +134,7 @@ func (m *ResponsiveTUIModel) renderMemoryPanel(width int) string {
 		fmt.Sprintf("Used:  %.1fGB", usedGB),
 		fmt.Sprintf("Avail: %.1fGB", availableGB),
 		"",
-		fmt.Sprintf("Usage: %s", m.renderProgressBar(mem.Total-mem.Available, mem.Total, width-15)),
+		fmt.Sprintf("Usage: %s", m.renderProgressBar(mem.Total-mem.Available, mem.Total, width-15, "memory")),
 	}
 
 	if mem.SwapTotal > 0 {
@@ -151,20 +143,20 @@ func (m *ResponsiveTUIModel) renderMemoryPanel(width int) string {
 
 		content = append(content, "")
 		content = append(content, fmt.Sprintf("Swap:  %.1fGB / %.1fGB", swapUsedGB, swapTotalGB))
-		content = append(content, fmt.Sprintf("Usage: %s", m.renderProgressBar(mem.SwapTotal-mem.SwapFree, mem.SwapTotal, width-15)))
+		content = append(content, fmt.Sprintf("Usage: %s", m.renderProgressBar(mem.SwapTotal-mem.SwapFree, mem.SwapTotal, width-15, "memory")))
 	}
 
-	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
+	return m.panelStyle(width, 0).Render(strings.Join(content, "\n"))
 }
 
 
 func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 	var content []string
-	content = append(content, boldTextStyle.Render("DISK"))
+	content = append(content, m.titleStyle().Render("DISK"))
 
 	if m.metrics == nil || len(m.metrics.DiskMounts) == 0 {
 		content = append(content, "Loading...")
-		return panelStyle.Width(width).Render(strings.Join(content, "\n"))
+		return m.panelStyle(width, 0).Render(strings.Join(content, "\n"))
 	}
 
 	// Show top 3 disks
@@ -208,7 +200,7 @@ func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 			}
 		}
 		content = append(content, displayName)
-		content = append(content, fmt.Sprintf("%s %s", m.renderProgressBar(uint64(percent*100), 10000, barWidth), mount.Used))
+		content = append(content, fmt.Sprintf("%s %s", m.renderProgressBar(uint64(percent*100), 10000, barWidth, "disk"), mount.Used))
 
 		disksShown++
 	}
@@ -221,6 +213,6 @@ func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 
 	}
 
-	return panelStyle.Width(width).Render(strings.Join(content, "\n"))
+	return m.panelStyle(width, 0).Render(strings.Join(content, "\n"))
 }
 

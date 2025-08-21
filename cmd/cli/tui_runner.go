@@ -9,6 +9,7 @@ import (
 func runTUI(gopsUtil *gops.GopsUtil) error {
 	tui.Version = Version
 	model := tui.NewResponsiveTUIModel(gopsUtil)
+	defer model.Cleanup()
 
 	p := tea.NewProgram(
 		model,
