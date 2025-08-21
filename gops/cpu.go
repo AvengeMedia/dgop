@@ -182,7 +182,7 @@ func getCPUTemperatureCached() float64 {
 
 		name := strings.TrimSpace(string(nameBytes))
 		if strings.Contains(name, "coretemp") || strings.Contains(name, "k10temp") ||
-			strings.Contains(name, "k8temp") || strings.Contains(name, "cpu_thermal") {
+			strings.Contains(name, "k8temp") || strings.Contains(name, "cpu_thermal") || strings.Contains(name, "zenpower") {
 			tempPath := filepath.Join(hwmonPath, entry.Name(), "temp1_input")
 			tempBytes, err := os.ReadFile(tempPath)
 			if err == nil {
