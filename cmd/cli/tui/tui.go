@@ -336,18 +336,14 @@ func (m *ResponsiveTUIModel) minCPULines(width int) int {
 	return lines
 }
 
-func (m *ResponsiveTUIModel) minMemoryLines(width int) int {
+func (m *ResponsiveTUIModel) minMemDiskLines(width int) int {
 	// MEMORY header + bars + numbers
-	lines := 5 // header + total/used/avail + blank + usage bar
+	lines := 3 // header + bar + size info
 	if m.metrics != nil && m.metrics.Memory != nil && m.metrics.Memory.SwapTotal > 0 {
-		lines += 3 // blank + swap numbers + swap bar
+		lines += 2 // swap bar + size info
 	}
-	return lines
-}
-
-func (m *ResponsiveTUIModel) minDiskLines(width int) int {
 	// DISK header + at least 2 disks (2 lines each)
-	lines := 1 + 4
+	lines += 1 + 4 // blank + header + 2 disks
 	// disk I/O rates when history exists
 	if len(m.diskHistory) > 0 {
 		lines += 2 // blank + rates
@@ -413,7 +409,7 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 	sysMin := m.minSystemLines(leftWidth)
 	sysMax := sysMin // exact content only
 
-	memDiskMin := m.minMemoryLines(leftWidth) + m.minDiskLines(leftWidth)
+	memDiskMin := m.minMemDiskLines(leftWidth)
 	memDiskMax := 999 // gets the slack
 
 	netMin := m.minNetworkLines(leftWidth)
