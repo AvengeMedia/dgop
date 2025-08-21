@@ -35,7 +35,7 @@
         {
           dgop = pkgs.buildGoModule (finalAttrs: {
             pname = "dgop";
-            version = "0.0.8";
+            version = "0.0.9";
             src = ./.;
             vendorHash = "sha256-+3o/Kg5ROSgp8IZfvU71JvbEgaiLasx5IAkjq27faLQ=";
 
