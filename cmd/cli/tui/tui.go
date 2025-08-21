@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,11 +15,11 @@ var Version = "dev"
 
 func (m *ResponsiveTUIModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{tick(), m.fetchData(), m.fetchTemperatureData()}
-	
+
 	if m.colorManager != nil {
 		cmds = append(cmds, m.listenForColorChanges())
 	}
-	
+
 	return tea.Batch(cmds...)
 }
 
@@ -174,7 +173,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 			}
 		}
-		
+
 		if msg.rates != nil && len(msg.rates.Disks) > 0 {
 			m.diskCursor = msg.rates.Cursor
 
@@ -261,7 +260,6 @@ func clamp(v, min, max int) int {
 	return v
 }
 
-
 type panelSpec struct{ min, max, weight int }
 
 // shrink-aware allocator: shrinks when needed, grows by weight within limits
@@ -338,21 +336,29 @@ func (m *ResponsiveTUIModel) minCPULines(width int) int {
 	return lines
 }
 
-func (m *ResponsiveTUIModel) minMemDiskLines(width int) int {
-	// MEMORY: 2 lines min (bar + numbers)
-	lines := 2
+func (m *ResponsiveTUIModel) minMemoryLines(width int) int {
+	// MEMORY header + bars + numbers
+	lines := 5 // header + total/used/avail + blank + usage bar
 	if m.metrics != nil && m.metrics.Memory != nil && m.metrics.Memory.SwapTotal > 0 {
-		lines += 2 // swap bar + numbers
+		lines += 3 // blank + swap numbers + swap bar
 	}
-	// DISKS header + at least 2 disks (2 lines each)
-	lines += 1 + 4
-	// disk chart + rates when history exists (reduced)
+	return lines
+}
+
+func (m *ResponsiveTUIModel) minDiskLines(width int) int {
+	// DISK header + at least 2 disks (2 lines each)
+	lines := 1 + 4
+	// disk I/O rates when history exists
 	if len(m.diskHistory) > 0 {
-		lines += 4 // reduced from 8
+		lines += 2 // blank + rates
 	}
-	// sensors block if present (all sensors)
+	// sensors block if present
 	if len(m.systemTemperatures) > 0 {
-		lines += 2 + len(m.systemTemperatures) // header + blank line + all sensors
+		sensorsToShow := len(m.systemTemperatures)
+		if sensorsToShow > 6 {
+			sensorsToShow = 6
+		}
+		lines += 2 + sensorsToShow // blank + header + sensors
 	}
 	return lines
 }
@@ -362,7 +368,6 @@ func (m *ResponsiveTUIModel) minNetworkLines(width int) int {
 	// Give network more height to balance with right column
 	return 12 // increased further to match processes better
 }
-
 
 func (m *ResponsiveTUIModel) renderMainContent() string {
 	// Calculate layout dimensions with cushioned right width
@@ -408,18 +413,18 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 	sysMin := m.minSystemLines(leftWidth)
 	sysMax := sysMin // exact content only
 
-	memMin := m.minMemDiskLines(leftWidth)
-	memMax := 999 // DISK gets the slack
+	memDiskMin := m.minMemoryLines(leftWidth) + m.minDiskLines(leftWidth)
+	memDiskMax := 999 // gets the slack
 
 	netMin := m.minNetworkLines(leftWidth)
-	netMax := netMin + 8 // give network much more flex to fill space
+	netMax := netMin + 8 // give network flex to fill space
 
 	leftSpecs := []panelSpec{
 		{sysMin, sysMax, 0}, // System: no flex
-		{memMin, memMax, 3}, // Mem/Disk: medium weight
+		{memDiskMin, memDiskMax, 3}, // Mem/Disk: medium weight
 		{netMin, netMax, 5}, // Network: highest weight to fill space
 	}
-	leftShrinkOrder := []int{2, 1, 0} // net→mem→system
+	leftShrinkOrder := []int{2, 1, 0} // net→memdisk→system
 	leftInner := allocCapped(leftInnerTotal, leftSpecs, 3, leftShrinkOrder)
 	leftHeights := []int{leftInner[0] + 2, leftInner[1] + 2, leftInner[2] + 2}
 
@@ -427,7 +432,7 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 	cpuMin := m.minCPULines(rightWidth)
 	cpuMax := cpuMin // no empty space, content only
 
-	procMin := 6 // reduced to balance left/right columns
+	procMin := 6   // reduced to balance left/right columns
 	procMax := 999 // main flex sink
 	detMin := 5
 	detMax := 24
@@ -454,7 +459,7 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 
 	// Render panels with exact allocated heights
 	systemPanel := m.renderSystemInfoPanel(leftWidth, leftHeights[0])
-	memPanel := m.renderMemDiskPanel(leftWidth, leftHeights[1])
+	memDiskPanel := m.renderMemDiskPanel(leftWidth, leftHeights[1])
 	networkPanel := m.renderNetworkPanel(leftWidth, leftHeights[2])
 
 	cpuPanel := m.renderCPUPanel(rightWidth, rightHeights[0])
@@ -471,7 +476,7 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 		processColumn = processPanel
 	}
 
-	leftColumn := lipgloss.JoinVertical(lipgloss.Left, systemPanel, memPanel, networkPanel)
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left, systemPanel, memDiskPanel, networkPanel)
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left, cpuPanel, processColumn)
 
 	// Join the two complete columns with spacer
@@ -610,157 +615,7 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 		content.WriteString("Loading process data...")
 	}
 
-
 	return style.Render(content.String())
-}
-
-func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
-	style := m.panelStyle(width, height)
-
-	var content strings.Builder
-
-	content.WriteString(m.titleStyle().Render("MEMORY") + "\n")
-
-	if m.metrics != nil && m.metrics.Memory != nil {
-		mem := m.metrics.Memory
-		totalGB := float64(mem.Total) / 1024 / 1024
-		usedGB := float64(mem.Total-mem.Available) / 1024 / 1024
-		usedPercent := usedGB / totalGB * 100
-
-		barWidth := width - 15
-		if barWidth < 8 {
-			barWidth = 8
-		}
-		memBar := m.renderProgressBar(uint64(usedPercent*100), 10000, barWidth, "memory")
-
-		content.WriteString(fmt.Sprintf("%s %.1f%%\n", memBar, usedPercent))
-		content.WriteString(fmt.Sprintf("%.1f/%.1fGB\n", usedGB, totalGB))
-
-		swapTotalGB := float64(mem.SwapTotal) / 1024 / 1024
-		swapUsedGB := float64(mem.SwapTotal-mem.SwapFree) / 1024 / 1024
-		if swapTotalGB > 0 {
-			swapPercent := swapUsedGB / swapTotalGB * 100
-			swapBar := m.renderProgressBar(uint64(swapPercent*100), 10000, barWidth, "memory")
-			content.WriteString(fmt.Sprintf("%s %.1f%%\n", swapBar, swapPercent))
-			content.WriteString(fmt.Sprintf("%.1f/%.1fGB Swap\n", swapUsedGB, swapTotalGB))
-		}
-	} else {
-		content.WriteString("Loading...\n")
-	}
-
-	content.WriteString(m.titleStyle().Render("DISKS") + "\n")
-
-	innerHeight := height - 2 // Always calculate this
-	
-	if m.metrics == nil || m.metrics.DiskMounts == nil || len(m.metrics.DiskMounts) == 0 {
-		content.WriteString("Loading...\n")
-	} else {
-		// Track lines used and compute remaining budget dynamically
-		used := lipgloss.Height(content.String())
-
-		// Show disks first (each disk takes 2 lines)
-		remaining := innerHeight - used
-		maxDisks := remaining / 2
-		if maxDisks < 2 {
-			maxDisks = 2 // minimum
-		}
-		if maxDisks > 15 {
-			maxDisks = 15 // reasonable max
-		}
-
-		diskCount := len(m.metrics.DiskMounts)
-		if diskCount > maxDisks {
-			diskCount = maxDisks
-		}
-
-		for i := 0; i < diskCount; i++ {
-			mount := m.metrics.DiskMounts[i]
-			// Parse the size information
-			percentStr := strings.TrimSuffix(mount.Percent, "%")
-			percent, err := strconv.ParseFloat(percentStr, 64)
-			if err == nil {
-				// Header: device → mount 
-				maxHeaderWidth := width - 4
-				headerText := fmt.Sprintf("%s → %s", mount.Device, mount.Mount)
-				truncatedHeader := m.truncate(headerText, maxHeaderWidth)
-				content.WriteString(fmt.Sprintf("%s\n", truncatedHeader))
-
-				// Calculate bar width more conservatively to prevent wrapping
-				diskBarWidth := width - 25
-				if diskBarWidth < 4 {
-					diskBarWidth = 4
-				}
-
-				usedBar := m.renderDiskBar(percent, 100.0, diskBarWidth, true)
-				content.WriteString(fmt.Sprintf("%s %.1f%% - %s\n", usedBar, percent, mount.Used))
-			}
-		}
-
-		if len(m.metrics.DiskMounts) > maxDisks {
-			content.WriteString(fmt.Sprintf("... and %d more\n", len(m.metrics.DiskMounts)-maxDisks))
-		}
-
-		// Update used lines and check remaining for chart
-		used = lipgloss.Height(content.String())
-		remaining = innerHeight - used
-
-		// Add disk I/O rates and totals
-		if len(m.diskHistory) > 0 {
-			latest := m.diskHistory[len(m.diskHistory)-1]
-			readRateStr := m.formatBytes(uint64(latest.readRate))
-			writeRateStr := m.formatBytes(uint64(latest.writeRate))
-			totalRead := m.formatBytes(latest.readBytes)
-			totalWrite := m.formatBytes(latest.writeBytes)
-			
-			content.WriteString("\n")
-			content.WriteString(fmt.Sprintf("R:%s/s W:%s/s\n", readRateStr, writeRateStr))
-			content.WriteString(fmt.Sprintf("Total: R:%s W:%s", totalRead, totalWrite))
-		}
-
-		// Update used and check remaining for sensors
-		used = lipgloss.Height(content.String())
-		remaining = innerHeight - used
-
-		// Always show sensors if we have them
-		if len(m.systemTemperatures) > 0 {
-			content.WriteString("\n" + m.titleStyle().Render("SENSORS") + "\n")
-			used = lipgloss.Height(content.String())
-			remaining = innerHeight - used
-			sensorsToShow := min(len(m.systemTemperatures), remaining)
-			if sensorsToShow < 0 {
-				sensorsToShow = 0
-			}
-
-			for i := 0; i < sensorsToShow; i++ {
-				sensor := m.systemTemperatures[i]
-				// Use full sensor name, don't truncate unnecessarily
-				name := sensor.Name
-				if len(name) > 20 { // Only truncate if really long
-					name = name[:20]
-				}
-
-				// Color based on temperature
-				tempStr := fmt.Sprintf("%.0f°C", sensor.Temperature)
-				color := m.getTemperatureColor(sensor.Temperature)
-				tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(tempStr)
-
-				content.WriteString(fmt.Sprintf("%s: %s\n", name, tempStr))
-			}
-		}
-	}
-
-	// Ensure content fills allocated height
-	contentStr := content.String()
-	lines := strings.Split(contentStr, "\n")
-	// innerHeight already defined above
-	for len(lines) < innerHeight {
-		lines = append(lines, "")
-	}
-	if len(lines) > innerHeight {
-		lines = lines[:innerHeight]
-	}
-
-	return style.Render(strings.Join(lines, "\n"))
 }
 
 func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
@@ -777,7 +632,7 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 	content.WriteString(m.titleStyle().Render(interfaceName) + "\n")
 
 	innerHeight := height - 2
-	
+
 	if len(m.networkHistory) == 0 {
 		content.WriteString("Loading...")
 		// Pad to fill height even when loading
@@ -805,7 +660,7 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 	if len(bottomLine) > width-4 {
 		bottomLine = m.truncate(bottomLine, width-4)
 	}
-	
+
 	// Calculate exact chart height to fill space
 	used := lipgloss.Height(content.String())
 	remaining := innerHeight - used - 1 // -1 for the totals line
@@ -813,22 +668,22 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 	if chartHeight < 1 {
 		chartHeight = 1
 	}
-	
+
 	// Render chart to fill exact space
 	if chartHeight > 0 {
 		content.WriteString(m.renderSplitNetworkGraph(m.networkHistory, width-2, chartHeight))
 	}
-	
+
 	// Add totals at bottom
 	content.WriteString("\n" + bottomLine)
-	
+
 	// Ensure content exactly fills inner height to prevent shrinking
 	contentStr := content.String()
 	contentHeight := lipgloss.Height(contentStr)
-	
+
 	// Add padding to reach exactly innerHeight lines
 	if contentHeight < innerHeight {
-		padding := strings.Repeat("\n", innerHeight - contentHeight)
+		padding := strings.Repeat("\n", innerHeight-contentHeight)
 		contentStr = contentStr + padding
 	} else if contentHeight > innerHeight {
 		// If too tall, truncate to fit
@@ -843,16 +698,16 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 	// Calculate column widths with dynamic 5th column
 	bordersPadding := 16 // Increased padding for safety
 	availableWidth := totalWidth - bordersPadding
-	
+
 	// Define minimum widths that can shrink if needed
-	pidWidth := 5  
-	userWidth := 6  
-	cpuWidth := 5   
-	memWidth := 13   
-	
+	pidWidth := 5
+	userWidth := 6
+	cpuWidth := 5
+	memWidth := 13
+
 	// If space is really tight, shrink fixed columns further
 	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
-	if availableWidth < fixedColumnsWidth + 10 {
+	if availableWidth < fixedColumnsWidth+10 {
 		// Emergency shrink mode
 		pidWidth = 5
 		userWidth = 6
@@ -860,14 +715,14 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 		memWidth = 11
 		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
 	}
-	
+
 	// Check if we have enough space for 5th column (FULL COMMAND)
 	minCommandWidth := 15
 	minFullCommandWidth := 20
 	remainingWidth := availableWidth - fixedColumnsWidth
-	
+
 	var columns []table.Column
-	if remainingWidth >= minCommandWidth + minFullCommandWidth + 2 { // +2 for spacing
+	if remainingWidth >= minCommandWidth+minFullCommandWidth+2 { // +2 for spacing
 		// 5-column layout with separate COMMAND and FULL COMMAND
 		commandWidth := minCommandWidth
 		fullCommandWidth := remainingWidth - commandWidth
@@ -875,7 +730,7 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 			fullCommandWidth = 60 // reasonable max
 			commandWidth = remainingWidth - fullCommandWidth
 		}
-		
+
 		columns = []table.Column{
 			{Title: "PID", Width: pidWidth},
 			{Title: "USER", Width: userWidth},
@@ -893,7 +748,7 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 		if commandWidth > 80 {
 			commandWidth = 80 // Reasonable max
 		}
-		
+
 		columns = []table.Column{
 			{Title: "PID", Width: pidWidth},
 			{Title: "USER", Width: userWidth},
@@ -902,7 +757,7 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 			{Title: "COMMAND", Width: commandWidth},
 		}
 	}
-	
+
 	// Clear table completely before changing column structure to prevent panic
 	m.processTable.SetRows([]table.Row{})
 	m.processTable.SetColumns(columns)
@@ -910,34 +765,6 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 	m.processTable.UpdateViewport()
 	// Now repopulate with correct column structure
 	m.updateProcessTable()
-}
-
-
-func (m *ResponsiveTUIModel) renderDiskBar(current, max float64, width int, isUsed bool) string {
-	if max == 0 || width <= 0 {
-		return strings.Repeat("░", width)
-	}
-
-	filled := int((current / max) * float64(width))
-	if filled > width {
-		filled = width
-	}
-	if filled < 0 {
-		filled = 0
-	}
-
-	var bar strings.Builder
-	for i := 0; i < width; i++ {
-		if i < filled {
-			bar.WriteString("▓")
-		} else {
-			bar.WriteString("░")
-		}
-	}
-
-	result := bar.String()
-	color := m.getProgressBarColor(current, "disk")
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(result)
 }
 
 func (m *ResponsiveTUIModel) formatBytes(bytes uint64) string {
@@ -1069,7 +896,6 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 
 	return result.String()
 }
-
 
 func min(a, b int) int {
 	if a < b {

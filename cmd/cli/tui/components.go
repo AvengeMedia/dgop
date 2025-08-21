@@ -132,11 +132,25 @@ func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int, co
 	}
 
 	var bar strings.Builder
-	for i := 0; i < width; i++ {
-		if i < usedWidth {
-			bar.WriteString("▓")
-		} else {
-			bar.WriteString("░")
+	
+	// For CPU charts, make them translucent - only show used portion without background
+	if colorType == "cpu" {
+		// Only show filled portion for CPU, rest is transparent (spaces)
+		for i := 0; i < width; i++ {
+			if i < usedWidth {
+				bar.WriteString("▓")
+			} else {
+				bar.WriteString(" ")
+			}
+		}
+	} else {
+		// For memory and disk, keep the traditional full bar with background
+		for i := 0; i < width; i++ {
+			if i < usedWidth {
+				bar.WriteString("▓")
+			} else {
+				bar.WriteString("░")
+			}
 		}
 	}
 
@@ -380,21 +394,18 @@ func max(a, b int) int {
 	return b
 }
 
-func formatBytes(bytes uint64) string {
+func formatRate(rate float64) string {
 	const unit = 1024
+	bytes := uint64(rate)
 	if bytes < unit {
-		return fmt.Sprintf("%dB", bytes)
+		return fmt.Sprintf("%dB/s", bytes)
 	}
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f%cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func formatRate(rate float64) string {
-	return formatBytes(uint64(rate)) + "/s"
+	return fmt.Sprintf("%.1f%cB/s", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func calculateUptime(bootTimeStr string) string {

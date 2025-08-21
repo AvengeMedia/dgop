@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
@@ -130,6 +131,7 @@ func (m *ResponsiveTUIModel) renderMemoryPanel(width int) string {
 	availableGB := float64(mem.Available) / 1024 / 1024
 
 	content := []string{
+		m.titleStyle().Render("MEMORY"),
 		fmt.Sprintf("Total: %.1fGB", totalGB),
 		fmt.Sprintf("Used:  %.1fGB", usedGB),
 		fmt.Sprintf("Avail: %.1fGB", availableGB),
@@ -200,7 +202,10 @@ func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 			}
 		}
 		content = append(content, displayName)
-		content = append(content, fmt.Sprintf("%s %s", m.renderProgressBar(uint64(percent*100), 10000, barWidth, "disk"), mount.Used))
+		
+		// Show usage as "Used/Total" format
+		usageInfo := fmt.Sprintf("%s/%s", mount.Used, mount.Size)
+		content = append(content, fmt.Sprintf("%s %s", m.renderProgressBar(uint64(percent*100), 10000, barWidth, "disk"), usageInfo))
 
 		disksShown++
 	}
@@ -209,8 +214,35 @@ func (m *ResponsiveTUIModel) renderDiskPanel(width int) string {
 	if len(m.diskHistory) > 1 {
 		content = append(content, "")
 		latest := m.diskHistory[len(m.diskHistory)-1]
-		content = append(content, fmt.Sprintf("R: %s/s W: %s/s", formatBytes(uint64(latest.readRate)), formatBytes(uint64(latest.writeRate))))
+		content = append(content, fmt.Sprintf("R: %s W: %s", m.formatBytes(uint64(latest.readRate))+"/s", m.formatBytes(uint64(latest.writeRate))+"/s"))
+	}
 
+	// Add sensors if available
+	if len(m.systemTemperatures) > 0 {
+		content = append(content, "")
+		content = append(content, m.titleStyle().Render("SENSORS"))
+		
+		// Show a reasonable number of sensors that fit
+		sensorsToShow := len(m.systemTemperatures)
+		if sensorsToShow > 6 { // Limit to prevent overcrowding
+			sensorsToShow = 6
+		}
+
+		for i := 0; i < sensorsToShow; i++ {
+			sensor := m.systemTemperatures[i]
+			// Use full sensor name, don't truncate unnecessarily
+			name := sensor.Name
+			if len(name) > 20 { // Only truncate if really long
+				name = name[:20]
+			}
+
+			// Color based on temperature
+			tempStr := fmt.Sprintf("%.0f°C", sensor.Temperature)
+			color := m.getTemperatureColor(sensor.Temperature)
+			tempStr = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(tempStr)
+
+			content = append(content, fmt.Sprintf("%s: %s", name, tempStr))
+		}
 	}
 
 	return m.panelStyle(width, 0).Render(strings.Join(content, "\n"))
