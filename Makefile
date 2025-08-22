@@ -33,14 +33,14 @@ build:
 # Install the binary to system path
 install: build
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."
-	@sudo cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	@sudo chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
+	@chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
 	@echo "Installation complete"
 
 # Uninstall the binary from system path
 uninstall:
 	@echo "Uninstalling $(BINARY_NAME) from $(INSTALL_DIR)..."
-	@sudo rm -f $(INSTALL_DIR)/$(BINARY_NAME)
+	@rm -f $(INSTALL_DIR)/$(BINARY_NAME)
 	@echo "Uninstall complete"
 
 # Clean build artifacts
