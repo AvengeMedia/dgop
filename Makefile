@@ -11,7 +11,7 @@ GO=go
 GOFLAGS=-ldflags="-s -w"
 
 # Version and build info
-VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
