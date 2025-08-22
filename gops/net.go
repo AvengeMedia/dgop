@@ -26,7 +26,7 @@ func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 }
 
 func matchesNetworkInterface(name string) bool {
-	prefixes := []string{"wlan", "eth", "enp", "wlp", "ens", "eno"}
+	prefixes := []string{"wlan", "eth", "enp", "wlp", "ens", "eno", "lxc"}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(name, prefix) {
 			return true
