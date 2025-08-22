@@ -52,10 +52,11 @@ type ResponsiveTUIModel struct {
 
 	hardware *models.SystemHardware
 
-	networkHistory    []NetworkSample
-	maxNetHistory     int
-	networkCursor     string
-	lastNetworkUpdate time.Time
+	networkHistory       []NetworkSample
+	maxNetHistory        int
+	networkCursor        string
+	lastNetworkUpdate    time.Time
+	selectedInterfaceName string
 
 	diskHistory    []DiskSample
 	maxDiskHistory int

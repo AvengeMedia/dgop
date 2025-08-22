@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -137,24 +138,22 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.rates != nil && len(msg.rates.Interfaces) > 0 {
 			m.networkCursor = msg.rates.Cursor
 
-			for _, iface := range msg.rates.Interfaces {
-				if iface.Interface == "lo" || strings.HasPrefix(iface.Interface, "docker") {
-					continue
-				}
-
+			bestInterface := m.selectBestNetworkInterface(msg.rates.Interfaces)
+			if bestInterface != nil {
+				m.selectedInterfaceName = bestInterface.Interface
+				
 				sample := NetworkSample{
 					timestamp: time.Now(),
-					rxBytes:   iface.RxTotal,
-					txBytes:   iface.TxTotal,
-					rxRate:    iface.RxRate,
-					txRate:    iface.TxRate,
+					rxBytes:   bestInterface.RxTotal,
+					txBytes:   bestInterface.TxTotal,
+					rxRate:    bestInterface.RxRate,
+					txRate:    bestInterface.TxRate,
 				}
 
 				m.networkHistory = append(m.networkHistory, sample)
 				if len(m.networkHistory) > m.maxNetHistory {
 					m.networkHistory = m.networkHistory[1:]
 				}
-				break
 			}
 		}
 
@@ -619,9 +618,10 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 
 	var content strings.Builder
 
-	// Use interface name as header instead of "NETWORK"
 	interfaceName := "NETWORK"
-	if m.metrics != nil && len(m.metrics.Network) > 0 {
+	if len(m.networkHistory) > 0 {
+		interfaceName = m.getSelectedInterfaceName()
+	} else if m.metrics != nil && len(m.metrics.Network) > 0 {
 		interfaceName = m.metrics.Network[0].Name
 	}
 
@@ -898,4 +898,58 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (m *ResponsiveTUIModel) selectBestNetworkInterface(interfaces []*models.NetworkRateInfo) *models.NetworkRateInfo {
+	if len(interfaces) == 0 {
+		return nil
+	}
+
+	var candidates []*models.NetworkRateInfo
+	
+	for _, iface := range interfaces {
+		if iface.Interface == "lo" || 
+		   strings.HasPrefix(iface.Interface, "docker") ||
+		   strings.HasPrefix(iface.Interface, "br-") ||
+		   strings.HasPrefix(iface.Interface, "veth") {
+			continue
+		}
+		candidates = append(candidates, iface)
+	}
+
+	if len(candidates) == 0 {
+		for _, iface := range interfaces {
+			if iface.Interface != "lo" {
+				return iface
+			}
+		}
+		return interfaces[0]
+	}
+
+	var bestInterface *models.NetworkRateInfo
+	var maxActivity uint64
+
+	for _, iface := range candidates {
+		totalActivity := iface.RxTotal + iface.TxTotal
+		currentActivity := uint64(iface.RxRate + iface.TxRate)
+		
+		score := totalActivity
+		if currentActivity > 0 {
+			score += currentActivity * 1000
+		}
+		
+		if bestInterface == nil || score > maxActivity {
+			bestInterface = iface
+			maxActivity = score
+		}
+	}
+
+	return bestInterface
+}
+
+func (m *ResponsiveTUIModel) getSelectedInterfaceName() string {
+	if m.selectedInterfaceName != "" {
+		return strings.ToUpper(m.selectedInterfaceName)
+	}
+	return "NETWORK"
 }
