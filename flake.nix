@@ -47,9 +47,12 @@
               "-X main.Commit=${finalAttrs.version}"
             ];
 
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+
             installPhase = ''
               mkdir -p $out/bin
               cp $GOPATH/bin/cli $out/bin/dgop
+              wrapProgram $out/bin/dgop --prefix PATH : "${lib.makeBinPath [ pkgs.pciutils ]}"
             '';
 
             meta = {
