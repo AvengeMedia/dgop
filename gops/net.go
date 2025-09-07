@@ -12,7 +12,7 @@ func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 	res := make([]*models.NetworkInfo, 0)
 	if err == nil {
 		for _, n := range netIO {
-			// Filter to match bash script (wlan, eth, enp, wlp, ens, eno)
+			// Filter to match bash script (wlan, wlo, wlp, eth, eno, enp, ens, lxc)
 			if matchesNetworkInterface(n.Name) {
 				res = append(res, &models.NetworkInfo{
 					Name: n.Name,
@@ -26,7 +26,7 @@ func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 }
 
 func matchesNetworkInterface(name string) bool {
-	prefixes := []string{"wlan", "eth", "enp", "wlp", "ens", "eno", "lxc"}
+	prefixes := []string{"wlan", "wlo", "wlp" "eth", "eno", "enp", "ens", "lxc"}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(name, prefix) {
 			return true
