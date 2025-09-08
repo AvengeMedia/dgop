@@ -36,23 +36,23 @@ jobs:
           CGO_ENABLED: 0
         run: |
           VERSION=${{ github.ref_name }}
-          BINARY_NAME="dgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}"
           cd cmd/cli && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
           cd ../..
+          gzip "${BINARY_NAME}"
       
       - name: Generate checksums
         run: |
-          VERSION=${{ github.ref_name }}
-          BINARY_NAME="dgop-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz"
           sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: dgop-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
-            dgop-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+            dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz
+            dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz.sha256
 
   create_release:
     name: 📦 Create GitHub Release
