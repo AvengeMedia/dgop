@@ -24,6 +24,8 @@ var (
 	procCursor     string
 	netRateCursor  string
 	diskRateCursor string
+	hideCPUCores   bool
+	summarizeCores bool
 )
 
 var style = lipgloss.NewStyle().
@@ -92,13 +94,16 @@ func init() {
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
 	gpuTempCmd.MarkFlagRequired("pci-id")
+
+	topCmd.Flags().BoolVar(&hideCPUCores, "hide-cpu-cores", false, "Hide individual CPU core display in TUI")
+	topCmd.Flags().BoolVar(&summarizeCores, "summarize-cores", false, "Show summarized CPU core groups instead of individual cores")
 }
 
 var rootCmd = &cobra.Command{
 	Use: "dankgop",
 	Run: func(cmd *cobra.Command, args []string) {
 		gopsUtil := gops.NewGopsUtil()
-		runTopCommand(gopsUtil)
+		runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores)
 	},
 }
 

@@ -743,5 +743,5 @@ func runDiskRateCommand(gopsUtil *gops.GopsUtil) error {
 }
 
 func runTopCommand(gopsUtil *gops.GopsUtil) error {
-	return runTUI(gopsUtil)
+	return runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores)
 }
