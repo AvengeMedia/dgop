@@ -15,6 +15,10 @@ import (
 )
 
 func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
+	return NewResponsiveTUIModelWithOptions(gopsUtil, false, false)
+}
+
+func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, summarizeCores bool) *ResponsiveTUIModel {
 	colorManager, err := config.NewColorManager()
 	if err != nil {
 		colorManager = nil
@@ -72,6 +76,8 @@ func NewResponsiveTUIModel(gopsUtil *gops.GopsUtil) *ResponsiveTUIModel {
 		maxDiskHistory: 60,
 		selectedPID:    -1,
 		logoTestMode:   false,
+		hideCPUCores:   hideCPUCores,
+		summarizeCores: summarizeCores,
 	}
 
 	hardware, _ := gopsUtil.GetSystemHardware()

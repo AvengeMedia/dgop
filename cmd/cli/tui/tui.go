@@ -141,7 +141,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			bestInterface := m.selectBestNetworkInterface(msg.rates.Interfaces)
 			if bestInterface != nil {
 				m.selectedInterfaceName = bestInterface.Interface
-				
+
 				sample := NetworkSample{
 					timestamp: time.Now(),
 					rxBytes:   bestInterface.RxTotal,
@@ -320,18 +320,32 @@ func (m *ResponsiveTUIModel) minSystemLines(width int) int {
 func (m *ResponsiveTUIModel) minCPULines(width int) int {
 	// title + usage bar
 	lines := 2
-	// core rows (3 cores per row)
-	if m.metrics != nil && m.metrics.CPU != nil {
+
+	// core rows - depends on hide/summarize options
+	if m.metrics != nil && m.metrics.CPU != nil && !m.hideCPUCores {
 		cores := len(m.metrics.CPU.CoreUsage)
 		if cores > 0 {
-			rows := (cores + 2) / 3
-			lines += rows
-			// system info line under cores if System present
-			if m.metrics.System != nil {
-				lines += 1
+			if m.summarizeCores {
+				// Summarized mode: much fewer lines
+				groupSize := 8
+				if cores > 64 {
+					groupSize = 16
+				}
+				groups := (cores + groupSize - 1) / groupSize
+				lines += groups + 1 // +1 for summary line
+			} else {
+				// Original detailed mode: 3 cores per row
+				rows := (cores + 2) / 3
+				lines += rows
 			}
 		}
 	}
+
+	// system info line under cores if System present
+	if m.metrics != nil && m.metrics.System != nil {
+		lines += 1
+	}
+
 	return lines
 }
 
@@ -415,9 +429,9 @@ func (m *ResponsiveTUIModel) renderMainContent() string {
 	netMax := netMin + 8 // give network flex to fill space
 
 	leftSpecs := []panelSpec{
-		{sysMin, sysMax, 0}, // System: no flex
+		{sysMin, sysMax, 0},         // System: no flex
 		{memDiskMin, memDiskMax, 3}, // Mem/Disk: medium weight
-		{netMin, netMax, 5}, // Network: highest weight to fill space
+		{netMin, netMax, 5},         // Network: highest weight to fill space
 	}
 	leftShrinkOrder := []int{2, 1, 0} // net→memdisk→system
 	leftInner := allocCapped(leftInnerTotal, leftSpecs, 3, leftShrinkOrder)
@@ -906,12 +920,12 @@ func (m *ResponsiveTUIModel) selectBestNetworkInterface(interfaces []*models.Net
 	}
 
 	var candidates []*models.NetworkRateInfo
-	
+
 	for _, iface := range interfaces {
-		if iface.Interface == "lo" || 
-		   strings.HasPrefix(iface.Interface, "docker") ||
-		   strings.HasPrefix(iface.Interface, "br-") ||
-		   strings.HasPrefix(iface.Interface, "veth") {
+		if iface.Interface == "lo" ||
+			strings.HasPrefix(iface.Interface, "docker") ||
+			strings.HasPrefix(iface.Interface, "br-") ||
+			strings.HasPrefix(iface.Interface, "veth") {
 			continue
 		}
 		candidates = append(candidates, iface)
@@ -932,12 +946,12 @@ func (m *ResponsiveTUIModel) selectBestNetworkInterface(interfaces []*models.Net
 	for _, iface := range candidates {
 		totalActivity := iface.RxTotal + iface.TxTotal
 		currentActivity := uint64(iface.RxRate + iface.TxRate)
-		
+
 		score := totalActivity
 		if currentActivity > 0 {
 			score += currentActivity * 1000
 		}
-		
+
 		if bestInterface == nil || score > maxActivity {
 			bestInterface = iface
 			maxActivity = score

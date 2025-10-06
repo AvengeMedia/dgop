@@ -78,6 +78,9 @@ type ResponsiveTUIModel struct {
 	logoTestMode     bool
 	currentLogoIndex int
 	lastLogoUpdate   time.Time
+
+	hideCPUCores   bool
+	summarizeCores bool
 }
 
 func (m *ResponsiveTUIModel) Cleanup() {
