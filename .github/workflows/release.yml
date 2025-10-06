@@ -39,12 +39,18 @@ jobs:
           BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}"
           cd cmd/cli && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
           cd ../..
-          gzip "${BINARY_NAME}"
+
+          # Create .gz archive
+          gzip -c "${BINARY_NAME}" > "${BINARY_NAME}.gz"
+
+          # Create .tar.gz archive
+          tar -czf "${BINARY_NAME}.tar.gz" "${BINARY_NAME}"
       
       - name: Generate checksums
         run: |
-          BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz"
-          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+          BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}"
+          sha256sum "${BINARY_NAME}.gz" > "${BINARY_NAME}.gz.sha256"
+          sha256sum "${BINARY_NAME}.tar.gz" > "${BINARY_NAME}.tar.gz.sha256"
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -53,6 +59,8 @@ jobs:
           path: |
             dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz
             dgop-${{ matrix.goos }}-${{ matrix.goarch }}.gz.sha256
+            dgop-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            dgop-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256
 
   create_release:
     name: 📦 Create GitHub Release
