@@ -6,16 +6,16 @@
 
 %global debug_package %{nil}
 
-# Set build type - override with --define 'git_build 0' for stable releases
-%{!?git_build: %global git_build 1}
+# Set build type - override with --define 'git_build 1' for git builds
+%{!?git_build: %global git_build 0}
 
 %if %{git_build}
 # Git build - use rpkg git macros
 %global version {{{ git_dir_version }}}
 %global pkg_summary System monitoring CLI and REST API (git development version)
 %else
-# Stable build - use tagged version
-%global version 0.1.4
+# Stable build - latest git tag
+%global version {{{ git_dir_version lead=1 }}}
 %global pkg_summary System monitoring CLI and REST API
 %endif
 
@@ -85,6 +85,6 @@ install -Dm755 dgop %{buildroot}%{_bindir}/dgop
 %if %{git_build}
 {{{ git_dir_changelog }}}
 %else
-* Thu Oct 09 2025 AvengeMedia <support@avengemedia.net> - 0.1.4-1
-- Update to v0.1.4 stable release
+* Thu Oct 09 2025 AvengeMedia <support@avengemedia.net> - %{version}-1
+- Update to v%{version} stable release
 %endif
