@@ -36,6 +36,7 @@ Source0:        https://github.com/AvengeMedia/dgop/archive/refs/tags/v%{version
 
 BuildRequires:  git-core
 BuildRequires:  golang >= 1.21
+BuildRequires:  rpkg
 
 Requires:       glibc
 
