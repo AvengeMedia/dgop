@@ -1,21 +1,32 @@
-# dgop
+<div align="center">
+  <a href="https://danklinux.com">
+    <img src="assets/danklogo.svg" alt="dgop" width="200">
+  </a>
 
-<div align=center>
+  # dgop
 
-![GitHub last commit](https://img.shields.io/github/last-commit/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=9ccbfb)
-![GitHub License](https://img.shields.io/github/license/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=b9c8da)
-![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=a6da95)
+  ### Stateless, cursor-based system and process monitoring
+
+[![Documentation](https://img.shields.io/badge/docs-danklinux.com-9ccbfb?style=for-the-badge&labelColor=101418)](https://danklinux.com/docs/dgop)
+[![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=a6da95)](https://github.com/AvengeMedia/dgop/releases)
 [![AUR](https://img.shields.io/aur/version/dgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://aur.archlinux.org/packages/dgop)
+[![GitHub License](https://img.shields.io/github/license/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=b9c8da)](https://github.com/AvengeMedia/dgop/blob/master/LICENSE)
 
 </div>
+
+---
 
 <div align="center">
-<img src="https://github.com/user-attachments/assets/eb0b4e3e-e6ed-439d-a24b-640d15938510" width="600" alt="dgop" />
+<img src="https://github.com/user-attachments/assets/eb0b4e3e-e6ed-439d-a24b-640d15938510" width="600" alt="dgop screenshot" />
 </div>
 
-System monitoring tool with CLI and REST API.
+System monitoring tool with CLI and REST API built in Go. Fast, single binary, JSON output, OpenAPI spec.
 
-Can be used standalone, or as a  companion for [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) to unlock system information functionality.
+Use standalone for system monitoring, or as a companion for [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) to unlock system information widgets.
+
+**[Full documentation →](https://danklinux.com/docs/dgop)**
+
+---
 
 ## Installation
 
