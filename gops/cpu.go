@@ -20,16 +20,17 @@ type CPUTracker struct {
 	lastCores  [][]float64
 	lastUpdate time.Time
 
-	// Cache for expensive operations
 	cpuModel    string
 	cpuFreq     float64
 	cpuCount    int
 	modelCached bool
 
-	// Temperature cache
 	tempPath     string
 	tempLastRead time.Time
 	tempValue    float64
+
+	freqLastRead time.Time
+	freqValue    float64
 
 	mu sync.RWMutex
 }
@@ -56,10 +57,13 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 		cpuTracker.modelCached = true
 	}
 
-	// Get current CPU frequency (more accurate than cached base frequency)
-	currentFreq := getCurrentCPUFreq()
-	if currentFreq > 0 {
-		cpuInfo.Frequency = currentFreq
+	now := time.Now()
+	if now.Sub(cpuTracker.freqLastRead) > 2*time.Second {
+		cpuTracker.freqValue = getCurrentCPUFreq()
+		cpuTracker.freqLastRead = now
+	}
+	if cpuTracker.freqValue > 0 {
+		cpuInfo.Frequency = cpuTracker.freqValue
 	} else {
 		cpuInfo.Frequency = cpuTracker.cpuFreq
 	}
@@ -67,7 +71,6 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	cpuInfo.Count = cpuTracker.cpuCount
 	cpuInfo.Model = cpuTracker.cpuModel
 
-	now := time.Now()
 	if now.Sub(cpuTracker.tempLastRead) > 5*time.Second {
 		cpuTracker.tempValue = getCPUTemperatureCached()
 		cpuTracker.tempLastRead = now
@@ -142,27 +145,25 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 }
 
 func getCPUTemperatureCached() float64 {
-	// Try gopsutil sensors first (preferred method)
-	temps, err := sensors.SensorsTemperatures()
-	if err == nil {
-		for _, temp := range temps {
-			// Look for CPU temperature sensors
-			if strings.Contains(temp.SensorKey, "coretemp_core_0") ||
-				strings.Contains(temp.SensorKey, "k10temp_tdie") ||
-				strings.Contains(temp.SensorKey, "cpu_thermal") ||
-				strings.Contains(temp.SensorKey, "package_id_0") {
-				return temp.Temperature
-			}
-		}
-	}
-
-	// Fallback to hwmon if gopsutil doesn't work
 	if cpuTracker.tempPath != "" {
 		tempBytes, err := os.ReadFile(cpuTracker.tempPath)
 		if err == nil {
 			temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
 			if err == nil {
 				return float64(temp) / 1000.0
+			}
+		}
+		cpuTracker.tempPath = ""
+	}
+
+	temps, err := sensors.SensorsTemperatures()
+	if err == nil {
+		for _, temp := range temps {
+			if strings.Contains(temp.SensorKey, "coretemp_core_0") ||
+				strings.Contains(temp.SensorKey, "k10temp_tdie") ||
+				strings.Contains(temp.SensorKey, "cpu_thermal") ||
+				strings.Contains(temp.SensorKey, "package_id_0") {
+				return temp.Temperature
 			}
 		}
 	}
