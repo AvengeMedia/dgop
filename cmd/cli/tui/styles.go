@@ -63,7 +63,7 @@ func (m *ResponsiveTUIModel) footerStyle() lipgloss.Style {
 
 func (m *ResponsiveTUIModel) getProgressBarColor(usage float64, colorType string) string {
 	colors := m.getColors()
-	
+
 	switch colorType {
 	case "memory":
 		if usage > 80 {
@@ -93,7 +93,7 @@ func (m *ResponsiveTUIModel) getProgressBarColor(usage float64, colorType string
 
 func (m *ResponsiveTUIModel) getTemperatureColor(temp float64) string {
 	colors := m.getColors()
-	
+
 	if temp > 85 {
 		return colors.Temperature.Danger
 	} else if temp > 70 {

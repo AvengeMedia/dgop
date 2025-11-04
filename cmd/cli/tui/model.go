@@ -52,10 +52,10 @@ type ResponsiveTUIModel struct {
 
 	hardware *models.SystemHardware
 
-	networkHistory       []NetworkSample
-	maxNetHistory        int
-	networkCursor        string
-	lastNetworkUpdate    time.Time
+	networkHistory        []NetworkSample
+	maxNetHistory         int
+	networkCursor         string
+	lastNetworkUpdate     time.Time
 	selectedInterfaceName string
 
 	diskHistory    []DiskSample
@@ -74,7 +74,7 @@ type ResponsiveTUIModel struct {
 
 	distroLogo  []string
 	distroColor string
-	
+
 	logoTestMode     bool
 	currentLogoIndex int
 	lastLogoUpdate   time.Time

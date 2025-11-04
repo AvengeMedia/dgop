@@ -24,19 +24,19 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 		// Handle both 4-column and 5-column layouts
 		columns := m.processTable.Columns()
 		var row table.Row
-		
+
 		// Format memory to show both percentage and GB/MB
 		memGB := float64(proc.MemoryKB) / 1024 / 1024 // Convert KB to GB
 		memMB := memGB * 1024
 		var memStr string
-		
+
 		// ALWAYS show both percentage and size for debugging
 		if memGB >= 1.0 {
 			memStr = fmt.Sprintf("%.1f%% %.1fG", proc.MemoryPercent, memGB)
 		} else {
 			memStr = fmt.Sprintf("%.1f%% %.0fM", proc.MemoryPercent, memMB)
 		}
-		
+
 		if len(columns) == 6 { // 6-column layout (PID, USER, CPU%, MEM%, COMMAND, FULL COMMAND)
 			commandWidth := columns[4].Width
 			fullCommandWidth := columns[5].Width

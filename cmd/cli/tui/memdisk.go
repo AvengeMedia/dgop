@@ -2,9 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/lipgloss"
 	"strconv"
 	"strings"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
@@ -14,7 +14,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 
 	// Memory section
 	content = append(content, m.titleStyle().Render("MEMORY"))
-	
+
 	if m.metrics != nil && m.metrics.Memory != nil {
 		mem := m.metrics.Memory
 		totalGB := float64(mem.Total) / 1024 / 1024
@@ -91,7 +91,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 				}
 			}
 			content = append(content, displayName)
-			
+
 			// Show usage as "Used/Total" format
 			usageInfo := fmt.Sprintf("%s/%s", mount.Used, mount.Size)
 			content = append(content, fmt.Sprintf("%s %s", m.renderProgressBar(uint64(percent*100), 10000, barWidth, "disk"), usageInfo))
@@ -110,7 +110,7 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 		if len(m.systemTemperatures) > 0 {
 			content = append(content, "")
 			content = append(content, m.titleStyle().Render("SENSORS"))
-			
+
 			// Show a reasonable number of sensors that fit
 			sensorsToShow := len(m.systemTemperatures)
 			if sensorsToShow > 6 { // Limit to prevent overcrowding

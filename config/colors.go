@@ -51,7 +51,7 @@ func NewColorManager() (*ColorManager, error) {
 func (cm *ColorManager) GetPalette() *models.ColorPalette {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	paletteCopy := *cm.palette
 	return &paletteCopy
 }

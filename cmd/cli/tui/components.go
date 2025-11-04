@@ -91,20 +91,20 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 
 func (m *ResponsiveTUIModel) updateTableStyles() {
 	colors := m.getColors()
-	
+
 	columns := m.processTable.Columns()
 	rows := m.processTable.Rows()
 	cursor := m.processTable.Cursor()
 	height := m.processTable.Height()
 	focused := m.processTable.Focused()
-	
+
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithHeight(height),
 		table.WithFocused(focused),
 	)
-	
+
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
@@ -116,7 +116,7 @@ func (m *ResponsiveTUIModel) updateTableStyles() {
 		Foreground(lipgloss.Color(colors.UI.SelectionText)).
 		Background(lipgloss.Color(colors.UI.SelectionBackground)).
 		Bold(false)
-	
+
 	t.SetStyles(s)
 	t.SetCursor(cursor)
 	m.processTable = t
@@ -138,7 +138,7 @@ func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int, co
 	}
 
 	var bar strings.Builder
-	
+
 	// For CPU charts, make them translucent - only show used portion without background
 	if colorType == "cpu" {
 		// Only show filled portion for CPU, rest is transparent (spaces)
@@ -180,7 +180,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 		distroStyle := m.titleStyle()
 		leftLines = append(leftLines, m.hardware.Distro)
 		styledLeftLines = append(styledLeftLines, distroStyle.Render(m.hardware.Distro))
-		
+
 		// Add logged in user with hostname
 		username := os.Getenv("USER")
 		if username == "" {
@@ -189,13 +189,13 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 		userHostLine := fmt.Sprintf("%s@%s", username, m.hardware.Hostname)
 		leftLines = append(leftLines, userHostLine)
 		styledLeftLines = append(styledLeftLines, userHostLine)
-		
+
 		leftLines = append(leftLines, m.hardware.Kernel)
 		styledLeftLines = append(styledLeftLines, m.hardware.Kernel)
-		
+
 		leftLines = append(leftLines, m.hardware.BIOS.Motherboard)
 		styledLeftLines = append(styledLeftLines, m.hardware.BIOS.Motherboard)
-		
+
 		biosLine := fmt.Sprintf("%s %s", m.hardware.BIOS.Version, m.hardware.BIOS.Date)
 		leftLines = append(leftLines, biosLine)
 		styledLeftLines = append(styledLeftLines, biosLine)
@@ -218,7 +218,6 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 		}
 	}
 
-
 	// Calculate logo dimensions from raw strings first (use lipgloss width for Unicode)
 	logoWidth := 0
 	for _, line := range logo {
@@ -227,7 +226,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 			logoWidth = lineWidth
 		}
 	}
-	
+
 	// Build logo with preserved ASCII art alignment
 	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 	// Apply style to each line individually to preserve alignment
@@ -240,10 +239,10 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 	availableWidth := width - 4 // account for borders and padding
 
 	// For very small screens, stack vertically
-	if availableWidth < 35 || logoWidth + 15 > availableWidth {
+	if availableWidth < 35 || logoWidth+15 > availableWidth {
 		// Stack layout: system info on top, logo below
 		var finalContent string
-		
+
 		// Truncate left content if needed
 		maxLeftWidth := availableWidth
 		truncatedStyledLines := make([]string, len(styledLeftLines))
@@ -271,12 +270,12 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 				truncatedStyledLines[i] = styledLine
 			}
 		}
-		
+
 		finalContent = strings.Join(truncatedStyledLines, "\n")
 		if len(truncatedStyledLines) > 0 && len(logo) > 0 {
 			finalContent += "\n\n" // spacing
 		}
-		
+
 		// Add logo, potentially centered
 		for i, logoLine := range styledLogoLines {
 			rawLine := logo[i] // use raw line for width calculation
@@ -289,10 +288,10 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 			}
 			finalContent += logoLine + "\n"
 		}
-		
+
 		// Remove trailing newline
 		finalContent = strings.TrimSuffix(finalContent, "\n")
-		
+
 		// Ensure content fills allocated height
 		contentHeight := lipgloss.Height(finalContent)
 		innerHeight := height - 2
@@ -303,7 +302,7 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 			lines := strings.Split(finalContent, "\n")
 			finalContent = strings.Join(lines[:innerHeight], "\n")
 		}
-		
+
 		return style.Render(finalContent)
 	}
 
@@ -350,32 +349,32 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 	if len(styledLogoLines) > maxLines {
 		maxLines = len(styledLogoLines)
 	}
-	
+
 	var finalLines []string
 	for i := 0; i < maxLines; i++ {
 		var leftPart, rightPart string
 		var leftRawLen int
-		
+
 		// Get left part (system info)
 		if i < len(truncatedStyledLines) {
 			leftPart = truncatedStyledLines[i]
 			leftRawLen = lipgloss.Width(truncatedRawLines[i])
 		}
-		
-		// Get right part (logo)  
+
+		// Get right part (logo)
 		if i < len(styledLogoLines) {
 			rightPart = styledLogoLines[i]
 		}
-		
+
 		// Pad left part to exact width using raw length
 		if leftRawLen < maxLeftWidth {
 			leftPart += strings.Repeat(" ", maxLeftWidth-leftRawLen)
 		}
-		
+
 		// Combine with spacing
 		finalLines = append(finalLines, leftPart+"  "+rightPart)
 	}
-	
+
 	finalContent := strings.Join(finalLines, "\n")
 
 	// Ensure content fills allocated height

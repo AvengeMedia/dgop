@@ -1,11 +1,11 @@
 package models
 
 type ColorPalette struct {
-	UI           UIColors           `json:"ui"`
-	Charts       ChartColors        `json:"charts"`
-	ProgressBars ProgressBarColors  `json:"progress_bars"`
-	Temperature  TemperatureColors  `json:"temperature"`
-	Status       StatusColors       `json:"status"`
+	UI           UIColors          `json:"ui"`
+	Charts       ChartColors       `json:"charts"`
+	ProgressBars ProgressBarColors `json:"progress_bars"`
+	Temperature  TemperatureColors `json:"temperature"`
+	Status       StatusColors      `json:"status"`
 }
 
 type UIColors struct {
@@ -88,7 +88,7 @@ func DefaultColorPalette() *ColorPalette {
 		},
 		ProgressBars: ProgressBarColors{
 			MemoryLow:          "#8B5FBF",
-			MemoryMedium:       "#A855F7", 
+			MemoryMedium:       "#A855F7",
 			MemoryHigh:         "#D946EF",
 			DiskLow:            "#8B5FBF",
 			DiskMedium:         "#A855F7",
@@ -106,7 +106,7 @@ func DefaultColorPalette() *ColorPalette {
 		},
 		Status: StatusColors{
 			Success: "#22C55E",
-			Warning: "#F59E0B", 
+			Warning: "#F59E0B",
 			Error:   "#EF4444",
 			Info:    "#3B82F6",
 		},

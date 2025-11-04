@@ -447,28 +447,28 @@ func getHwmonTemperature(pciId string) (float64, string) {
 	for _, card := range drmCards {
 		// Check if this card's device driver matches our target
 		devicePath := filepath.Join(card, "device")
-		
+
 		// Check if this device matches our PCI ID
 		vendorFile := filepath.Join(devicePath, "vendor")
 		deviceFile := filepath.Join(devicePath, "device")
-		
+
 		vendorBytes, err1 := os.ReadFile(vendorFile)
 		deviceBytes, err2 := os.ReadFile(deviceFile)
-		
+
 		if err1 != nil || err2 != nil {
 			continue
 		}
-		
+
 		vendorId := strings.TrimSpace(string(vendorBytes))
 		deviceId := strings.TrimSpace(string(deviceBytes))
-		
+
 		// Remove 0x prefix if present
 		vendorId = strings.TrimPrefix(vendorId, "0x")
 		deviceId = strings.TrimPrefix(deviceId, "0x")
-		
+
 		// Construct the PCI ID in the format vvvv:dddd
 		cardPciId := fmt.Sprintf("%s:%s", vendorId, deviceId)
-		
+
 		// Only proceed if this card matches our target PCI ID
 		if cardPciId != pciId {
 			continue

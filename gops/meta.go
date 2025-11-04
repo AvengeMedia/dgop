@@ -78,6 +78,7 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 		case "processes":
 			if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
 				meta.Processes = result.Processes
+				meta.Cursor = result.Cursor
 			}
 		case "system":
 			if sys, err := self.GetSystemInfo(); err == nil {
@@ -108,7 +109,6 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
 
-	// Load all modules (ignore errors for individual modules)
 	if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
 		meta.CPU = cpu
 	}
@@ -139,6 +139,7 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 
 	if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
 		meta.Processes = result.Processes
+		meta.Cursor = result.Cursor
 	}
 
 	if sys, err := self.GetSystemInfo(); err == nil {
