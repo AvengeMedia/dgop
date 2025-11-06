@@ -197,38 +197,55 @@ type gpuEntry struct {
 }
 
 func detectGPUEntries() ([]gpuEntry, error) {
-	cmd := exec.Command("lspci", "-nnD")
-	output, err := cmd.Output()
+	return detectGPUEntriesFromSys()
+}
+
+func detectGPUEntriesFromSys() ([]gpuEntry, error) {
+	devices, err := filepath.Glob("/sys/bus/pci/devices/*")
 	if err != nil {
 		return nil, err
 	}
 
 	var gpuEntries []gpuEntry
-	vgaRegex := regexp.MustCompile(`(?i) VGA| 3D| 2D| Display`)
-
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if vgaRegex.MatchString(line) {
-			parts := strings.Fields(line)
-			if len(parts) == 0 {
-				continue
-			}
-
-			bdf := parts[0]
-			driver := getGPUDriver(bdf)
-			vendor := inferVendor(driver, line)
-			priority := getPriority(driver, bdf)
-
-			gpuEntries = append(gpuEntries, gpuEntry{
-				Priority: priority,
-				Driver:   driver,
-				Vendor:   vendor,
-				RawLine:  line,
-			})
+	for _, devicePath := range devices {
+		classBytes, err := os.ReadFile(filepath.Join(devicePath, "class"))
+		if err != nil {
+			continue
 		}
+
+		class := strings.TrimSpace(string(classBytes))
+		if !strings.HasPrefix(class, "0x03") {
+			continue
+		}
+
+		vendorBytes, err := os.ReadFile(filepath.Join(devicePath, "vendor"))
+		if err != nil {
+			continue
+		}
+
+		deviceBytes, err := os.ReadFile(filepath.Join(devicePath, "device"))
+		if err != nil {
+			continue
+		}
+
+		vendorId := strings.TrimSpace(strings.TrimPrefix(string(vendorBytes), "0x"))
+		deviceId := strings.TrimSpace(strings.TrimPrefix(string(deviceBytes), "0x"))
+		bdf := filepath.Base(devicePath)
+		driver := getGPUDriver(bdf)
+		displayName := lookupPCIDevice(vendorId, deviceId)
+		vendor := inferVendorFromId(vendorId, driver)
+		priority := getPriority(driver, bdf)
+		pciId := fmt.Sprintf("%s:%s", vendorId, deviceId)
+		rawLine := fmt.Sprintf("%s Display controller: %s [%s]", bdf, displayName, pciId)
+
+		gpuEntries = append(gpuEntries, gpuEntry{
+			Priority: priority,
+			Driver:   driver,
+			Vendor:   vendor,
+			RawLine:  rawLine,
+		})
 	}
 
-	// Sort by priority (descending), then by driver name
 	sort.Slice(gpuEntries, func(i, j int) bool {
 		if gpuEntries[i].Priority != gpuEntries[j].Priority {
 			return gpuEntries[i].Priority > gpuEntries[j].Priority
@@ -236,24 +253,68 @@ func detectGPUEntries() ([]gpuEntry, error) {
 		return gpuEntries[i].Driver < gpuEntries[j].Driver
 	})
 
-	var gpus []models.GPU
-	for _, entry := range gpuEntries {
-		displayName, pciId := parseGPUInfo(entry.RawLine)
-		fullName := buildFullName(entry.Vendor, displayName)
+	return gpuEntries, nil
+}
 
-		gpus = append(gpus, models.GPU{
-			Driver:      entry.Driver,
-			Vendor:      entry.Vendor,
-			DisplayName: displayName,
-			FullName:    fullName,
-			PciId:       pciId,
-			RawLine:     entry.RawLine,
-			Temperature: 0,         // TODO: Add GPU temperature detection
-			Hwmon:       "unknown", // TODO: Add hwmon path detection
-		})
+func inferVendorFromId(vendorId, driver string) string {
+	switch vendorId {
+	case "10de":
+		return "NVIDIA"
+	case "1002":
+		return "AMD"
+	case "8086":
+		return "Intel"
+	default:
+		return inferVendor(driver, "")
+	}
+}
+
+func lookupPCIDevice(vendorId, deviceId string) string {
+	pciIdsPaths := []string{
+		"/usr/share/hwdata/pci.ids",
+		"/usr/share/misc/pci.ids",
+		"/var/lib/pciutils/pci.ids",
 	}
 
-	return gpuEntries, nil
+	var pciIdsPath string
+	for _, path := range pciIdsPaths {
+		if _, err := os.Stat(path); err == nil {
+			pciIdsPath = path
+			break
+		}
+	}
+
+	if pciIdsPath == "" {
+		return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
+	}
+
+	content, err := os.ReadFile(pciIdsPath)
+	if err != nil {
+		return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
+	}
+
+	inVendor := false
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.HasPrefix(line, "#") || len(strings.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		if !strings.HasPrefix(line, "\t") {
+			inVendor = strings.HasPrefix(line, vendorId)
+			continue
+		}
+
+		if !inVendor || strings.HasPrefix(line, "\t\t") {
+			continue
+		}
+
+		fields := strings.SplitN(strings.TrimPrefix(line, "\t"), " ", 2)
+		if len(fields) >= 2 && fields[0] == deviceId {
+			return strings.TrimSpace(fields[1])
+		}
+	}
+
+	return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
 }
 
 func detectGPUs() ([]models.GPU, error) {
