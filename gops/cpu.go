@@ -196,6 +196,49 @@ func getCPUTemperatureCached() float64 {
 		}
 	}
 
+	// Fallback to ACPI thermal zones (for devices like HP Zbook Ultra G1A)
+	// Try to find the highest temperature from acpitz thermal zones
+	thermalPath := "/sys/class/thermal"
+	thermalEntries, err := os.ReadDir(thermalPath)
+	if err == nil {
+		var maxTemp float64
+		var foundTemp bool
+
+		for _, entry := range thermalEntries {
+			if !strings.HasPrefix(entry.Name(), "thermal_zone") {
+				continue
+			}
+
+			typePath := filepath.Join(thermalPath, entry.Name(), "type")
+			typeBytes, err := os.ReadFile(typePath)
+			if err != nil {
+				continue
+			}
+
+			thermalType := strings.TrimSpace(string(typeBytes))
+			if thermalType == "acpitz" {
+				tempPath := filepath.Join(thermalPath, entry.Name(), "temp")
+				tempBytes, err := os.ReadFile(tempPath)
+				if err == nil {
+					temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+					if err == nil {
+						tempC := float64(temp) / 1000.0
+						// Only consider reasonable CPU temperatures (20-100°C)
+						if tempC >= 20 && tempC <= 100 && tempC > maxTemp {
+							maxTemp = tempC
+							foundTemp = true
+							cpuTracker.tempPath = tempPath
+						}
+					}
+				}
+			}
+		}
+
+		if foundTemp {
+			return maxTemp
+		}
+	}
+
 	return 0
 }
 

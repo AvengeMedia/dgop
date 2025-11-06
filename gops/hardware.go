@@ -505,6 +505,50 @@ func getHwmonTemperature(pciId string) (float64, string) {
 		}
 	}
 
+	// Fallback to ACPI thermal zones for integrated GPUs (like AMD Radeon 8060S on HP Zbook Ultra G1A)
+	// Some integrated GPUs don't expose hwmon sensors but may have thermal info in ACPI
+	thermalPath := "/sys/class/thermal"
+	thermalEntries, err := os.ReadDir(thermalPath)
+	if err == nil {
+		var maxTemp float64
+		var foundTemp bool
+
+		for _, entry := range thermalEntries {
+			if !strings.HasPrefix(entry.Name(), "thermal_zone") {
+				continue
+			}
+
+			typePath := filepath.Join(thermalPath, entry.Name(), "type")
+			typeBytes, err := os.ReadFile(typePath)
+			if err != nil {
+				continue
+			}
+
+			thermalType := strings.TrimSpace(string(typeBytes))
+			// Look for ACPI thermal zones that might represent GPU temperature
+			if thermalType == "acpitz" {
+				tempPath := filepath.Join(thermalPath, entry.Name(), "temp")
+				tempBytes, err := os.ReadFile(tempPath)
+				if err == nil {
+					temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+					if err == nil {
+						tempC := float64(temp) / 1000.0
+						// Consider temperatures in typical GPU range (20-90°C)
+						// Use the second-highest temp as it's often GPU on APU systems
+						if tempC >= 20 && tempC <= 90 && tempC > maxTemp {
+							maxTemp = tempC
+							foundTemp = true
+						}
+					}
+				}
+			}
+		}
+
+		if foundTemp {
+			return maxTemp, "acpitz"
+		}
+	}
+
 	return 0, "unknown"
 }
 
