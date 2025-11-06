@@ -505,7 +505,76 @@ func getHwmonTemperature(pciId string) (float64, string) {
 		}
 	}
 
+	thermalPath := "/sys/class/thermal"
+	thermalEntries, err := os.ReadDir(thermalPath)
+	if err != nil {
+		return 0, "unknown"
+	}
+
+	maxTemp := getMaxACPITZTemperatureForGPU(thermalPath, thermalEntries, 20, 90)
+	if maxTemp > 0 {
+		return maxTemp, "acpitz"
+	}
+
 	return 0, "unknown"
+}
+
+func getMaxACPITZTemperatureForGPU(thermalPath string, thermalEntries []os.DirEntry, minTemp, maxTemp float64) float64 {
+	var highestTemp float64
+
+	for _, entry := range thermalEntries {
+		if !strings.HasPrefix(entry.Name(), "thermal_zone") {
+			continue
+		}
+
+		thermalType, err := readThermalTypeForGPU(thermalPath, entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if thermalType != "acpitz" {
+			continue
+		}
+
+		temp, err := readThermalTempForGPU(thermalPath, entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if temp < minTemp || temp > maxTemp {
+			continue
+		}
+
+		if temp > highestTemp {
+			highestTemp = temp
+		}
+	}
+
+	return highestTemp
+}
+
+func readThermalTypeForGPU(thermalPath, entryName string) (string, error) {
+	typePath := filepath.Join(thermalPath, entryName, "type")
+	typeBytes, err := os.ReadFile(typePath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(typeBytes)), nil
+}
+
+func readThermalTempForGPU(thermalPath, entryName string) (float64, error) {
+	tempPath := filepath.Join(thermalPath, entryName, "temp")
+	tempBytes, err := os.ReadFile(tempPath)
+	if err != nil {
+		return 0, err
+	}
+
+	temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+	if err != nil {
+		return 0, err
+	}
+
+	return float64(temp) / 1000.0, nil
 }
 
 func readFile(path string) (string, error) {

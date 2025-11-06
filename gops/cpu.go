@@ -196,6 +196,17 @@ func getCPUTemperatureCached() float64 {
 		}
 	}
 
+	thermalPath := "/sys/class/thermal"
+	thermalEntries, err := os.ReadDir(thermalPath)
+	if err != nil {
+		return 0
+	}
+
+	maxTemp := getMaxACPITZTemperature(thermalPath, thermalEntries, 20, 100, true)
+	if maxTemp > 0 {
+		return maxTemp
+	}
+
 	return 0
 }
 
@@ -229,6 +240,68 @@ func getCurrentCPUFreq() float64 {
 	}
 
 	return 0
+}
+
+func getMaxACPITZTemperature(thermalPath string, thermalEntries []os.DirEntry, minTemp, maxTemp float64, isCPU bool) float64 {
+	var highestTemp float64
+
+	for _, entry := range thermalEntries {
+		if !strings.HasPrefix(entry.Name(), "thermal_zone") {
+			continue
+		}
+
+		thermalType, err := readThermalType(thermalPath, entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if thermalType != "acpitz" {
+			continue
+		}
+
+		temp, tempPath, err := readThermalTemp(thermalPath, entry.Name())
+		if err != nil {
+			continue
+		}
+
+		if temp < minTemp || temp > maxTemp {
+			continue
+		}
+
+		if temp > highestTemp {
+			highestTemp = temp
+			if isCPU {
+				cpuTracker.tempPath = tempPath
+			}
+		}
+	}
+
+	return highestTemp
+}
+
+func readThermalType(thermalPath, entryName string) (string, error) {
+	typePath := filepath.Join(thermalPath, entryName, "type")
+	typeBytes, err := os.ReadFile(typePath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(typeBytes)), nil
+}
+
+func readThermalTemp(thermalPath, entryName string) (float64, string, error) {
+	tempPath := filepath.Join(thermalPath, entryName, "temp")
+	tempBytes, err := os.ReadFile(tempPath)
+	if err != nil {
+		return 0, "", err
+	}
+
+	temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+	if err != nil {
+		return 0, "", err
+	}
+
+	tempC := float64(temp) / 1000.0
+	return tempC, tempPath, nil
 }
 
 func calculateCPUPercentage(prev, curr []float64) float64 {
