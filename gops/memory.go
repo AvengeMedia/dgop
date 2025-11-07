@@ -2,11 +2,10 @@ package gops
 
 import (
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
-	v, err := mem.VirtualMemory()
+	v, err := self.memProvider.VirtualMemory()
 	if err != nil {
 		return nil, err
 	}

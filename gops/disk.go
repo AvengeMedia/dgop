@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/shirou/gopsutil/v4/disk"
 )
 
 func (self *GopsUtil) GetDiskInfo() ([]*models.DiskInfo, error) {
-	diskIO, err := disk.IOCounters()
+	diskIO, err := self.diskProvider.IOCounters()
 	res := make([]*models.DiskInfo, 0)
 	if err == nil {
 		for name, d := range diskIO {
@@ -27,7 +26,7 @@ func (self *GopsUtil) GetDiskInfo() ([]*models.DiskInfo, error) {
 }
 
 func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
-	partitions, err := disk.Partitions(false)
+	partitions, err := self.diskProvider.Partitions(false)
 	var metrics []*models.DiskMountInfo
 	if err == nil {
 		for _, p := range partitions {
@@ -36,7 +35,7 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 				continue
 			}
 
-			usage, err := disk.Usage(p.Mountpoint)
+			usage, err := self.diskProvider.Usage(p.Mountpoint)
 			if err != nil {
 				continue
 			}

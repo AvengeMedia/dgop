@@ -9,8 +9,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run tests with coverage
+        run: go test -cover ./...
+
   build:
-    name: 🔨 Build Binaries
+    name: Build Binaries
+    needs: [test]
     strategy:
       matrix:
         include:

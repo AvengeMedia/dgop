@@ -14,8 +14,6 @@ import (
 
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/process"
 )
 
 func getPssDirty(pid int32) (uint64, error) {
@@ -46,13 +44,13 @@ func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool)
 }
 
 func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enableCPU bool, cursor string) (*models.ProcessListResponse, error) {
-	procs, err := process.Processes()
+	procs, err := self.procProvider.Processes()
 	if err != nil {
 		return nil, err
 	}
 
 	procList := make([]*models.ProcessInfo, 0)
-	totalMem, _ := mem.VirtualMemory()
+	totalMem, _ := self.memProvider.VirtualMemory()
 	currentTime := time.Now().UnixMilli()
 
 	// Decode cursor string into cursor data map

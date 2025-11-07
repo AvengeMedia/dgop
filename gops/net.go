@@ -4,11 +4,10 @@ import (
 	"strings"
 
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/shirou/gopsutil/v4/net"
 )
 
 func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
-	netIO, err := net.IOCounters(true)
+	netIO, err := self.netProvider.IOCounters(true)
 	res := make([]*models.NetworkInfo, 0)
 	if err == nil {
 		for _, n := range netIO {

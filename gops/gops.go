@@ -6,10 +6,51 @@ import (
 	"github.com/shirou/gopsutil/v4/sensors"
 )
 
-type GopsUtil struct{}
+type GopsUtil struct {
+	cpuProvider  CPUInfoProvider
+	memProvider  MemoryInfoProvider
+	diskProvider DiskInfoProvider
+	netProvider  NetworkInfoProvider
+	procProvider ProcessInfoProvider
+	hostProvider HostInfoProvider
+	loadProvider LoadInfoProvider
+	fs           FileSystem
+}
 
 func NewGopsUtil() *GopsUtil {
-	return &GopsUtil{}
+	return &GopsUtil{
+		cpuProvider:  &DefaultCPUInfoProvider{},
+		memProvider:  &DefaultMemoryInfoProvider{},
+		diskProvider: &DefaultDiskInfoProvider{},
+		netProvider:  &DefaultNetworkInfoProvider{},
+		procProvider: &DefaultProcessInfoProvider{},
+		hostProvider: &DefaultHostInfoProvider{},
+		loadProvider: &DefaultLoadInfoProvider{},
+		fs:           &DefaultFileSystem{},
+	}
+}
+
+// NewGopsUtilWithProviders creates a GopsUtil with custom providers (for testing)
+func NewGopsUtilWithProviders(
+	cpu CPUInfoProvider,
+	mem MemoryInfoProvider,
+	disk DiskInfoProvider,
+	net NetworkInfoProvider,
+	proc ProcessInfoProvider,
+	host HostInfoProvider,
+	load LoadInfoProvider,
+	fs FileSystem,
+) *GopsUtil {
+	return &GopsUtil{
+		cpuProvider:  cpu,
+		memProvider:  mem,
+		diskProvider: disk,
+		netProvider:  net,
+		procProvider: proc,
+		hostProvider: host,
+		loadProvider: load,
+		fs:           fs,
+	}
 }
 
 func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool) (*models.SystemMetrics, error) {

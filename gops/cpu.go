@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/sensors"
 )
 
@@ -48,8 +47,8 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	defer cpuTracker.mu.Unlock()
 
 	if !cpuTracker.modelCached {
-		cpuTracker.cpuCount, _ = cpu.Counts(true)
-		info, err := cpu.Info()
+		cpuTracker.cpuCount, _ = self.cpuProvider.Counts(true)
+		info, err := self.cpuProvider.Info()
 		if err == nil && len(info) > 0 {
 			cpuTracker.cpuModel = info[0].ModelName
 			cpuTracker.cpuFreq = info[0].Mhz
@@ -77,7 +76,7 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	}
 	cpuInfo.Temperature = cpuTracker.tempValue
 
-	times, err := cpu.Times(false)
+	times, err := self.cpuProvider.Times(false)
 	if err == nil && len(times) > 0 {
 		t := times[0]
 		cpuInfo.Total = []float64{
@@ -87,7 +86,7 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 		}
 	}
 
-	perCore, err := cpu.Times(true)
+	perCore, err := self.cpuProvider.Times(true)
 	if err == nil {
 		cpuInfo.Cores = make([][]float64, len(perCore))
 		for i, c := range perCore {
@@ -122,12 +121,12 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 			}
 		}
 	} else {
-		cpuPercent, err := cpu.Percent(100*time.Millisecond, false)
+		cpuPercent, err := self.cpuProvider.Percent(100*time.Millisecond, false)
 		if err == nil && len(cpuPercent) > 0 {
 			cpuInfo.Usage = cpuPercent[0]
 		}
 
-		corePercent, err := cpu.Percent(100*time.Millisecond, true)
+		corePercent, err := self.cpuProvider.Percent(100*time.Millisecond, true)
 		if err == nil {
 			cpuInfo.CoreUsage = corePercent
 		}

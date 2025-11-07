@@ -1,0 +1,17 @@
+with-expecter: true
+dir: "gops/mocks"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "mocks"
+filename: "mock_{{.InterfaceName | snakecase}}.go"
+
+packages:
+  github.com/AvengeMedia/dgop/gops:
+    interfaces:
+      CPUInfoProvider:
+      MemoryInfoProvider:
+      DiskInfoProvider:
+      NetworkInfoProvider:
+      ProcessInfoProvider:
+      HostInfoProvider:
+      LoadInfoProvider:
+      FileSystem:

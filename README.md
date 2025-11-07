@@ -281,7 +281,6 @@ make clean
 - Go 1.22+
 - Linux (uses `/proc`, `/sys`, and system commands)
 - Optional: `nvidia-smi` for NVIDIA GPU temperatures
-- Optional: `lspci` for GPU detection
 
 ## Why Another Monitoring Tool?
 
