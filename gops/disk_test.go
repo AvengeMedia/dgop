@@ -67,15 +67,14 @@ func TestFormatBytes(t *testing.T) {
 }
 
 func TestFormatBytesRounding(t *testing.T) {
-	// Test that we get reasonable rounding behavior
 	tests := []struct {
 		bytes    uint64
 		contains string
 	}{
-		{1024 * 1024 * 100, "100.0M"},      // 100 MB
-		{1024 * 1024 * 1024 * 5, "5.0G"},   // 5 GB
-		{1024 * 1024 * 500, "500.0M"},      // 500 MB
-		{1024 * 1024 * 1024 * 10, "10.0G"}, // 10 GB
+		{1024 * 1024 * 100, "100.0M"},
+		{1024 * 1024 * 1024 * 5, "5.0G"},
+		{1024 * 1024 * 500, "500.0M"},
+		{1024 * 1024 * 1024 * 10, "10.0G"},
 	}
 
 	for _, tt := range tests {

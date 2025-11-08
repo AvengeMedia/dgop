@@ -35,9 +35,9 @@
         {
           dgop = pkgs.buildGoModule (finalAttrs: {
             pname = "dgop";
-            version = "0.1.9";
+            version = "0.1.11";
             src = ./.;
-            vendorHash = "sha256-kO8b/eV5Vm/Fwzyzb0p8N9SkNlhkJLmEiPYmR2m5+po=";
+            vendorHash = "sha256-JL79AMmkwD0eEaY/n4w6WXiS2lO/E6uK0qVJzQljKUU=";
 
             ldflags = [
               "-s"

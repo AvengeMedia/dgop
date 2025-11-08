@@ -12,7 +12,6 @@ import (
 )
 
 func TestGetCPUInfo_WithMocks(t *testing.T) {
-	// Create mocks
 	mockCPU := mocks.NewMockCPUInfoProvider(t)
 	mockMem := mocks.NewMockMemoryInfoProvider(t)
 	mockDisk := mocks.NewMockDiskInfoProvider(t)
@@ -22,7 +21,6 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 	mockLoad := mocks.NewMockLoadInfoProvider(t)
 	mockFS := mocks.NewMockFileSystem(t)
 
-	// Create GopsUtil with mocked dependencies
 	gops := NewGopsUtilWithProviders(
 		mockCPU,
 		mockMem,
@@ -34,12 +32,10 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		mockFS,
 	)
 
-	// Reset CPU tracker cache to ensure fresh start
 	cpuTracker.modelCached = false
 	cpuTracker.freqLastRead = time.Time{}
 	cpuTracker.tempLastRead = time.Time{}
 
-	// Setup expectations for CPU info
 	mockCPU.EXPECT().
 		Counts(true).
 		Return(8, nil).
@@ -55,7 +51,6 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		}, nil).
 		Once()
 
-	// Setup expectations for CPU times (total)
 	mockCPU.EXPECT().
 		Times(false).
 		Return([]cpu.TimesStat{
@@ -72,7 +67,6 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		}, nil).
 		Once()
 
-	// Setup expectations for CPU times (per-core)
 	mockCPU.EXPECT().
 		Times(true).
 		Return([]cpu.TimesStat{
@@ -83,7 +77,6 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		}, nil).
 		Once()
 
-	// First call without cursor falls back to Percent()
 	mockCPU.EXPECT().
 		Percent(100*time.Millisecond, false).
 		Return([]float64{25.5}, nil).
@@ -94,15 +87,12 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		Return([]float64{20.0, 25.0, 30.0, 35.0}, nil).
 		Once()
 
-	// Call GetCPUInfo
 	result, err := gops.GetCPUInfo()
 
-	// Assertions
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, 8, result.Count)
 	assert.Equal(t, "AMD Ryzen 7 5800X", result.Model)
-	// Frequency may come from real system or cached value, just check it's reasonable
 	assert.Greater(t, result.Frequency, 0.0)
 	assert.Equal(t, 25.5, result.Usage)
 	assert.Len(t, result.Total, 8)
@@ -110,12 +100,10 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 	assert.Len(t, result.CoreUsage, 4)
 	assert.NotEmpty(t, result.Cursor)
 
-	// Verify all expectations were met
 	mockCPU.AssertExpectations(t)
 }
 
 func TestGetCPUInfoWithCursor_WithMocks(t *testing.T) {
-	// Create mocks
 	mockCPU := mocks.NewMockCPUInfoProvider(t)
 	mockMem := mocks.NewMockMemoryInfoProvider(t)
 	mockDisk := mocks.NewMockDiskInfoProvider(t)
@@ -136,7 +124,6 @@ func TestGetCPUInfoWithCursor_WithMocks(t *testing.T) {
 		mockFS,
 	)
 
-	// Setup expectations - cache should be used
 	mockCPU.EXPECT().
 		Times(false).
 		Return([]cpu.TimesStat{
@@ -161,20 +148,16 @@ func TestGetCPUInfoWithCursor_WithMocks(t *testing.T) {
 		}, nil).
 		Once()
 
-	// Create a cursor with previous data
 	cursor := "eyJUb3RhbCI6WzEwMDAsMCw1MDAsODUwMCwwLDAsMCwwXSwiQ29yZXMiOltbMTAwLDAsNTAsODUwLDAsMCwwLDBdLFsxMTAsMCw2MCw4MzAsMCwwLDAsMF1dLCJUaW1lc3RhbXAiOjE2MzA1MjYyNzAwMDB9"
 
-	// Call GetCPUInfoWithCursor
 	result, err := gops.GetCPUInfoWithCursor(cursor)
 
-	// Assertions
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Greater(t, result.Usage, 0.0) // Should calculate usage from cursor
+	assert.Greater(t, result.Usage, 0.0)
 	assert.Len(t, result.CoreUsage, 2)
 	assert.NotEmpty(t, result.Cursor)
 
-	// Verify all expectations were met
 	mockCPU.AssertExpectations(t)
 }
 
@@ -196,7 +179,7 @@ func TestGetCPUInfo_ErrorHandling(t *testing.T) {
 				m.EXPECT().Percent(mock.Anything, false).Return([]float64{10.0}, nil).Once()
 				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 			},
-			expectError: false, // Should not error, just use defaults
+			expectError: false,
 		},
 		{
 			name: "handles Times() error gracefully",
@@ -206,7 +189,7 @@ func TestGetCPUInfo_ErrorHandling(t *testing.T) {
 				m.EXPECT().Percent(mock.Anything, false).Return([]float64{10.0}, nil).Once()
 				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 			},
-			expectError: false, // Should not error, falls back to Percent
+			expectError: false,
 		},
 	}
 

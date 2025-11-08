@@ -95,7 +95,6 @@ func TestParseGPUInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			displayName, pciId := parseGPUInfo(tt.rawLine)
 			assert.Equal(t, tt.expectedPciId, pciId)
-			// Display name parsing is flexible, just check it's not empty for valid inputs
 			if tt.rawLine != "" {
 				assert.NotEmpty(t, displayName)
 			} else {
@@ -154,8 +153,6 @@ func TestBuildFullName(t *testing.T) {
 }
 
 func TestGetDistroName(t *testing.T) {
-	// This function reads from /etc/os-release which may not exist in test env
-	// Just test that it doesn't panic and returns something
 	result := getDistroName()
 	assert.NotEmpty(t, result)
 }

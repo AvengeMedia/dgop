@@ -39,7 +39,6 @@ func TestMatchesNetworkInterface(t *testing.T) {
 }
 
 func TestMatchesNetworkInterfaceRealWorld(t *testing.T) {
-	// Test common real-world interface names
 	validInterfaces := []string{
 		"eth0", "eth1",
 		"eno1", "eno2",

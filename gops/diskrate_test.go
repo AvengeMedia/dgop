@@ -27,7 +27,6 @@ func TestEncodeDiskRateCursor(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
-	// Verify round-trip
 	decoded, err := parseDiskRateCursor(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, cursor.Timestamp.Unix(), decoded.Timestamp.Unix())
@@ -97,16 +96,13 @@ func TestDiskRateCursorRoundTrip(t *testing.T) {
 		},
 	}
 
-	// Encode
 	encoded, err := encodeDiskRateCursor(original)
 	require.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
-	// Decode
 	decoded, err := parseDiskRateCursor(encoded)
 	require.NoError(t, err)
 
-	// Verify
 	assert.Equal(t, original.Timestamp.Unix(), decoded.Timestamp.Unix())
 	assert.Len(t, decoded.IOStats, 2)
 
@@ -152,15 +148,14 @@ func TestDiskRateCalculations(t *testing.T) {
 		{
 			name:         "high throughput SSD",
 			prevBytes:    0,
-			currBytes:    524288000, // 500 MB
+			currBytes:    524288000,
 			timeDiffSecs: 0.5,
-			expectedRate: 1048576000.0, // 1000 MB/s
+			expectedRate: 1048576000.0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate rate calculation from actual code
 			rate := float64(tt.currBytes-tt.prevBytes) / tt.timeDiffSecs
 			assert.InDelta(t, tt.expectedRate, rate, 0.01)
 		})

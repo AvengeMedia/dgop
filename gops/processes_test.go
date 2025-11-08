@@ -133,13 +133,12 @@ func TestCalculateProcessCPUPercentageWithCursor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := calculateProcessCPUPercentageWithCursor(tt.cursor, tt.currentCPUTime, tt.currentTime)
-			assert.InDelta(t, tt.expected, result, 0.01, "CPU percentage mismatch")
+			assert.InDelta(t, tt.expected, result, 0.01)
 		})
 	}
 }
 
 func TestCalculateProcessCPUPercentageRealWorld(t *testing.T) {
-	// Simulate realistic process CPU measurements
 	tests := []struct {
 		name         string
 		cursor       *models.ProcessCursorData
@@ -196,7 +195,6 @@ func TestCalculateProcessCPUPercentageRealWorld(t *testing.T) {
 }
 
 func TestGetPssDirty(t *testing.T) {
-	// Test error handling for non-existent process
 	_, err := getPssDirty(999999)
 	assert.Error(t, err, "Should error for non-existent PID")
 }

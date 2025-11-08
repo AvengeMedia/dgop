@@ -9,7 +9,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-danklinux.com-9ccbfb?style=for-the-badge&labelColor=101418)](https://danklinux.com/docs/dgop)
 [![GitHub Release](https://img.shields.io/github/v/release/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=a6da95)](https://github.com/AvengeMedia/dgop/releases)
-[![AUR](https://img.shields.io/aur/version/dgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://aur.archlinux.org/packages/dgop)
+[![Arch Linux](https://img.shields.io/archlinux/v/extra/x86_64/dgop?style=for-the-badge&labelColor=101418&color=f5a97f)](https://archlinux.org/packages/extra/x86_64/dgop/)
 [![GitHub License](https://img.shields.io/github/license/AvengeMedia/dgop?style=for-the-badge&labelColor=101418&color=b9c8da)](https://github.com/AvengeMedia/dgop/blob/master/LICENSE)
 
 </div>
@@ -33,13 +33,11 @@ Use standalone for system monitoring, or as a companion for [DankMaterialShell](
 ### Latest Release
 Download the latest binary from [GitHub Releases](https://github.com/AvengeMedia/dgop/releases/latest)
 
-### Arch Linux (AUR)
-```bash
-# Using yay
-yay -S dgop
+### Arch Linux
 
-# Using paru  
-paru -S dgop
+```bash
+# Using pacman
+sudo pacman -S dgop
 ```
 
 ### Build from Source

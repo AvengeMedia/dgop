@@ -25,7 +25,6 @@ func TestEncodeNetworkRateCursor(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
-	// Verify it's valid base64
 	decoded, err := parseNetworkRateCursor(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, cursor.Timestamp.Unix(), decoded.Timestamp.Unix())
@@ -94,11 +93,9 @@ func TestNetworkRateCursorRoundTrip(t *testing.T) {
 	encoded, err := encodeNetworkRateCursor(original)
 	require.NoError(t, err)
 
-	// Decode
 	decoded, err := parseNetworkRateCursor(encoded)
 	require.NoError(t, err)
 
-	// Verify all fields
 	assert.Equal(t, original.Timestamp.Unix(), decoded.Timestamp.Unix())
 	assert.Len(t, decoded.IOStats, 2)
 
@@ -113,9 +110,6 @@ func TestNetworkRateCursorRoundTrip(t *testing.T) {
 }
 
 func TestNetworkRateCalculations(t *testing.T) {
-	// This test verifies the rate calculation logic conceptually
-	// Actual implementation would require mocking the net.IOCounters call
-
 	tests := []struct {
 		name         string
 		prevBytes    uint64
@@ -155,7 +149,6 @@ func TestNetworkRateCalculations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the rate calculation from the actual code
 			rate := float64(tt.currBytes-tt.prevBytes) / tt.timeDiffSecs
 			assert.InDelta(t, tt.expectedRate, rate, 0.01)
 		})
