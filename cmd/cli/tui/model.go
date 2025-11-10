@@ -68,7 +68,6 @@ type ResponsiveTUIModel struct {
 
 	sortBy      gops.ProcSortBy
 	procLimit   int
-	procCursor  string
 	ready       bool
 	showDetails bool
 	selectedPID int32
