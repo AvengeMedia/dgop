@@ -46,20 +46,45 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "r":
+			m.fetchGeneration++
 			return m, m.fetchData()
 		case "d":
 			m.showDetails = !m.showDetails
 		case "c":
+			if m.sortBy == gops.SortByCPU {
+				return m, nil
+			}
 			m.sortBy = gops.SortByCPU
+			m.fetchGeneration++
+			m.sortProcessesLocally()
+			m.updateProcessTable()
 			return m, m.fetchData()
 		case "m":
+			if m.sortBy == gops.SortByMemory {
+				return m, nil
+			}
 			m.sortBy = gops.SortByMemory
+			m.fetchGeneration++
+			m.sortProcessesLocally()
+			m.updateProcessTable()
 			return m, m.fetchData()
 		case "n":
+			if m.sortBy == gops.SortByName {
+				return m, nil
+			}
 			m.sortBy = gops.SortByName
+			m.fetchGeneration++
+			m.sortProcessesLocally()
+			m.updateProcessTable()
 			return m, m.fetchData()
 		case "p":
+			if m.sortBy == gops.SortByPID {
+				return m, nil
+			}
 			m.sortBy = gops.SortByPID
+			m.fetchGeneration++
+			m.sortProcessesLocally()
+			m.updateProcessTable()
 			return m, m.fetchData()
 		case "up", "k":
 			oldCursor := m.processTable.Cursor()
@@ -129,6 +154,9 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fetchDataMsg:
+		if msg.generation != m.fetchGeneration {
+			return m, nil
+		}
 		m.metrics = msg.metrics
 		m.err = msg.err
 		m.lastUpdate = time.Now()

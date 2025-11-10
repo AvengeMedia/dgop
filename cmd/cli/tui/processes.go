@@ -2,8 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
+	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
 )
@@ -90,4 +93,33 @@ func (m *ResponsiveTUIModel) updateSelectedPID() {
 	if selectedProc := m.getSelectedProcess(); selectedProc != nil {
 		m.selectedPID = selectedProc.PID
 	}
+}
+
+func (m *ResponsiveTUIModel) sortProcessesLocally() {
+	if m.metrics == nil || len(m.metrics.Processes) == 0 {
+		return
+	}
+
+	processes := m.metrics.Processes
+
+	switch m.sortBy {
+	case gops.SortByCPU:
+		sort.Slice(processes, func(i, j int) bool {
+			return processes[i].CPU > processes[j].CPU
+		})
+	case gops.SortByMemory:
+		sort.Slice(processes, func(i, j int) bool {
+			return processes[i].MemoryKB > processes[j].MemoryKB
+		})
+	case gops.SortByName:
+		sort.Slice(processes, func(i, j int) bool {
+			return strings.ToLower(processes[i].Command) < strings.ToLower(processes[j].Command)
+		})
+	case gops.SortByPID:
+		sort.Slice(processes, func(i, j int) bool {
+			return processes[i].PID < processes[j].PID
+		})
+	}
+
+	m.metrics.Processes = processes
 }

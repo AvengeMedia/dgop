@@ -7,8 +7,9 @@ import (
 )
 
 type fetchDataMsg struct {
-	metrics *models.SystemMetrics
-	err     error
+	metrics    *models.SystemMetrics
+	err        error
+	generation int
 }
 
 type fetchNetworkMsg struct {
@@ -27,6 +28,7 @@ type fetchTempMsg struct {
 }
 
 func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
+	generation := m.fetchGeneration
 	return func() tea.Msg {
 		params := gops.MetaParams{
 			SortBy:    m.sortBy,
@@ -38,13 +40,11 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 		metrics, err := m.gops.GetMeta(modules, params)
 
 		if err != nil {
-			return fetchDataMsg{err: err}
+			return fetchDataMsg{err: err, generation: generation}
 		}
 
-		// Get disk mounts separately since they're not included in meta
 		diskMounts, err := m.gops.GetDiskMounts()
 		if err != nil {
-			// Don't fail completely if disk mounts fail, just log and continue
 			diskMounts = nil
 		}
 
@@ -58,7 +58,7 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 			Processes:  metrics.Processes,
 		}
 
-		return fetchDataMsg{metrics: systemMetrics, err: nil}
+		return fetchDataMsg{metrics: systemMetrics, err: nil, generation: generation}
 	}
 }
 

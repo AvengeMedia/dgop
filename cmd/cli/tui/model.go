@@ -66,11 +66,12 @@ type ResponsiveTUIModel struct {
 	systemTemperatures []models.TemperatureSensor
 	lastTempUpdate     time.Time
 
-	sortBy      gops.ProcSortBy
-	procLimit   int
-	ready       bool
-	showDetails bool
-	selectedPID int32
+	sortBy          gops.ProcSortBy
+	procLimit       int
+	ready           bool
+	showDetails     bool
+	selectedPID     int32
+	fetchGeneration int
 
 	distroLogo  []string
 	distroColor string
