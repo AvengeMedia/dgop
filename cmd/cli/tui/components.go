@@ -71,7 +71,7 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 		colorManager:   colorManager,
 		processTable:   t,
 		sortBy:         gops.SortByCPU,
-		procLimit:      50,
+		procLimit:      100,
 		maxNetHistory:  60,
 		maxDiskHistory: 60,
 		selectedPID:    -1,

@@ -9,6 +9,8 @@ import (
 type fetchDataMsg struct {
 	metrics *models.SystemMetrics
 	err     error
+	sortBy  gops.ProcSortBy
+	cursor  string
 }
 
 type fetchNetworkMsg struct {
@@ -27,24 +29,25 @@ type fetchTempMsg struct {
 }
 
 func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
+	sortBy := m.sortBy
+	procCursor := m.procCursor
 	return func() tea.Msg {
 		params := gops.MetaParams{
-			SortBy:    m.sortBy,
-			ProcLimit: m.procLimit,
-			EnableCPU: true,
+			SortBy:     sortBy,
+			ProcLimit:  m.procLimit,
+			ProcCursor: procCursor,
+			EnableCPU:  true,
 		}
 
 		modules := []string{"cpu", "memory", "system", "network", "disk", "processes"}
 		metrics, err := m.gops.GetMeta(modules, params)
 
 		if err != nil {
-			return fetchDataMsg{err: err}
+			return fetchDataMsg{err: err, sortBy: sortBy, cursor: ""}
 		}
 
-		// Get disk mounts separately since they're not included in meta
 		diskMounts, err := m.gops.GetDiskMounts()
 		if err != nil {
-			// Don't fail completely if disk mounts fail, just log and continue
 			diskMounts = nil
 		}
 
@@ -58,7 +61,7 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 			Processes:  metrics.Processes,
 		}
 
-		return fetchDataMsg{metrics: systemMetrics, err: nil}
+		return fetchDataMsg{metrics: systemMetrics, err: nil, sortBy: sortBy, cursor: metrics.Cursor}
 	}
 }
 

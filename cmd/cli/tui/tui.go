@@ -129,10 +129,13 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fetchDataMsg:
-		m.metrics = msg.metrics
-		m.err = msg.err
-		m.lastUpdate = time.Now()
-		m.updateProcessTable()
+		if msg.sortBy == m.sortBy {
+			m.metrics = msg.metrics
+			m.err = msg.err
+			m.procCursor = msg.cursor
+			m.lastUpdate = time.Now()
+			m.updateProcessTable()
+		}
 
 	case fetchNetworkMsg:
 		if msg.rates != nil && len(msg.rates.Interfaces) > 0 {
