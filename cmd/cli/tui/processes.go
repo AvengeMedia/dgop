@@ -16,7 +16,21 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 		return
 	}
 
-	var rows []table.Row
+	columns := m.processTable.Columns()
+	numCols := len(columns)
+	var commandWidth, fullCommandWidth int
+
+	switch {
+	case numCols == 6:
+		commandWidth = columns[4].Width
+		fullCommandWidth = columns[5].Width
+	case numCols > 4:
+		commandWidth = columns[4].Width
+	default:
+		commandWidth = 30
+	}
+
+	rows := make([]table.Row, 0, len(m.metrics.Processes))
 	selectedIndex := -1
 
 	for i, proc := range m.metrics.Processes {
@@ -24,25 +38,17 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 			selectedIndex = i
 		}
 
-		// Handle both 4-column and 5-column layouts
-		columns := m.processTable.Columns()
-		var row table.Row
-
-		// Format memory to show both percentage and GB/MB
-		memGB := float64(proc.MemoryKB) / 1024 / 1024 // Convert KB to GB
-		memMB := memGB * 1024
+		memGB := float64(proc.MemoryKB) / 1048576
 		var memStr string
-
-		// ALWAYS show both percentage and size for debugging
 		if memGB >= 1.0 {
 			memStr = fmt.Sprintf("%.1f%% %.1fG", proc.MemoryPercent, memGB)
 		} else {
-			memStr = fmt.Sprintf("%.1f%% %.0fM", proc.MemoryPercent, memMB)
+			memStr = fmt.Sprintf("%.1f%% %.0fM", proc.MemoryPercent, memGB*1024)
 		}
 
-		if len(columns) == 6 { // 6-column layout (PID, USER, CPU%, MEM%, COMMAND, FULL COMMAND)
-			commandWidth := columns[4].Width
-			fullCommandWidth := columns[5].Width
+		var row table.Row
+		switch numCols {
+		case 6:
 			row = table.Row{
 				strconv.Itoa(int(proc.PID)),
 				truncateString(proc.Username, 12),
@@ -51,11 +57,7 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 				truncateString(proc.Command, commandWidth),
 				truncateString(proc.FullCommand, fullCommandWidth),
 			}
-		} else { // 5-column layout (original)
-			commandWidth := 30 // Default fallback
-			if len(columns) > 4 {
-				commandWidth = columns[4].Width
-			}
+		default:
 			row = table.Row{
 				strconv.Itoa(int(proc.PID)),
 				truncateString(proc.Username, 12),

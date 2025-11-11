@@ -21,6 +21,10 @@ type ProcessCursorData struct {
 	PID       int32   `json:"pid"`
 	Ticks     float64 `json:"ticks"`
 	Timestamp int64   `json:"timestamp"`
+	Name      string  `json:"name,omitempty"`
+	Cmdline   string  `json:"cmdline,omitempty"`
+	Username  string  `json:"username,omitempty"`
+	PPID      int32   `json:"ppid,omitempty"`
 }
 
 type ProcessListResponse struct {

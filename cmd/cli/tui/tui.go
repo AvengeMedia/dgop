@@ -15,6 +15,9 @@ import (
 var Version = "dev"
 
 func (m *ResponsiveTUIModel) Init() tea.Cmd {
+	diskMounts, _ := m.gops.GetDiskMounts()
+	m.diskMounts = diskMounts
+
 	cmds := []tea.Cmd{tick(), m.fetchData(), m.fetchTemperatureData()}
 
 	if m.colorManager != nil {
@@ -116,18 +119,15 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		now := time.Now()
 
-		// Update main metrics every second
 		if now.Sub(m.lastUpdate) >= 1*time.Second {
 			cmds = append(cmds, m.fetchData())
 		}
 
-		// Update network rates every 2 seconds
 		if now.Sub(m.lastNetworkUpdate) >= 2*time.Second {
 			cmds = append(cmds, m.fetchNetworkData())
 			m.lastNetworkUpdate = now
 		}
 
-		// Update disk rates every 2 seconds
 		if now.Sub(m.lastDiskUpdate) >= 2*time.Second {
 			cmds = append(cmds, m.fetchDiskData())
 			m.lastDiskUpdate = now
@@ -158,7 +158,12 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.metrics = msg.metrics
+		if m.metrics != nil {
+			m.metrics.DiskMounts = m.diskMounts
+		}
 		m.err = msg.err
+		m.cpuCursor = msg.cpuCursor
+		m.procCursor = msg.procCursor
 		m.lastUpdate = time.Now()
 		m.updateProcessTable()
 

@@ -49,11 +49,9 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		return nil, err
 	}
 
-	procList := make([]*models.ProcessInfo, 0)
 	totalMem, _ := self.memProvider.VirtualMemory()
 	currentTime := time.Now().UnixMilli()
 
-	// Decode cursor string into cursor data map
 	cursorMap := make(map[int32]*models.ProcessCursorData)
 	if cursor != "" {
 		jsonBytes, err := base64.RawURLEncoding.DecodeString(cursor)
@@ -67,17 +65,14 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		}
 	}
 
-	// CPU measurement setup - only if enabled and no cursor data provided
 	if enableCPU && len(cursorMap) == 0 {
-		// First pass: Initialize CPU measurement for all processes
 		for _, p := range procs {
-			p.CPUPercent() // Initialize
+			p.CPUPercent()
 		}
-
-		// Wait for measurement period (1 second for more accurate readings)
 		time.Sleep(1000 * time.Millisecond)
 	}
 
+	procList := make([]*models.ProcessInfo, 0, len(procs))
 	for _, p := range procs {
 		name, _ := p.Name()
 		cmdline, _ := p.Cmdline()
@@ -93,12 +88,8 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 
 		cpuPercent := 0.0
 		if enableCPU {
-			if cursorData, hasCursor := cursorMap[p.Pid]; hasCursor {
-				cpuPercent = calculateProcessCPUPercentageWithCursor(cursorData, currentCPUTime, currentTime)
-			} else {
-				rawCpuPercent, _ := p.CPUPercent()
-				cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
-			}
+			rawCpuPercent, _ := p.CPUPercent()
+			cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
 		}
 
 		rssKB := uint64(0)

@@ -10,6 +10,8 @@ type fetchDataMsg struct {
 	metrics    *models.SystemMetrics
 	err        error
 	generation int
+	cpuCursor  string
+	procCursor string
 }
 
 type fetchNetworkMsg struct {
@@ -29,11 +31,17 @@ type fetchTempMsg struct {
 
 func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 	generation := m.fetchGeneration
+	cpuCursor := m.cpuCursor
+	procCursor := m.procCursor
+	sortBy := m.sortBy
+	procLimit := m.procLimit
 	return func() tea.Msg {
 		params := gops.MetaParams{
-			SortBy:    m.sortBy,
-			ProcLimit: m.procLimit,
-			EnableCPU: true,
+			SortBy:     sortBy,
+			ProcLimit:  procLimit,
+			EnableCPU:  true,
+			CPUCursor:  cpuCursor,
+			ProcCursor: procCursor,
 		}
 
 		modules := []string{"cpu", "memory", "system", "network", "disk", "processes"}
@@ -43,22 +51,28 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 			return fetchDataMsg{err: err, generation: generation}
 		}
 
-		diskMounts, err := m.gops.GetDiskMounts()
-		if err != nil {
-			diskMounts = nil
-		}
-
 		systemMetrics := &models.SystemMetrics{
 			CPU:        metrics.CPU,
 			Memory:     metrics.Memory,
 			System:     metrics.System,
 			Network:    metrics.Network,
 			Disk:       metrics.Disk,
-			DiskMounts: diskMounts,
+			DiskMounts: nil,
 			Processes:  metrics.Processes,
 		}
 
-		return fetchDataMsg{metrics: systemMetrics, err: nil, generation: generation}
+		newCPUCursor := ""
+		if metrics.CPU != nil {
+			newCPUCursor = metrics.CPU.Cursor
+		}
+
+		return fetchDataMsg{
+			metrics:    systemMetrics,
+			err:        nil,
+			generation: generation,
+			cpuCursor:  newCPUCursor,
+			procCursor: metrics.Cursor,
+		}
 	}
 }
 

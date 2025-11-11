@@ -50,7 +50,8 @@ type ResponsiveTUIModel struct {
 	processTable table.Model
 	viewport     viewport.Model
 
-	hardware *models.SystemHardware
+	hardware   *models.SystemHardware
+	diskMounts []*models.DiskMountInfo
 
 	networkHistory        []NetworkSample
 	maxNetHistory         int
@@ -62,6 +63,9 @@ type ResponsiveTUIModel struct {
 	maxDiskHistory int
 	diskCursor     string
 	lastDiskUpdate time.Time
+
+	cpuCursor  string
+	procCursor string
 
 	systemTemperatures []models.TemperatureSensor
 	lastTempUpdate     time.Time
