@@ -30,7 +30,7 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          lib = pkgs.lib;
+          inherit (pkgs) lib;
         in
         {
           dgop = pkgs.buildGoModule (finalAttrs: {
@@ -47,12 +47,20 @@
               "-X main.Commit=${finalAttrs.version}"
             ];
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeBuildInputs = with pkgs; [
+              installShellFiles
+              makeWrapper
+            ];
 
             installPhase = ''
               mkdir -p $out/bin
               cp $GOPATH/bin/cli $out/bin/dgop
               wrapProgram $out/bin/dgop --prefix PATH : "${lib.makeBinPath [ pkgs.pciutils ]}"
+
+              installShellCompletion --cmd dgop \
+                  --bash <($out/bin/dgop completion bash) \
+                  --fish <($out/bin/dgop completion fish) \
+                  --zsh <($out/bin/dgop completion zsh)
             '';
 
             meta = {
