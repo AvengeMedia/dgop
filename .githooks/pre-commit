@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+
+cd "$REPO_ROOT"
+
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$' || true)
+
+if [[ -z "$STAGED_GO_FILES" ]]; then
+  exit 0
+fi
+
+echo "Go files staged, running CI checks..."
+
+echo "  Checking gofmt..."
+UNFORMATTED=$(gofmt -s -l . 2>/dev/null || true)
+if [[ -n "$UNFORMATTED" ]]; then
+  echo "The following files are not formatted:"
+  echo "$UNFORMATTED"
+  echo ""
+  echo "Run: gofmt -s -w ."
+  exit 1
+fi
+
+if command -v golangci-lint &>/dev/null; then
+  echo "  Running golangci-lint..."
+  golangci-lint run ./...
+else
+  echo "  Warning: golangci-lint not installed, skipping lint"
+  echo "  Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+fi
+
+echo "  Running tests..."
+if ! go test ./... >/dev/null 2>&1; then
+  echo "Tests failed! Run 'go test ./...' for details."
+  exit 1
+fi
+
+echo "  Building..."
+mkdir -p bin
+go build -o bin/dgop ./cmd/cli
+
+echo "All Go CI checks passed!"
+exit 0

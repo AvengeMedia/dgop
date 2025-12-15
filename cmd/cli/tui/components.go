@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/AvengeMedia/dgop/config"
 	"github.com/AvengeMedia/dgop/gops"
@@ -138,31 +137,19 @@ func (m *ResponsiveTUIModel) renderProgressBar(used, total uint64, width int, co
 	}
 
 	var bar strings.Builder
+	bar.Grow(width * 3)
 
-	// For CPU charts, make them translucent - only show used portion without background
-	if colorType == "cpu" {
-		// Only show filled portion for CPU, rest is transparent (spaces)
-		for i := 0; i < width; i++ {
-			if i < usedWidth {
-				bar.WriteString("▓")
-			} else {
-				bar.WriteString(" ")
-			}
-		}
-	} else {
-		// For memory and disk, keep the traditional full bar with background
-		for i := 0; i < width; i++ {
-			if i < usedWidth {
-				bar.WriteString("▓")
-			} else {
-				bar.WriteString("░")
-			}
-		}
+	emptyWidth := width - usedWidth
+	bar.WriteString(strings.Repeat("▓", usedWidth))
+	switch colorType {
+	case "cpu":
+		bar.WriteString(strings.Repeat(" ", emptyWidth))
+	default:
+		bar.WriteString(strings.Repeat("░", emptyWidth))
 	}
 
-	result := bar.String()
 	color := m.getProgressBarColor(percentage, colorType)
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(result)
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(bar.String())
 }
 
 func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
@@ -390,47 +377,6 @@ func (m *ResponsiveTUIModel) renderSystemInfoPanel(width, height int) string {
 	}
 
 	return style.Render(finalContent)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func formatRate(rate float64) string {
-	const unit = 1024
-	bytes := uint64(rate)
-	if bytes < unit {
-		return fmt.Sprintf("%dB/s", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f%cB/s", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func calculateUptime(bootTimeStr string) string {
-	bootTime, err := time.Parse("2006-01-02 15:04:05", bootTimeStr)
-	if err != nil {
-		return "unknown"
-	}
-
-	uptime := time.Since(bootTime)
-	days := int(uptime.Hours()) / 24
-	hours := int(uptime.Hours()) % 24
-	minutes := int(uptime.Minutes()) % 60
-
-	if days > 0 {
-		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
-	} else if hours > 0 {
-		return fmt.Sprintf("%dh %dm", hours, minutes)
-	} else {
-		return fmt.Sprintf("%dm", minutes)
-	}
 }
 
 func truncateString(s string, maxLen int) string {

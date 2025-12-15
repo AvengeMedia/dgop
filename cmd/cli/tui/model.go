@@ -7,7 +7,6 @@ import (
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -48,7 +47,6 @@ type ResponsiveTUIModel struct {
 	lastUpdate   time.Time
 
 	processTable table.Model
-	viewport     viewport.Model
 
 	hardware   *models.SystemHardware
 	diskMounts []*models.DiskMountInfo
@@ -86,6 +84,11 @@ type ResponsiveTUIModel struct {
 
 	hideCPUCores   bool
 	summarizeCores bool
+
+	cachedColors      *models.ColorPalette
+	cachedNetDownChar string
+	cachedNetUpChar   string
+	lastTableWidth    int
 }
 
 func (m *ResponsiveTUIModel) Cleanup() {

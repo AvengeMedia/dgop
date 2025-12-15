@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/AvengeMedia/dgop/gops"
-	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
 )
 
@@ -75,25 +74,6 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 		m.processTable.SetCursor(selectedIndex)
 	} else if m.selectedPID == -1 {
 		m.processTable.SetCursor(0)
-	}
-}
-
-func (m *ResponsiveTUIModel) getSelectedProcess() *models.ProcessInfo {
-	if m.metrics == nil || len(m.metrics.Processes) == 0 {
-		return nil
-	}
-
-	cursor := m.processTable.Cursor()
-	if cursor >= 0 && cursor < len(m.metrics.Processes) {
-		return m.metrics.Processes[cursor]
-	}
-
-	return nil
-}
-
-func (m *ResponsiveTUIModel) updateSelectedPID() {
-	if selectedProc := m.getSelectedProcess(); selectedProc != nil {
-		m.selectedPID = selectedProc.PID
 	}
 }
 

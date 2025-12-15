@@ -77,7 +77,7 @@ type LogFormatter interface {
 // LogEntry records the final log when a request completes.
 // See defaultLogEntry for an example implementation.
 type LogEntry interface {
-	Write(status, bytes int, header http.Header, elapsed time.Duration, extra interface{})
+	Write(status, bytes int, header http.Header, elapsed time.Duration, extra any)
 }
 
 // GetLogEntry returns the in-context LogEntry for a request.
@@ -134,7 +134,7 @@ type defaultLogEntry struct {
 	useColor bool
 }
 
-func (l *defaultLogEntry) Write(status, bytes int, header http.Header, elapsed time.Duration, extra interface{}) {
+func (l *defaultLogEntry) Write(status, bytes int, header http.Header, elapsed time.Duration, extra any) {
 	switch {
 	case status < 200:
 		cW(l.buf, l.useColor, bBlue, "%03d", status)

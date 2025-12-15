@@ -6,10 +6,33 @@ import (
 )
 
 func (m *ResponsiveTUIModel) getColors() *models.ColorPalette {
-	if m.colorManager != nil {
-		return m.colorManager.GetPalette()
+	if m.cachedColors != nil {
+		return m.cachedColors
 	}
-	return models.DefaultColorPalette()
+	if m.colorManager != nil {
+		m.cachedColors = m.colorManager.GetPalette()
+	} else {
+		m.cachedColors = models.DefaultColorPalette()
+	}
+	m.updateCachedNetChars()
+	return m.cachedColors
+}
+
+func (m *ResponsiveTUIModel) updateCachedNetChars() {
+	if m.cachedColors == nil {
+		return
+	}
+	m.cachedNetDownChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkDownload)).Render("█")
+	m.cachedNetUpChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkUpload)).Render("▓")
+}
+
+func (m *ResponsiveTUIModel) refreshColorCache() {
+	if m.colorManager != nil {
+		m.cachedColors = m.colorManager.GetPalette()
+	} else {
+		m.cachedColors = models.DefaultColorPalette()
+	}
+	m.updateCachedNetChars()
 }
 
 func (m *ResponsiveTUIModel) panelStyle(width, height int) lipgloss.Style {
@@ -20,19 +43,6 @@ func (m *ResponsiveTUIModel) panelStyle(width, height int) lipgloss.Style {
 		Padding(0, 1).
 		Width(width).
 		MaxHeight(height)
-}
-
-func (m *ResponsiveTUIModel) textStyle() lipgloss.Style {
-	colors := m.getColors()
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colors.UI.TextSecondary))
-}
-
-func (m *ResponsiveTUIModel) boldTextStyle() lipgloss.Style {
-	colors := m.getColors()
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colors.UI.TextPrimary)).
-		Bold(true)
 }
 
 func (m *ResponsiveTUIModel) titleStyle() lipgloss.Style {
@@ -94,17 +104,14 @@ func (m *ResponsiveTUIModel) getProgressBarColor(usage float64, colorType string
 func (m *ResponsiveTUIModel) getTemperatureColor(temp float64) string {
 	colors := m.getColors()
 
-	if temp > 85 {
+	switch {
+	case temp > 85:
 		return colors.Temperature.Danger
-	} else if temp > 70 {
+	case temp > 70:
 		return colors.Temperature.Hot
-	} else if temp > 50 {
+	case temp > 50:
 		return colors.Temperature.Warm
+	default:
+		return colors.Temperature.Cold
 	}
-	return colors.Temperature.Cold
-}
-
-func (m *ResponsiveTUIModel) getNetworkColors() (string, string) {
-	colors := m.getColors()
-	return colors.Charts.NetworkDownload, colors.Charts.NetworkUpload
 }

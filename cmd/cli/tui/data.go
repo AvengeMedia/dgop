@@ -44,7 +44,7 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 			ProcCursor: procCursor,
 		}
 
-		modules := []string{"cpu", "memory", "system", "network", "disk", "processes"}
+		modules := []string{"cpu", "memory", "system", "processes"}
 		metrics, err := m.gops.GetMeta(modules, params)
 
 		if err != nil {

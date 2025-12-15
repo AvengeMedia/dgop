@@ -28,12 +28,6 @@ var (
 	summarizeCores bool
 )
 
-var style = lipgloss.NewStyle().
-	Bold(true).
-	Foreground(lipgloss.Color("#7C7C7C")).
-	MarginLeft(1).
-	MarginRight(1)
-
 var titleStyle = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(lipgloss.Color("#FAFAFA")).
@@ -103,7 +97,9 @@ var rootCmd = &cobra.Command{
 	Use: "dankgop",
 	Run: func(cmd *cobra.Command, args []string) {
 		gopsUtil := gops.NewGopsUtil()
-		runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores)
+		if err := runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores); err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

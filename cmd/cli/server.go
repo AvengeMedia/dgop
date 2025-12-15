@@ -49,7 +49,7 @@ var urlEncodedFormat = huma.Format{
 		// However, gorilla/schema requires a struct for decoding, so we need to map `url.Values` to a
 		// `map[string]any` if this happens.
 		// See: https://github.com/danielgtaylor/huma/blob/main/huma.go#L1264
-		if vPtr, ok := v.(*interface{}); ok {
+		if vPtr, ok := v.(*any); ok {
 			m := map[string]any{}
 			for k, v := range values {
 				if len(v) > 1 {

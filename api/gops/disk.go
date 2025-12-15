@@ -17,7 +17,6 @@ type DiskResponse struct {
 
 // GET /disk
 func (self *HandlerGroup) Disk(ctx context.Context, _ *server.EmptyInput) (*DiskResponse, error) {
-
 	diskInfo, err := self.srv.Gops.GetDiskInfo()
 	if err != nil {
 		log.Error("Error getting Disk info")
@@ -37,7 +36,6 @@ type DiskMountsResponse struct {
 }
 
 func (self *HandlerGroup) DiskMounts(ctx context.Context, _ *server.EmptyInput) (*DiskMountsResponse, error) {
-
 	diskMountsInfo, err := self.srv.Gops.GetDiskMounts()
 	if err != nil {
 		log.Error("Error getting Disk Mounts info")

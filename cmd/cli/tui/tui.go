@@ -116,10 +116,9 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
-
 		now := time.Now()
 
-		if now.Sub(m.lastUpdate) >= 1*time.Second {
+		if now.Sub(m.lastUpdate) >= time.Second {
 			cmds = append(cmds, m.fetchData())
 		}
 
@@ -133,20 +132,17 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastDiskUpdate = now
 		}
 
-		// Update temperatures every 10 seconds
 		if now.Sub(m.lastTempUpdate) >= 10*time.Second {
 			cmds = append(cmds, m.fetchTemperatureData())
 			m.lastTempUpdate = now
 		}
 
-		// Logo cycling for testing - cycle every 3 seconds
 		if m.logoTestMode && now.Sub(m.lastLogoUpdate) >= 3*time.Second {
 			allLogos := getAllDistroLogos()
 			m.currentLogoIndex = (m.currentLogoIndex + 1) % len(allLogos)
 			currentLogo := allLogos[m.currentLogoIndex]
 			m.distroLogo = currentLogo.logo
 			m.distroColor = currentLogo.color
-			// Update the hardware distro name to show which logo we're displaying
 			if m.hardware != nil {
 				m.hardware.Distro = currentLogo.name
 			}
@@ -241,6 +237,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case colorUpdateMsg:
+		m.refreshColorCache()
 		m.updateTableStyles()
 		cmds = append(cmds, m.listenForColorChanges())
 	}
@@ -257,39 +254,24 @@ func (m *ResponsiveTUIModel) View() string {
 }
 
 func (m *ResponsiveTUIModel) renderLayout() string {
-	// Pre-render header and footer to measure their heights
 	header := m.renderHeader()
 	footer := m.renderFooter()
+	headerHeight := lipgloss.Height(header)
+	footerHeight := lipgloss.Height(footer)
+
+	availableHeight := m.height - headerHeight - footerHeight
+	if availableHeight < 8 {
+		availableHeight = 8
+	}
+
+	mainContent := m.renderMainContentWithHeight(availableHeight)
 
 	var sections []string
 	sections = append(sections, header)
-
-	// Main content gets exact remaining space
-	mainContent := m.renderMainContent()
-
-	// Ensure main content doesn't exceed available space
-	headerHeight := lipgloss.Height(header)
-	footerHeight := lipgloss.Height(footer)
-	maxMainHeight := m.height - headerHeight - footerHeight
-
-	if maxMainHeight > 0 {
-		mainContent = lipgloss.NewStyle().MaxHeight(maxMainHeight).Render(mainContent)
-	}
-
 	sections = append(sections, mainContent)
 	sections = append(sections, footer)
 
 	return strings.Join(sections, "\n")
-}
-
-func clamp(v, min, max int) int {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
 }
 
 type panelSpec struct{ min, max, weight int }
@@ -411,25 +393,12 @@ func (m *ResponsiveTUIModel) minNetworkLines(width int) int {
 	return 12 // increased further to match processes better
 }
 
-func (m *ResponsiveTUIModel) renderMainContent() string {
-	// Calculate layout dimensions with cushioned right width
-	leftWidth := m.width * 40 / 100 // 40% for left panels
+func (m *ResponsiveTUIModel) renderMainContentWithHeight(availableHeight int) string {
+	leftWidth := m.width * 40 / 100
 	spacer := 1
-	rightWidth := m.width - leftWidth - spacer - 4 // 4-col cushion to ensure right border visible
+	rightWidth := m.width - leftWidth - spacer - 4
 	if rightWidth < 10 {
-		rightWidth = 10 // safety
-	}
-
-	// DYNAMIC HEIGHT CALCULATION - measure header/footer first
-	header := m.renderHeader()
-	footer := m.renderFooter()
-	headerHeight := lipgloss.Height(header)
-	footerHeight := lipgloss.Height(footer)
-
-	// Available height = total - header - footer (remove extra -2)
-	availableHeight := m.height - headerHeight - footerHeight
-	if availableHeight < 8 {
-		availableHeight = 8
+		rightWidth = 10
 	}
 
 	// Chrome calculation (full borders only - gaps are rendered but not budgeted)
@@ -738,20 +707,21 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 }
 
 func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
-	// Calculate column widths with dynamic 5th column
-	bordersPadding := 16 // Increased padding for safety
+	if m.lastTableWidth == totalWidth {
+		return
+	}
+	m.lastTableWidth = totalWidth
+
+	bordersPadding := 16
 	availableWidth := totalWidth - bordersPadding
 
-	// Define minimum widths that can shrink if needed
 	pidWidth := 5
 	userWidth := 6
 	cpuWidth := 5
 	memWidth := 13
 
-	// If space is really tight, shrink fixed columns further
 	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
 	if availableWidth < fixedColumnsWidth+10 {
-		// Emergency shrink mode
 		pidWidth = 5
 		userWidth = 6
 		cpuWidth = 5
@@ -759,21 +729,19 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
 	}
 
-	// Check if we have enough space for 5th column (FULL COMMAND)
 	minCommandWidth := 15
 	minFullCommandWidth := 20
 	remainingWidth := availableWidth - fixedColumnsWidth
 
 	var columns []table.Column
-	if remainingWidth >= minCommandWidth+minFullCommandWidth+2 { // +2 for spacing
-		// 5-column layout with separate COMMAND and FULL COMMAND
+	switch {
+	case remainingWidth >= minCommandWidth+minFullCommandWidth+2:
 		commandWidth := minCommandWidth
 		fullCommandWidth := remainingWidth - commandWidth
 		if fullCommandWidth > 60 {
-			fullCommandWidth = 60 // reasonable max
+			fullCommandWidth = 60
 			commandWidth = remainingWidth - fullCommandWidth
 		}
-
 		columns = []table.Column{
 			{Title: "PID", Width: pidWidth},
 			{Title: "USER", Width: userWidth},
@@ -782,16 +750,14 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 			{Title: "COMMAND", Width: commandWidth},
 			{Title: "FULL COMMAND", Width: fullCommandWidth},
 		}
-	} else {
-		// 4-column layout (original)
+	default:
 		commandWidth := remainingWidth
 		if commandWidth < 8 {
-			commandWidth = 8 // Absolute minimum
+			commandWidth = 8
 		}
 		if commandWidth > 80 {
-			commandWidth = 80 // Reasonable max
+			commandWidth = 80
 		}
-
 		columns = []table.Column{
 			{Title: "PID", Width: pidWidth},
 			{Title: "USER", Width: userWidth},
@@ -801,12 +767,9 @@ func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
 		}
 	}
 
-	// Clear table completely before changing column structure to prevent panic
 	m.processTable.SetRows([]table.Row{})
 	m.processTable.SetColumns(columns)
-	// Force table to update viewport with new column structure
 	m.processTable.UpdateViewport()
-	// Now repopulate with correct column structure
 	m.updateProcessTable()
 }
 
@@ -841,7 +804,6 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 		return strings.Repeat("─", width) + "\n"
 	}
 
-	// Find max rates for scaling
 	var maxRxRate, maxTxRate float64
 	for _, sample := range history {
 		if sample.rxRate > maxRxRate {
@@ -852,47 +814,53 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 		}
 	}
 
-	// Use separate scaling for rx and tx to make both visible
 	if maxRxRate == 0 && maxTxRate == 0 {
 		return strings.Repeat("─", width) + "\n"
 	}
 
-	// Ensure minimum scaling to make small values visible
 	if maxRxRate > 0 && maxRxRate < 1024 {
-		maxRxRate = 1024 // Minimum 1KB for scaling
+		maxRxRate = 1024
 	}
 	if maxTxRate > 0 && maxTxRate < 1024 {
-		maxTxRate = 1024 // Minimum 1KB for scaling
+		maxTxRate = 1024
 	}
 
-	// Create split graph - download above center line, upload below
 	centerLine := height / 2
 	upRows := centerLine
-	downRows := height - centerLine - 1 // -1 for center line
+	downRows := height - centerLine - 1
 
 	var result strings.Builder
+	result.Grow(width * height * 4)
 
-	// Use all available samples, but sample them to fit the width
-	// This preserves history better than just taking the last `width` samples
 	samplesPerCol := 1
 	if len(history) > width {
-		samplesPerCol = len(history) / width
-		if len(history)%width != 0 {
-			samplesPerCol++
-		}
+		samplesPerCol = (len(history) + width - 1) / width
 	}
 
-	// Render from top to bottom
+	downChar := m.cachedNetDownChar
+	upChar := m.cachedNetUpChar
+	if downChar == "" || upChar == "" {
+		m.getColors()
+		downChar = m.cachedNetDownChar
+		upChar = m.cachedNetUpChar
+	}
+
 	for row := 0; row < height; row++ {
+		if row == centerLine {
+			result.WriteString(strings.Repeat("─", width))
+			if row < height-1 {
+				result.WriteString("\n")
+			}
+			continue
+		}
+
 		for col := 0; col < width; col++ {
-			// Sample from the history using intelligent sampling
 			histIdx := col * samplesPerCol
 			if histIdx >= len(history) {
 				result.WriteString(" ")
 				continue
 			}
 
-			// If we have multiple samples per column, average them
 			var avgRx, avgTx float64
 			sampleCount := 0
 			for i := 0; i < samplesPerCol && histIdx+i < len(history); i++ {
@@ -906,27 +874,18 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 				avgTx /= float64(sampleCount)
 			}
 
-			sample := NetworkSample{rxRate: avgRx, txRate: avgTx}
-
-			if row == centerLine {
-				result.WriteString("─") // Center line
-			} else if row < centerLine {
-				// Download (above center) - row 0 is top, use separate scaling
-				downloadHeight := int((sample.rxRate / maxRxRate) * float64(upRows))
+			switch {
+			case row < centerLine:
+				downloadHeight := int((avgRx / maxRxRate) * float64(upRows))
 				if downloadHeight >= (upRows - row) {
-					downloadColor, _ := m.getNetworkColors()
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color(downloadColor)).Render("█")
-					result.WriteString(colored)
+					result.WriteString(downChar)
 				} else {
 					result.WriteString(" ")
 				}
-			} else {
-				// Upload (below center) - use separate scaling for better visibility
-				uploadHeight := int((sample.txRate / maxTxRate) * float64(downRows))
+			default:
+				uploadHeight := int((avgTx / maxTxRate) * float64(downRows))
 				if uploadHeight >= (row - centerLine) {
-					_, uploadColor := m.getNetworkColors()
-					colored := lipgloss.NewStyle().Foreground(lipgloss.Color(uploadColor)).Render("▓")
-					result.WriteString(colored)
+					result.WriteString(upChar)
 				} else {
 					result.WriteString(" ")
 				}
@@ -938,13 +897,6 @@ func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, wi
 	}
 
 	return result.String()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (m *ResponsiveTUIModel) selectBestNetworkInterface(interfaces []*models.NetworkRateInfo) *models.NetworkRateInfo {

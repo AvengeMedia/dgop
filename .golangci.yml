@@ -1,0 +1,76 @@
+version: "2"
+
+linters:
+  enable:
+    - revive
+
+  settings:
+    revive:
+      rules:
+        - name: use-any
+          severity: error
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net.Conn).Close
+        - (*net.Conn).Close
+        - (io.Writer).Write
+        - (*os/exec.Cmd).Run
+        - (*os/exec.Cmd).Start
+        - (*bufio.Writer).Flush
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
+        - (*io.PipeWriter).Write
+        - (*os.File).Write
+        - (*github.com/spf13/cobra.Command).MarkFlagRequired
+        - (*github.com/spf13/cobra.Command).Usage
+        - crypto/rand.Read
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - govet
+          - unused
+          - ineffassign
+          - staticcheck
+          - gosimple
+          - revive
+      - path: gops/mocks/
+        linters:
+          - errcheck
+          - govet
+          - unused
+          - ineffassign
+          - staticcheck
+          - gosimple
+          - revive
+      # Allow "self" as receiver name
+      - linters:
+          - staticcheck
+        text: "ST1006"
+      # Allow unit suffixes in variable names
+      - linters:
+          - staticcheck
+        text: "ST1011"
+      # Ignore code simplification suggestions
+      - linters:
+          - staticcheck
+        text: "QF1007|QF1008"
+      # HTTP response writes (best-effort)
+      - linters:
+          - errcheck
+        text: "Error return value of `(w\\.Write|huma\\.WriteErr|recovererErrorWriter\\.Write)` is not checked"
+      # Process CPU priming call (intentionally ignored)
+      - linters:
+          - errcheck
+        text: "Error return value of `p\\.CPUPercent` is not checked"
+      # Cleanup operations
+      - linters:
+          - errcheck
+        text: "Error return value of `m\\.colorManager\\.Close` is not checked"

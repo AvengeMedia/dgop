@@ -13,17 +13,11 @@ import (
 )
 
 var (
-	// Normal colors
-	nBlack   = []byte{'\033', '[', '3', '0', 'm'}
-	nRed     = []byte{'\033', '[', '3', '1', 'm'}
-	nGreen   = []byte{'\033', '[', '3', '2', 'm'}
-	nYellow  = []byte{'\033', '[', '3', '3', 'm'}
-	nBlue    = []byte{'\033', '[', '3', '4', 'm'}
-	nMagenta = []byte{'\033', '[', '3', '5', 'm'}
-	nCyan    = []byte{'\033', '[', '3', '6', 'm'}
-	nWhite   = []byte{'\033', '[', '3', '7', 'm'}
-	// Bright colors
-	bBlack   = []byte{'\033', '[', '3', '0', ';', '1', 'm'}
+	nRed    = []byte{'\033', '[', '3', '1', 'm'}
+	nGreen  = []byte{'\033', '[', '3', '2', 'm'}
+	nYellow = []byte{'\033', '[', '3', '3', 'm'}
+	nCyan   = []byte{'\033', '[', '3', '6', 'm'}
+
 	bRed     = []byte{'\033', '[', '3', '1', ';', '1', 'm'}
 	bGreen   = []byte{'\033', '[', '3', '2', ';', '1', 'm'}
 	bYellow  = []byte{'\033', '[', '3', '3', ';', '1', 'm'}
@@ -54,8 +48,7 @@ func init() {
 	}
 }
 
-// colorWrite
-func cW(w io.Writer, useColor bool, color []byte, s string, args ...interface{}) {
+func cW(w io.Writer, useColor bool, color []byte, s string, args ...any) {
 	if IsTTY && useColor {
 		w.Write(color)
 	}

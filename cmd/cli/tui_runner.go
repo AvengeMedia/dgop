@@ -6,10 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func runTUI(gopsUtil *gops.GopsUtil) error {
-	return runTUIWithOptions(gopsUtil, false, false)
-}
-
 func runTUIWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, summarizeCores bool) error {
 	tui.Version = Version
 	model := tui.NewResponsiveTUIModelWithOptions(gopsUtil, hideCPUCores, summarizeCores)

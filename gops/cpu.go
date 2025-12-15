@@ -15,10 +15,6 @@ import (
 )
 
 type CPUTracker struct {
-	lastTotal  []float64
-	lastCores  [][]float64
-	lastUpdate time.Time
-
 	cpuModel    string
 	cpuFreq     float64
 	cpuCount    int
@@ -102,9 +98,10 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 
 	var cursorData models.CPUCursorData
 	if cursor != "" {
-		jsonBytes, err := base64.RawURLEncoding.DecodeString(cursor)
-		if err == nil {
-			json.Unmarshal(jsonBytes, &cursorData)
+		if jsonBytes, err := base64.RawURLEncoding.DecodeString(cursor); err == nil {
+			if err := json.Unmarshal(jsonBytes, &cursorData); err != nil {
+				cursorData = models.CPUCursorData{}
+			}
 		}
 	}
 
