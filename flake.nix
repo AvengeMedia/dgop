@@ -37,7 +37,7 @@
             pname = "dgop";
             version = "0.1.11";
             src = ./.;
-            vendorHash = "sha256-JL79AMmkwD0eEaY/n4w6WXiS2lO/E6uK0qVJzQljKUU=";
+            vendorHash = "sha256-MssJTtlKWzn+toNmE+QkXvLXtR7pR21cknXj89CSbwI=";
 
             ldflags = [
               "-s"
