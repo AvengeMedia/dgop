@@ -18,16 +18,15 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 	if m.metrics != nil && m.metrics.Memory != nil {
 		mem := m.metrics.Memory
 		totalGB := float64(mem.Total) / 1024 / 1024
-		usedGB := float64(mem.Total-mem.Available) / 1024 / 1024
+		usedGB := float64(mem.Used) / 1024 / 1024
 
-		usedPercent := usedGB / totalGB * 100
 		barWidth := width - 15
 		if barWidth < 8 {
 			barWidth = 8
 		}
-		memBar := m.renderProgressBar(mem.Total-mem.Available, mem.Total, barWidth, "memory")
+		memBar := m.renderProgressBar(mem.Used, mem.Total, barWidth, "memory")
 
-		content = append(content, fmt.Sprintf("%s %.1f%%", memBar, usedPercent))
+		content = append(content, fmt.Sprintf("%s %.1f%%", memBar, mem.UsedPercent))
 		content = append(content, fmt.Sprintf("%.1f/%.1fGB", usedGB, totalGB))
 
 		if mem.SwapTotal > 0 {

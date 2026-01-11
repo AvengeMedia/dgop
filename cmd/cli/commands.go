@@ -383,27 +383,20 @@ func displayCPUInfo(cpu *models.CPUInfo) {
 func displayMemoryInfo(mem *models.MemoryInfo) {
 	fmt.Println(titleStyle.Render("MEMORY"))
 
-	// Values are in KB, convert to GB
-	totalGB := float64(mem.Total) / 1024 / 1024
-	usedGB := float64(mem.Total-mem.Available) / 1024 / 1024
-	availableGB := float64(mem.Available) / 1024 / 1024
-	freeGB := float64(mem.Free) / 1024 / 1024
-	usedPercent := float64(mem.Total-mem.Available) / float64(mem.Total) * 100
+	toGB := func(kb uint64) float64 { return float64(kb) / 1024 / 1024 }
 
 	rows := [][]string{
-		{"Total:", fmt.Sprintf("%.2f GB", totalGB)},
-		{"Used:", fmt.Sprintf("%.2f GB (%.1f%%)", usedGB, usedPercent)},
-		{"Available:", fmt.Sprintf("%.2f GB", availableGB)},
-		{"Free:", fmt.Sprintf("%.2f GB", freeGB)},
-		{"Buffers:", fmt.Sprintf("%.2f GB", float64(mem.Buffers)/1024/1024)},
-		{"Cached:", fmt.Sprintf("%.2f GB", float64(mem.Cached)/1024/1024)},
+		{"Total:", fmt.Sprintf("%.2f GB", toGB(mem.Total))},
+		{"Used:", fmt.Sprintf("%.2f GB (%.1f%%)", toGB(mem.Used), mem.UsedPercent)},
+		{"Available:", fmt.Sprintf("%.2f GB", toGB(mem.Available))},
+		{"Free:", fmt.Sprintf("%.2f GB", toGB(mem.Free))},
+		{"Buffers:", fmt.Sprintf("%.2f GB", toGB(mem.Buffers))},
+		{"Cached:", fmt.Sprintf("%.2f GB", toGB(mem.Cached))},
 	}
 
 	if mem.SwapTotal > 0 {
-		swapTotalGB := float64(mem.SwapTotal) / 1024 / 1024
-		swapUsedGB := float64(mem.SwapTotal-mem.SwapFree) / 1024 / 1024
-		rows = append(rows, []string{"Swap Total:", fmt.Sprintf("%.2f GB", swapTotalGB)})
-		rows = append(rows, []string{"Swap Used:", fmt.Sprintf("%.2f GB", swapUsedGB)})
+		rows = append(rows, []string{"Swap Total:", fmt.Sprintf("%.2f GB", toGB(mem.SwapTotal))})
+		rows = append(rows, []string{"Swap Used:", fmt.Sprintf("%.2f GB", toGB(mem.SwapTotal-mem.SwapFree))})
 	}
 
 	printTable(rows)
