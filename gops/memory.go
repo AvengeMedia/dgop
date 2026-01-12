@@ -17,8 +17,11 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	sreclaimable := v.Sreclaimable / 1024
 	shared := v.Shared / 1024
 
-	// Used = Total - Free - Cached - Buffers + Shared
-	usedDiff := free + cached + buffers
+	// gopsutil Cached includes SReclaimable, get raw value
+	rawCached := cached - sreclaimable
+
+	// Used = Total - Free - Cached - SReclaimable - Buffers + Shared
+	usedDiff := free + rawCached + sreclaimable + buffers
 	var used uint64
 	switch {
 	case total >= usedDiff:
@@ -39,7 +42,7 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		Free:         free,
 		Available:    v.Available / 1024,
 		Buffers:      buffers,
-		Cached:       cached,
+		Cached:       rawCached,
 		SReclaimable: sreclaimable,
 		Shared:       shared,
 		SwapTotal:    v.SwapTotal / 1024,
