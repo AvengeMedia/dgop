@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AvengeMedia/dgop/config"
 	"github.com/AvengeMedia/dgop/gops"
-	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -30,33 +28,23 @@ var (
 	summarizeCores bool
 )
 
-var (
-	titleStyle  lipgloss.Style
-	keyStyle    lipgloss.Style
-	valueStyle  lipgloss.Style
-	headerStyle lipgloss.Style
-)
+var titleStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("0")).
+	Background(lipgloss.Color("6")).
+	PaddingLeft(1).
+	PaddingRight(1)
 
-func initStyles(palette *models.ColorPalette) {
-	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(palette.UI.HeaderText)).
-		Background(lipgloss.Color(palette.UI.HeaderBackground)).
-		PaddingTop(0).
-		PaddingLeft(1).
-		PaddingRight(1)
+var keyStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("6"))
 
-	keyStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(palette.UI.TextPrimary))
+var valueStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("7"))
 
-	valueStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(palette.UI.TextSecondary))
-
-	headerStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(palette.UI.TextAccent))
-}
+var headerStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("6"))
 
 func printHeader() {
 	header := `
@@ -115,13 +103,6 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
-	palette := models.DefaultColorPalette()
-	if cm, err := config.NewColorManager(); err == nil {
-		palette = cm.GetPalette()
-		defer func() { _ = cm.Close() }()
-	}
-	initStyles(palette)
-
 	gopsUtil := gops.NewGopsUtil()
 
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
