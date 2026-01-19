@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/shirou/gopsutil/v4/sensors"
 )
 
 type CPUTracker struct {
@@ -118,12 +117,12 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 			}
 		}
 	} else {
-		cpuPercent, err := self.cpuProvider.Percent(100*time.Millisecond, false)
+		cpuPercent, err := self.cpuProvider.Percent(50*time.Millisecond, false)
 		if err == nil && len(cpuPercent) > 0 {
 			cpuInfo.Usage = cpuPercent[0]
 		}
 
-		corePercent, err := self.cpuProvider.Percent(100*time.Millisecond, true)
+		corePercent, err := self.cpuProvider.Percent(50*time.Millisecond, true)
 		if err == nil {
 			cpuInfo.CoreUsage = corePercent
 		}
@@ -143,33 +142,28 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 func getCPUTemperatureCached() float64 {
 	if cpuTracker.tempPath != "" {
 		tempBytes, err := os.ReadFile(cpuTracker.tempPath)
-		if err == nil {
-			temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
-			if err == nil {
-				return float64(temp) / 1000.0
-			}
+		if err != nil {
+			cpuTracker.tempPath = ""
+			return getCPUTemperatureCached()
 		}
-		cpuTracker.tempPath = ""
+		temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+		if err != nil {
+			cpuTracker.tempPath = ""
+			return getCPUTemperatureCached()
+		}
+		return float64(temp) / 1000.0
 	}
 
-	temps, err := sensors.SensorsTemperatures()
-	if err == nil {
-		for _, temp := range temps {
-			if strings.Contains(temp.SensorKey, "coretemp_core_0") ||
-				strings.Contains(temp.SensorKey, "k10temp_tdie") ||
-				strings.Contains(temp.SensorKey, "cpu_thermal") ||
-				strings.Contains(temp.SensorKey, "package_id_0") {
-				return temp.Temperature
-			}
-		}
-	}
-
+	// Read directly from CPU-specific hwmon devices only.
+	// Avoid gopsutil sensors.SensorsTemperatures() as it enumerates ALL hwmon
+	// devices including GPU, which can wake discrete GPUs from D3cold.
 	hwmonPath := "/sys/class/hwmon"
 	entries, err := os.ReadDir(hwmonPath)
 	if err != nil {
-		return 0
+		return getACPITZFallback()
 	}
 
+	cpuHwmonNames := []string{"coretemp", "k10temp", "k8temp", "cpu_thermal", "zenpower"}
 	for _, entry := range entries {
 		namePath := filepath.Join(hwmonPath, entry.Name(), "name")
 		nameBytes, err := os.ReadFile(namePath)
@@ -178,32 +172,40 @@ func getCPUTemperatureCached() float64 {
 		}
 
 		name := strings.TrimSpace(string(nameBytes))
-		if strings.Contains(name, "coretemp") || strings.Contains(name, "k10temp") ||
-			strings.Contains(name, "k8temp") || strings.Contains(name, "cpu_thermal") || strings.Contains(name, "zenpower") {
-			tempPath := filepath.Join(hwmonPath, entry.Name(), "temp1_input")
-			tempBytes, err := os.ReadFile(tempPath)
-			if err == nil {
-				temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
-				if err == nil {
-					cpuTracker.tempPath = tempPath
-					return float64(temp) / 1000.0
-				}
+		found := false
+		for _, cpuName := range cpuHwmonNames {
+			if name == cpuName {
+				found = true
+				break
 			}
 		}
+		if !found {
+			continue
+		}
+
+		tempPath := filepath.Join(hwmonPath, entry.Name(), "temp1_input")
+		tempBytes, err := os.ReadFile(tempPath)
+		if err != nil {
+			continue
+		}
+		temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+		if err != nil {
+			continue
+		}
+		cpuTracker.tempPath = tempPath
+		return float64(temp) / 1000.0
 	}
 
+	return getACPITZFallback()
+}
+
+func getACPITZFallback() float64 {
 	thermalPath := "/sys/class/thermal"
 	thermalEntries, err := os.ReadDir(thermalPath)
 	if err != nil {
 		return 0
 	}
-
-	maxTemp := getMaxACPITZTemperature(thermalPath, thermalEntries, 20, 100, true)
-	if maxTemp > 0 {
-		return maxTemp
-	}
-
-	return 0
+	return getMaxACPITZTemperature(thermalPath, thermalEntries, 20, 100, true)
 }
 
 func getCurrentCPUFreq() float64 {

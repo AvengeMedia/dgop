@@ -109,49 +109,100 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
 
-	if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
-		meta.CPU = cpu
+	type result struct {
+		name string
+		data interface{}
+		err  error
 	}
-
-	if mem, err := self.GetMemoryInfo(); err == nil {
-		meta.Memory = mem
-	}
-
-	if net, err := self.GetNetworkInfo(); err == nil {
-		meta.Network = net
-	}
-
-	if netRate, err := self.GetNetworkRates(params.NetRateCursor); err == nil {
-		meta.NetRate = netRate
-	}
-
-	if disk, err := self.GetDiskInfo(); err == nil {
-		meta.Disk = disk
-	}
-
-	if diskRate, err := self.GetDiskRates(params.DiskRateCursor); err == nil {
-		meta.DiskRate = diskRate
-	}
-
-	if mounts, err := self.GetDiskMounts(); err == nil {
-		meta.DiskMounts = mounts
-	}
-
-	if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
-		meta.Processes = result.Processes
-		meta.Cursor = result.Cursor
-	}
-
-	if sys, err := self.GetSystemInfo(); err == nil {
-		meta.System = sys
-	}
-
-	if hw, err := self.GetSystemHardware(); err == nil {
-		meta.Hardware = hw
-	}
-
-	if gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds); err == nil {
-		meta.GPU = gpu
+	
+	ch := make(chan result, 12)
+	
+	go func() {
+		cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor)
+		ch <- result{"cpu", cpu, err}
+	}()
+	
+	go func() {
+		mem, err := self.GetMemoryInfo()
+		ch <- result{"memory", mem, err}
+	}()
+	
+	go func() {
+		net, err := self.GetNetworkInfo()
+		ch <- result{"network", net, err}
+	}()
+	
+	go func() {
+		netRate, err := self.GetNetworkRates(params.NetRateCursor)
+		ch <- result{"netrate", netRate, err}
+	}()
+	
+	go func() {
+		disk, err := self.GetDiskInfo()
+		ch <- result{"disk", disk, err}
+	}()
+	
+	go func() {
+		diskRate, err := self.GetDiskRates(params.DiskRateCursor)
+		ch <- result{"diskrate", diskRate, err}
+	}()
+	
+	go func() {
+		mounts, err := self.GetDiskMounts()
+		ch <- result{"mounts", mounts, err}
+	}()
+	
+	go func() {
+		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor)
+		ch <- result{"processes", procs, err}
+	}()
+	
+	go func() {
+		sys, err := self.GetSystemInfo()
+		ch <- result{"system", sys, err}
+	}()
+	
+	go func() {
+		hw, err := self.GetSystemHardware()
+		ch <- result{"hardware", hw, err}
+	}()
+	
+	go func() {
+		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
+		ch <- result{"gpu", gpu, err}
+	}()
+	
+	for i := 0; i < 11; i++ {
+		r := <-ch
+		if r.err != nil {
+			continue
+		}
+		switch r.name {
+		case "cpu":
+			meta.CPU = r.data.(*models.CPUInfo)
+		case "memory":
+			meta.Memory = r.data.(*models.MemoryInfo)
+		case "network":
+			meta.Network = r.data.([]*models.NetworkInfo)
+		case "netrate":
+			meta.NetRate = r.data.(*models.NetworkRateResponse)
+		case "disk":
+			meta.Disk = r.data.([]*models.DiskInfo)
+		case "diskrate":
+			meta.DiskRate = r.data.(*models.DiskRateResponse)
+		case "mounts":
+			meta.DiskMounts = r.data.([]*models.DiskMountInfo)
+		case "processes":
+			procResult := r.data.(*models.ProcessListResponse)
+			meta.Processes = procResult.Processes
+			meta.Cursor = procResult.Cursor
+		case "system":
+			meta.System = r.data.(*models.SystemInfo)
+		case "hardware":
+			meta.Hardware = r.data.(*models.SystemHardware)
+		case "gpu":
+			meta.GPU = r.data.(*models.GPUInfo)
+		}
 	}
 
 	return meta, nil

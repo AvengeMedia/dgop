@@ -66,80 +66,125 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 	}
 
 	if enableCPU && len(cursorMap) == 0 {
-		for _, p := range procs {
-			p.CPUPercent()
+		// Only sample CPU for first batch of processes to reduce overhead
+		// Full CPU tracking available on subsequent calls with cursor
+		maxSample := 100
+		if len(procs) < maxSample {
+			maxSample = len(procs)
 		}
-		time.Sleep(1000 * time.Millisecond)
+		for i := 0; i < maxSample; i++ {
+			procs[i].CPUPercent()
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
-	procList := make([]*models.ProcessInfo, 0, len(procs))
-	for _, p := range procs {
-		name, _ := p.Name()
-		cmdline, _ := p.Cmdline()
-		ppid, _ := p.Ppid()
-		memInfo, _ := p.MemoryInfo()
-		times, _ := p.Times()
-		username, _ := p.Username()
+	type procResult struct {
+		index int
+		info  *models.ProcessInfo
+	}
+	
+	numWorkers := runtime.NumCPU()
+	if numWorkers > 8 {
+		numWorkers = 8
+	}
+	
+	jobs := make(chan int, len(procs))
+	results := make(chan procResult, len(procs))
+	
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			for idx := range jobs {
+				p := procs[idx]
+				name, _ := p.Name()
+				cmdline, _ := p.Cmdline()
+				ppid, _ := p.Ppid()
+				memInfo, _ := p.MemoryInfo()
+				times, _ := p.Times()
+				username, _ := p.Username()
 
-		currentCPUTime := float64(0)
-		if times != nil {
-			currentCPUTime = times.User + times.System
-		}
+				currentCPUTime := float64(0)
+				if times != nil {
+					currentCPUTime = times.User + times.System
+				}
 
-		cpuPercent := 0.0
-		if enableCPU {
-			rawCpuPercent, _ := p.CPUPercent()
-			cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
-		}
+				cpuPercent := 0.0
+				if enableCPU {
+					rawCpuPercent, _ := p.CPUPercent()
+					cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
+				}
 
-		rssKB := uint64(0)
-		rssPercent := float32(0)
-		pssKB := uint64(0)
-		pssPercent := float32(0)
-		memKB := uint64(0)
-		memPercent := float32(0)
-		memCalc := "rss"
+				rssKB := uint64(0)
+				rssPercent := float32(0)
+				pssKB := uint64(0)
+				pssPercent := float32(0)
+				memKB := uint64(0)
+				memPercent := float32(0)
+				memCalc := "rss"
 
-		if memInfo != nil {
-			rssKB = memInfo.RSS / 1024
-			rssPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
+				if memInfo != nil {
+					rssKB = memInfo.RSS / 1024
+					rssPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
 
-			memKB = rssKB
-			memPercent = rssPercent
+					memKB = rssKB
+					memPercent = rssPercent
 
-			if rssKB > 20480 {
-				pssDirty, err := getPssDirty(p.Pid)
-				if err == nil && pssDirty > 0 {
-					memMaps, _ := p.MemoryMaps(true)
-					if memMaps != nil && len(*memMaps) > 0 {
-						pssKB = (*memMaps)[0].Pss
-						pssPercent = float32(pssKB*1024) / float32(totalMem.Total) * 100
+					// Only calculate PSS for very large processes (>100MB) to reduce overhead
+					// MemoryMaps is expensive - reads full /proc/[pid]/smaps
+					if rssKB > 102400 {
+						pssDirty, err := getPssDirty(p.Pid)
+						if err == nil && pssDirty > 0 {
+							// Use PSS dirty directly, skip expensive MemoryMaps call
+							memKB = pssDirty
+							memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
+							memCalc = "pss_dirty"
+						}
 					}
+				}
 
-					memKB = pssDirty
-					memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
-					memCalc = "pss_dirty"
+				results <- procResult{
+					index: idx,
+					info: &models.ProcessInfo{
+						PID:               p.Pid,
+						PPID:              ppid,
+						CPU:               cpuPercent,
+						PTicks:            currentCPUTime,
+						MemoryPercent:     memPercent,
+						MemoryKB:          memKB,
+						MemoryCalculation: memCalc,
+						RSSKB:             rssKB,
+						RSSPercent:        rssPercent,
+						PSSKB:             pssKB,
+						PSSPercent:        pssPercent,
+						Username:          username,
+						Command:           name,
+						FullCommand:       cmdline,
+					},
 				}
 			}
-		}
-
-		procList = append(procList, &models.ProcessInfo{
-			PID:               p.Pid,
-			PPID:              ppid,
-			CPU:               cpuPercent,
-			PTicks:            currentCPUTime,
-			MemoryPercent:     memPercent,
-			MemoryKB:          memKB,
-			MemoryCalculation: memCalc,
-			RSSKB:             rssKB,
-			RSSPercent:        rssPercent,
-			PSSKB:             pssKB,
-			PSSPercent:        pssPercent,
-			Username:          username,
-			Command:           name,
-			FullCommand:       cmdline,
-		})
+		}()
 	}
+	
+	// Send jobs
+	for i := range procs {
+		jobs <- i
+	}
+	close(jobs)
+	
+	// Collect results
+	procList := make([]*models.ProcessInfo, len(procs))
+	for i := 0; i < len(procs); i++ {
+		r := <-results
+		procList[r.index] = r.info
+	}
+	
+	// Filter out nil entries (shouldn't happen)
+	filtered := make([]*models.ProcessInfo, 0, len(procList))
+	for _, p := range procList {
+		if p != nil {
+			filtered = append(filtered, p)
+		}
+	}
+	procList = filtered
 
 	// Sort processes
 	switch sortBy {

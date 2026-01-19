@@ -17,16 +17,17 @@ import (
 func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 	info := &models.SystemHardware{}
 
-	// Get CPU info from existing CPU API
-	cpuInfo, err := self.GetCPUInfo()
-	if err == nil {
+	// Get CPU info directly from provider to avoid sleep overhead of GetCPUInfo()
+	cpuCount, _ := self.cpuProvider.Counts(true)
+	cpuInfoSlice, err := self.cpuProvider.Info()
+	if err == nil && len(cpuInfoSlice) > 0 {
 		info.CPU = models.CPUBasic{
-			Count: cpuInfo.Count,
-			Model: cpuInfo.Model,
+			Count: cpuCount,
+			Model: cpuInfoSlice[0].ModelName,
 		}
 	} else {
 		info.CPU = models.CPUBasic{
-			Count: 0,
+			Count: cpuCount,
 			Model: "Unknown",
 		}
 	}
