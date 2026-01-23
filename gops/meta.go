@@ -1,10 +1,13 @@
 package gops
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/AvengeMedia/dgop/models"
+	"golang.org/x/sync/errgroup"
 )
 
 var availableModules = []string{
@@ -39,14 +42,14 @@ type MetaParams struct {
 	DiskRateCursor string
 }
 
-func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.MetaInfo, error) {
+func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
 
 	for _, module := range modules {
 		switch strings.ToLower(module) {
 		case "all":
 			// Load all modules
-			return self.loadAllModules(params)
+			return self.loadAllModules(ctx, params)
 		case "cpu":
 			if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
 				meta.CPU = cpu
@@ -106,103 +109,136 @@ func (self *GopsUtil) GetMeta(modules []string, params MetaParams) (*models.Meta
 	return meta, nil
 }
 
-func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error) {
+func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
+	var mu sync.Mutex
 
-	type result struct {
-		name string
-		data interface{}
-		err  error
-	}
+	g, ctx := errgroup.WithContext(ctx)
 
-	ch := make(chan result, 12)
-
-	go func() {
+	g.Go(func() error {
 		cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor)
-		ch <- result{"cpu", cpu, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.CPU = cpu
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		mem, err := self.GetMemoryInfo()
-		ch <- result{"memory", mem, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.Memory = mem
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		net, err := self.GetNetworkInfo()
-		ch <- result{"network", net, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.Network = net
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		netRate, err := self.GetNetworkRates(params.NetRateCursor)
-		ch <- result{"netrate", netRate, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.NetRate = netRate
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		disk, err := self.GetDiskInfo()
-		ch <- result{"disk", disk, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.Disk = disk
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		diskRate, err := self.GetDiskRates(params.DiskRateCursor)
-		ch <- result{"diskrate", diskRate, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.DiskRate = diskRate
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		mounts, err := self.GetDiskMounts()
-		ch <- result{"mounts", mounts, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.DiskMounts = mounts
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor)
-		ch <- result{"processes", procs, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.Processes = procs.Processes
+		meta.Cursor = procs.Cursor
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		sys, err := self.GetSystemInfo()
-		ch <- result{"system", sys, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.System = sys
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		hw, err := self.GetSystemHardware()
-		ch <- result{"hardware", hw, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.Hardware = hw
+		mu.Unlock()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
-		ch <- result{"gpu", gpu, err}
-	}()
+		if err != nil {
+			return nil
+		}
+		mu.Lock()
+		meta.GPU = gpu
+		mu.Unlock()
+		return nil
+	})
 
-	for i := 0; i < 11; i++ {
-		r := <-ch
-		if r.err != nil {
-			continue
-		}
-		switch r.name {
-		case "cpu":
-			meta.CPU = r.data.(*models.CPUInfo)
-		case "memory":
-			meta.Memory = r.data.(*models.MemoryInfo)
-		case "network":
-			meta.Network = r.data.([]*models.NetworkInfo)
-		case "netrate":
-			meta.NetRate = r.data.(*models.NetworkRateResponse)
-		case "disk":
-			meta.Disk = r.data.([]*models.DiskInfo)
-		case "diskrate":
-			meta.DiskRate = r.data.(*models.DiskRateResponse)
-		case "mounts":
-			meta.DiskMounts = r.data.([]*models.DiskMountInfo)
-		case "processes":
-			procResult := r.data.(*models.ProcessListResponse)
-			meta.Processes = procResult.Processes
-			meta.Cursor = procResult.Cursor
-		case "system":
-			meta.System = r.data.(*models.SystemInfo)
-		case "hardware":
-			meta.Hardware = r.data.(*models.SystemHardware)
-		case "gpu":
-			meta.GPU = r.data.(*models.GPUInfo)
-		}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	return meta, nil

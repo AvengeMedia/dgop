@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -279,7 +280,7 @@ func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 		DiskRateCursor: diskRateCursor,
 	}
 
-	metaInfo, err := gopsUtil.GetMeta(metaModules, params)
+	metaInfo, err := gopsUtil.GetMeta(context.Background(), metaModules, params)
 	if err != nil {
 		return fmt.Errorf("failed to get meta info: %w", err)
 	}
