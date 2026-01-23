@@ -57,7 +57,7 @@ func (self *HandlerGroup) Meta(ctx context.Context, input *MetaInput) (*MetaResp
 		DiskRateCursor: input.DiskRateCursor,
 	}
 
-	metaInfo, err := self.srv.Gops.GetMeta(modules, params)
+	metaInfo, err := self.srv.Gops.GetMeta(ctx, modules, params)
 	if err != nil {
 		log.Error("Error getting meta info")
 		return nil, huma.Error400BadRequest(err.Error())

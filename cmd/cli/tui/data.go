@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,7 +47,7 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 		}
 
 		modules := []string{"cpu", "memory", "system", "processes"}
-		metrics, err := m.gops.GetMeta(modules, params)
+		metrics, err := m.gops.GetMeta(context.Background(), modules, params)
 
 		if err != nil {
 			return fetchDataMsg{err: err, generation: generation}
