@@ -117,12 +117,12 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 			}
 		}
 	} else {
-		cpuPercent, err := self.cpuProvider.Percent(50*time.Millisecond, false)
+		cpuPercent, err := self.cpuProvider.Percent(100*time.Millisecond, false)
 		if err == nil && len(cpuPercent) > 0 {
 			cpuInfo.Usage = cpuPercent[0]
 		}
 
-		corePercent, err := self.cpuProvider.Percent(50*time.Millisecond, true)
+		corePercent, err := self.cpuProvider.Percent(100*time.Millisecond, true)
 		if err == nil {
 			cpuInfo.CoreUsage = corePercent
 		}

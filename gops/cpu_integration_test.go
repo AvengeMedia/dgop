@@ -78,12 +78,12 @@ func TestGetCPUInfo_WithMocks(t *testing.T) {
 		Once()
 
 	mockCPU.EXPECT().
-		Percent(50*time.Millisecond, false).
+		Percent(100*time.Millisecond, false).
 		Return([]float64{25.5}, nil).
 		Once()
 
 	mockCPU.EXPECT().
-		Percent(50*time.Millisecond, true).
+		Percent(100*time.Millisecond, true).
 		Return([]float64{20.0, 25.0, 30.0, 35.0}, nil).
 		Once()
 
@@ -176,8 +176,8 @@ func TestGetCPUInfo_ErrorHandling(t *testing.T) {
 				m.EXPECT().Info().Return(nil, assert.AnError).Once()
 				m.EXPECT().Times(false).Return([]cpu.TimesStat{{User: 100, Idle: 900}}, nil).Once()
 				m.EXPECT().Times(true).Return([]cpu.TimesStat{{User: 100, Idle: 900}}, nil).Once()
-				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 				m.EXPECT().Percent(mock.Anything, false).Return([]float64{10.0}, nil).Once()
+				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 			},
 			expectError: false,
 		},
@@ -186,8 +186,8 @@ func TestGetCPUInfo_ErrorHandling(t *testing.T) {
 			setupMocks: func(m *mocks.MockCPUInfoProvider) {
 				m.EXPECT().Times(false).Return(nil, assert.AnError).Once()
 				m.EXPECT().Times(true).Return(nil, assert.AnError).Once()
-				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 				m.EXPECT().Percent(mock.Anything, false).Return([]float64{10.0}, nil).Once()
+				m.EXPECT().Percent(mock.Anything, true).Return([]float64{10.0}, nil).Once()
 			},
 			expectError: false,
 		},
