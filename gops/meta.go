@@ -113,7 +113,7 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	meta := &models.MetaInfo{}
 	var mu sync.Mutex
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, _ := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor)

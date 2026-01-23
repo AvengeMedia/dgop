@@ -73,7 +73,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 			maxSample = len(procs)
 		}
 		for i := 0; i < maxSample; i++ {
-			procs[i].CPUPercent()
+			_, _ = procs[i].CPUPercent()
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
