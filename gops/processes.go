@@ -82,15 +82,15 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		index int
 		info  *models.ProcessInfo
 	}
-	
+
 	numWorkers := runtime.NumCPU()
 	if numWorkers > 8 {
 		numWorkers = 8
 	}
-	
+
 	jobs := make(chan int, len(procs))
 	results := make(chan procResult, len(procs))
-	
+
 	for w := 0; w < numWorkers; w++ {
 		go func() {
 			for idx := range jobs {
@@ -163,20 +163,20 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 			}
 		}()
 	}
-	
+
 	// Send jobs
 	for i := range procs {
 		jobs <- i
 	}
 	close(jobs)
-	
+
 	// Collect results
 	procList := make([]*models.ProcessInfo, len(procs))
 	for i := 0; i < len(procs); i++ {
 		r := <-results
 		procList[r.index] = r.info
 	}
-	
+
 	// Filter out nil entries (shouldn't happen)
 	filtered := make([]*models.ProcessInfo, 0, len(procList))
 	for _, p := range procList {

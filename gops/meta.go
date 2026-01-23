@@ -114,64 +114,64 @@ func (self *GopsUtil) loadAllModules(params MetaParams) (*models.MetaInfo, error
 		data interface{}
 		err  error
 	}
-	
+
 	ch := make(chan result, 12)
-	
+
 	go func() {
 		cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor)
 		ch <- result{"cpu", cpu, err}
 	}()
-	
+
 	go func() {
 		mem, err := self.GetMemoryInfo()
 		ch <- result{"memory", mem, err}
 	}()
-	
+
 	go func() {
 		net, err := self.GetNetworkInfo()
 		ch <- result{"network", net, err}
 	}()
-	
+
 	go func() {
 		netRate, err := self.GetNetworkRates(params.NetRateCursor)
 		ch <- result{"netrate", netRate, err}
 	}()
-	
+
 	go func() {
 		disk, err := self.GetDiskInfo()
 		ch <- result{"disk", disk, err}
 	}()
-	
+
 	go func() {
 		diskRate, err := self.GetDiskRates(params.DiskRateCursor)
 		ch <- result{"diskrate", diskRate, err}
 	}()
-	
+
 	go func() {
 		mounts, err := self.GetDiskMounts()
 		ch <- result{"mounts", mounts, err}
 	}()
-	
+
 	go func() {
 		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor)
 		ch <- result{"processes", procs, err}
 	}()
-	
+
 	go func() {
 		sys, err := self.GetSystemInfo()
 		ch <- result{"system", sys, err}
 	}()
-	
+
 	go func() {
 		hw, err := self.GetSystemHardware()
 		ch <- result{"hardware", hw, err}
 	}()
-	
+
 	go func() {
 		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
 		ch <- result{"gpu", gpu, err}
 	}()
-	
+
 	for i := 0; i < 11; i++ {
 		r := <-ch
 		if r.err != nil {
