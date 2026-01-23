@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AvengeMedia/dgop/internal/log"
 	"github.com/AvengeMedia/dgop/models"
 	"golang.org/x/sync/errgroup"
 )
@@ -48,7 +49,6 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 	for _, module := range modules {
 		switch strings.ToLower(module) {
 		case "all":
-			// Load all modules
 			return self.loadAllModules(ctx, params)
 		case "cpu":
 			if cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor); err == nil {
@@ -91,13 +91,7 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 			if hw, err := self.GetSystemHardware(); err == nil {
 				meta.Hardware = hw
 			}
-		case "gpu":
-			// GPU module with optional temperature
-			if gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds); err == nil {
-				meta.GPU = gpu
-			}
-		case "gpu-temp":
-			// GPU temperature only module
+		case "gpu", "gpu-temp":
 			if gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds); err == nil {
 				meta.GPU = gpu
 			}
@@ -113,11 +107,17 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	meta := &models.MetaInfo{}
 	var mu sync.Mutex
 
-	g, _ := errgroup.WithContext(ctx)
+	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		cpu, err := self.GetCPUInfoWithCursor(params.CPUCursor)
 		if err != nil {
+			log.Warn("failed to get CPU info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -127,8 +127,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		mem, err := self.GetMemoryInfo()
 		if err != nil {
+			log.Warn("failed to get memory info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -138,8 +144,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		net, err := self.GetNetworkInfo()
 		if err != nil {
+			log.Warn("failed to get network info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -149,8 +161,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		netRate, err := self.GetNetworkRates(params.NetRateCursor)
 		if err != nil {
+			log.Warn("failed to get network rates", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -160,8 +178,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		disk, err := self.GetDiskInfo()
 		if err != nil {
+			log.Warn("failed to get disk info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -171,8 +195,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		diskRate, err := self.GetDiskRates(params.DiskRateCursor)
 		if err != nil {
+			log.Warn("failed to get disk rates", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -182,8 +212,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		mounts, err := self.GetDiskMounts()
 		if err != nil {
+			log.Warn("failed to get disk mounts", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -193,8 +229,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor)
 		if err != nil {
+			log.Warn("failed to get processes", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -205,8 +247,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		sys, err := self.GetSystemInfo()
 		if err != nil {
+			log.Warn("failed to get system info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -216,8 +264,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		hw, err := self.GetSystemHardware()
 		if err != nil {
+			log.Warn("failed to get hardware info", "error", err)
 			return nil
 		}
 		mu.Lock()
@@ -227,8 +281,14 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 	})
 
 	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
 		if err != nil {
+			log.Warn("failed to get GPU info", "error", err)
 			return nil
 		}
 		mu.Lock()

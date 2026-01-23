@@ -66,8 +66,6 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 	}
 
 	if enableCPU && len(cursorMap) == 0 {
-		// Only sample CPU for first batch of processes to reduce overhead
-		// Full CPU tracking available on subsequent calls with cursor
 		maxSample := 100
 		if len(procs) < maxSample {
 			maxSample = len(procs)
@@ -128,12 +126,9 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 					memKB = rssKB
 					memPercent = rssPercent
 
-					// Only calculate PSS for very large processes (>100MB) to reduce overhead
-					// MemoryMaps is expensive - reads full /proc/[pid]/smaps
 					if rssKB > 102400 {
 						pssDirty, err := getPssDirty(p.Pid)
 						if err == nil && pssDirty > 0 {
-							// Use PSS dirty directly, skip expensive MemoryMaps call
 							memKB = pssDirty
 							memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
 							memCalc = "pss_dirty"
@@ -164,29 +159,17 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		}()
 	}
 
-	// Send jobs
 	for i := range procs {
 		jobs <- i
 	}
 	close(jobs)
 
-	// Collect results
 	procList := make([]*models.ProcessInfo, len(procs))
 	for i := 0; i < len(procs); i++ {
 		r := <-results
 		procList[r.index] = r.info
 	}
 
-	// Filter out nil entries (shouldn't happen)
-	filtered := make([]*models.ProcessInfo, 0, len(procList))
-	for _, p := range procList {
-		if p != nil {
-			filtered = append(filtered, p)
-		}
-	}
-	procList = filtered
-
-	// Sort processes
 	switch sortBy {
 	case SortByCPU:
 		sort.Slice(procList, func(i, j int) bool {
@@ -210,12 +193,10 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		})
 	}
 
-	// Limit to MaxProcs
 	if limit > 0 && len(procList) > limit {
 		procList = procList[:limit]
 	}
 
-	// Create cursor data for all processes
 	cursorList := make([]models.ProcessCursorData, 0, len(procList))
 	for _, proc := range procList {
 		cursorList = append(cursorList, models.ProcessCursorData{
@@ -225,7 +206,6 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		})
 	}
 
-	// Encode cursor list as single base64 string
 	cursorBytes, _ := json.Marshal(cursorList)
 	cursorStr := base64.RawURLEncoding.EncodeToString(cursorBytes)
 
