@@ -14,6 +14,7 @@ type ProcessInput struct {
 	Limit          int             `query:"limit"`
 	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
 	Cursor         string          `query:"cursor" required:"false"`
+	MergeChildren  bool            `query:"merge_children" default:"false"`
 }
 
 type ProcessResponse struct {
@@ -27,7 +28,7 @@ type ProcessResponse struct {
 func (self *HandlerGroup) Processes(ctx context.Context, input *ProcessInput) (*ProcessResponse, error) {
 	enableCPU := !input.DisableProcCPU
 
-	result, err := self.srv.Gops.GetProcessesWithCursor(input.SortBy, input.Limit, enableCPU, input.Cursor)
+	result, err := self.srv.Gops.GetProcessesWithCursor(input.SortBy, input.Limit, enableCPU, input.Cursor, input.MergeChildren)
 	if err != nil {
 		log.Error("Error getting process info")
 		return nil, huma.Error500InternalServerError("Unable to retrieve process info")

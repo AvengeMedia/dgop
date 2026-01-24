@@ -84,6 +84,7 @@ type ResponsiveTUIModel struct {
 
 	hideCPUCores   bool
 	summarizeCores bool
+	mergeChildren  bool
 
 	cachedColors      *models.ColorPalette
 	cachedNetDownChar string

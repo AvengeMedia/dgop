@@ -89,6 +89,10 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortProcessesLocally()
 			m.updateProcessTable()
 			return m, m.fetchData()
+		case "g":
+			m.mergeChildren = !m.mergeChildren
+			m.fetchGeneration++
+			return m, m.fetchData()
 		case "up", "k":
 			oldCursor := m.processTable.Cursor()
 			m.processTable, cmd = m.processTable.Update(msg)
@@ -518,7 +522,11 @@ func (m *ResponsiveTUIModel) renderHeader() string {
 func (m *ResponsiveTUIModel) renderFooter() string {
 	style := m.footerStyle()
 
-	controls := "Controls: [q]uit [r]efresh [d]etails | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate"
+	groupStatus := ""
+	if m.mergeChildren {
+		groupStatus = "*"
+	}
+	controls := fmt.Sprintf("Controls: [q]uit [r]efresh [d]etails [g]roup%s | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate", groupStatus)
 	return style.Render(controls)
 }
 
@@ -545,7 +553,12 @@ func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
 		processCount = len(m.metrics.Processes)
 	}
 
-	title := fmt.Sprintf("PROCESSES (%d)%s", processCount, sortIndicator)
+	groupIndicator := ""
+	if m.mergeChildren {
+		groupIndicator = " [grouped]"
+	}
+
+	title := fmt.Sprintf("PROCESSES (%d)%s%s", processCount, sortIndicator, groupIndicator)
 	titleStyle := m.titleStyle()
 
 	content.WriteString(titleStyle.Render(title) + "\n")

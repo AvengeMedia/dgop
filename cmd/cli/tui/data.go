@@ -37,13 +37,15 @@ func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
 	procCursor := m.procCursor
 	sortBy := m.sortBy
 	procLimit := m.procLimit
+	mergeChildren := m.mergeChildren
 	return func() tea.Msg {
 		params := gops.MetaParams{
-			SortBy:     sortBy,
-			ProcLimit:  procLimit,
-			EnableCPU:  true,
-			CPUCursor:  cpuCursor,
-			ProcCursor: procCursor,
+			SortBy:        sortBy,
+			ProcLimit:     procLimit,
+			EnableCPU:     true,
+			MergeChildren: mergeChildren,
+			CPUCursor:     cpuCursor,
+			ProcCursor:    procCursor,
 		}
 
 		modules := []string{"cpu", "memory", "system", "processes"}

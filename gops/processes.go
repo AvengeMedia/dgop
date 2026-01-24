@@ -39,11 +39,11 @@ func getPssDirty(pid int32) (uint64, error) {
 	return 0, fmt.Errorf("Pss_Dirty not found")
 }
 
-func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool) (*models.ProcessListResponse, error) {
-	return self.GetProcessesWithCursor(sortBy, limit, enableCPU, "")
+func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool, mergeChildren bool) (*models.ProcessListResponse, error) {
+	return self.GetProcessesWithCursor(sortBy, limit, enableCPU, "", mergeChildren)
 }
 
-func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enableCPU bool, cursor string) (*models.ProcessListResponse, error) {
+func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enableCPU bool, cursor string, mergeChildren bool) (*models.ProcessListResponse, error) {
 	procs, err := self.procProvider.Processes()
 	if err != nil {
 		return nil, err
@@ -99,6 +99,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 				memInfo, _ := p.MemoryInfo()
 				times, _ := p.Times()
 				username, _ := p.Username()
+				exePath, _ := p.Exe()
 
 				currentCPUTime := float64(0)
 				if times != nil {
@@ -153,6 +154,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 						Username:          username,
 						Command:           name,
 						FullCommand:       cmdline,
+						ExecutablePath:    exePath,
 					},
 				}
 			}
@@ -168,6 +170,10 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 	for i := 0; i < len(procs); i++ {
 		r := <-results
 		procList[r.index] = r.info
+	}
+
+	if mergeChildren {
+		procList = mergeProcessesByExecutable(procList)
 	}
 
 	switch sortBy {
@@ -263,4 +269,60 @@ func calculateProcessCPUPercentageWithCursor(cursor *models.ProcessCursorData, c
 	}
 
 	return cpuPercent
+}
+
+func findMergeRoot(p *models.ProcessInfo, pidMap map[int32]*models.ProcessInfo) *models.ProcessInfo {
+	parent, exists := pidMap[p.PPID]
+	switch {
+	case !exists:
+		return p
+	case parent.ExecutablePath == "" || p.ExecutablePath == "":
+		return p
+	case parent.ExecutablePath != p.ExecutablePath:
+		return p
+	default:
+		return findMergeRoot(parent, pidMap)
+	}
+}
+
+func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.ProcessInfo {
+	pidMap := make(map[int32]*models.ProcessInfo)
+	for _, p := range procList {
+		pidMap[p.PID] = p
+	}
+
+	mergeRoots := make(map[int32]int32)
+	for _, p := range procList {
+		root := findMergeRoot(p, pidMap)
+		mergeRoots[p.PID] = root.PID
+	}
+
+	rootProcs := make(map[int32]*models.ProcessInfo)
+	for _, p := range procList {
+		rootPID := mergeRoots[p.PID]
+		root := rootProcs[rootPID]
+		if root == nil {
+			clone := *pidMap[rootPID]
+			clone.ChildCount = 0
+			rootProcs[rootPID] = &clone
+			root = rootProcs[rootPID]
+		}
+
+		if p.PID != rootPID {
+			root.CPU += p.CPU
+			root.MemoryKB += p.MemoryKB
+			root.MemoryPercent += p.MemoryPercent
+			root.RSSKB += p.RSSKB
+			root.RSSPercent += p.RSSPercent
+			root.PSSKB += p.PSSKB
+			root.PSSPercent += p.PSSPercent
+			root.ChildCount++
+		}
+	}
+
+	result := make([]*models.ProcessInfo, 0, len(rootProcs))
+	for _, p := range rootProcs {
+		result = append(result, p)
+	}
+	return result
 }

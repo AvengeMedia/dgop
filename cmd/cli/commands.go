@@ -114,7 +114,7 @@ func runAllCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
 
-	metrics, err := gopsUtil.GetAllMetricsWithCursors(sortBy, procLimit, enableCPU, cpuCursor, procCursor)
+	metrics, err := gopsUtil.GetAllMetricsWithCursors(sortBy, procLimit, enableCPU, cpuCursor, procCursor, mergeChildren)
 	if err != nil {
 		return fmt.Errorf("failed to get system metrics: %w", err)
 	}
@@ -199,7 +199,7 @@ func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
 
-	result, err := gopsUtil.GetProcessesWithCursor(sortBy, procLimit, enableCPU, procCursor)
+	result, err := gopsUtil.GetProcessesWithCursor(sortBy, procLimit, enableCPU, procCursor, mergeChildren)
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
 	}
@@ -273,6 +273,7 @@ func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 		SortBy:         parseProcessSortBy(procSortBy, disableProcCPU),
 		ProcLimit:      procLimit,
 		EnableCPU:      !disableProcCPU,
+		MergeChildren:  mergeChildren,
 		GPUPciIds:      metaGPUPciIds,
 		CPUCursor:      cpuCursor,
 		ProcCursor:     procCursor,

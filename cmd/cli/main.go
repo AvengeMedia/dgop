@@ -17,6 +17,7 @@ var (
 	procSortBy     string
 	procLimit      int
 	disableProcCPU bool
+	mergeChildren  bool
 	metaModules    []string
 	gpuPciId       string
 	metaGPUPciIds  []string
@@ -65,6 +66,7 @@ func init() {
 	allCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	allCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	allCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
+	allCmd.Flags().BoolVar(&mergeChildren, "merge-children", false, "Merge child processes with same executable")
 
 	cpuCmd.Flags().StringVar(&cpuCursor, "cursor", "", "Cursor from previous CPU request")
 
@@ -75,6 +77,7 @@ func init() {
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	processesCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	processesCmd.Flags().StringVar(&procCursor, "cursor", "", "Cursor from previous process request")
+	processesCmd.Flags().BoolVar(&mergeChildren, "merge-children", false, "Merge child processes with same executable")
 
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
@@ -84,6 +87,7 @@ func init() {
 	metaCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
 	metaCmd.Flags().StringVar(&netRateCursor, "net-rate-cursor", "", "Network rate cursor from previous request")
 	metaCmd.Flags().StringVar(&diskRateCursor, "disk-rate-cursor", "", "Disk rate cursor from previous request")
+	metaCmd.Flags().BoolVar(&mergeChildren, "merge-children", false, "Merge child processes with same executable")
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
 	gpuTempCmd.MarkFlagRequired("pci-id")

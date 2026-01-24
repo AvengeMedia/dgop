@@ -53,11 +53,11 @@ func NewGopsUtilWithProviders(
 	}
 }
 
-func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool) (*models.SystemMetrics, error) {
-	return self.GetAllMetricsWithCursors(procSortBy, procLimit, enableProcessCPU, "", "")
+func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, mergeChildren bool) (*models.SystemMetrics, error) {
+	return self.GetAllMetricsWithCursors(procSortBy, procLimit, enableProcessCPU, "", "", mergeChildren)
 }
 
-func (self *GopsUtil) GetAllMetricsWithCursors(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, cpuCursor string, procCursor string) (*models.SystemMetrics, error) {
+func (self *GopsUtil) GetAllMetricsWithCursors(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, cpuCursor string, procCursor string, mergeChildren bool) (*models.SystemMetrics, error) {
 	cpuInfo, err := self.GetCPUInfoWithCursor(cpuCursor)
 	if err != nil {
 		log.Errorf("Failed to get CPU info: %v", err)
@@ -83,7 +83,7 @@ func (self *GopsUtil) GetAllMetricsWithCursors(procSortBy ProcSortBy, procLimit 
 		log.Errorf("Failed to get disk mounts: %v", err)
 	}
 
-	processResult, err := self.GetProcessesWithCursor(procSortBy, procLimit, enableProcessCPU, procCursor)
+	processResult, err := self.GetProcessesWithCursor(procSortBy, procLimit, enableProcessCPU, procCursor, mergeChildren)
 	if err != nil {
 		log.Errorf("Failed to get processes: %v", err)
 	}

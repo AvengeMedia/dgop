@@ -15,6 +15,8 @@ type ProcessInfo struct {
 	Username          string  `json:"username"`
 	Command           string  `json:"command"`
 	FullCommand       string  `json:"fullCommand"`
+	ExecutablePath    string  `json:"executablePath,omitempty"`
+	ChildCount        int     `json:"childCount,omitempty"`
 }
 
 type ProcessCursorData struct {

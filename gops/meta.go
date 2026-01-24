@@ -36,6 +36,7 @@ type MetaParams struct {
 	SortBy         ProcSortBy
 	ProcLimit      int
 	EnableCPU      bool
+	MergeChildren  bool
 	GPUPciIds      []string
 	CPUCursor      string
 	ProcCursor     string
@@ -79,7 +80,7 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 				meta.DiskMounts = mounts
 			}
 		case "processes":
-			if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor); err == nil {
+			if result, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor, params.MergeChildren); err == nil {
 				meta.Processes = result.Processes
 				meta.Cursor = result.Cursor
 			}
@@ -234,7 +235,7 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 			return ctx.Err()
 		default:
 		}
-		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor)
+		procs, err := self.GetProcessesWithCursor(params.SortBy, params.ProcLimit, params.EnableCPU, params.ProcCursor, params.MergeChildren)
 		if err != nil {
 			log.Warn("failed to get processes", "error", err)
 			return nil
