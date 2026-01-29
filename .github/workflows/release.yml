@@ -136,6 +136,19 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
 
+      # Generate source tarball with vendored modules
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+
+      - name: Generate vendored source tarball
+        run: |
+          VERSION=${{ github.ref_name }}
+          VERSION_NUM=${VERSION#v}
+          go mod vendor
+          tar czf "dgop-${VERSION_NUM}.tar.gz" --transform "s,^,dgop-${VERSION_NUM}/," --exclude=./artifacts --exclude=.git *
+
       # Upload release assets
       - name: Upload release assets
         run: |
@@ -144,8 +157,12 @@ jobs:
           # Find and upload all binaries and checksums
           find ./artifacts -name "dgop-*" -type f | while read file; do
             echo "Uploading: $file"
-            filename=$(basename "$file")
             gh release upload "$VERSION" "$file" --clobber
           done
+
+          # Upload vendored source tarball
+          VERSION_NUM=${VERSION#v}
+          echo "Uploading: dgop-${VERSION_NUM}.tar.gz"
+          gh release upload "$VERSION" "dgop-${VERSION_NUM}.tar.gz" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
