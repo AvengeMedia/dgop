@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/AvengeMedia/dgop/cmd/cli/tui"
+	"github.com/AvengeMedia/dgop/cmd/dgop/tui"
 	"github.com/AvengeMedia/dgop/gops"
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -2,7 +2,7 @@
 
 # Project settings
 BINARY_NAME=dgop
-SOURCE_DIR=cmd/cli
+SOURCE_DIR=cmd/dgop
 BUILD_DIR=bin
 INSTALL_DIR=/usr/local/bin
 

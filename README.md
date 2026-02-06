@@ -40,6 +40,11 @@ Download the latest binary from [GitHub Releases](https://github.com/AvengeMedia
 sudo pacman -S dgop
 ```
 
+### Go Install
+```bash
+go install github.com/AvengeMedia/dgop/cmd/dgop@latest
+```
+
 ### Build from Source
 ```bash
 # Build it
@@ -49,7 +54,7 @@ make
 sudo make install
 
 # Or just run locally
-go run ./cmd/cli [command]
+go run ./cmd/dgop [command]
 ```
 
 ## Basic Commands

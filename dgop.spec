@@ -43,7 +43,7 @@ export CGO_LDFLAGS="${LDFLAGS}"
 export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
 
 # Build the binary
-go build -v -o dgop ./cmd/cli
+go build -v -o dgop ./cmd/dgop
 
 %install
 install -Dm755 dgop %{buildroot}%{_bindir}/dgop

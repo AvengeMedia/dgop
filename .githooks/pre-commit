@@ -40,7 +40,7 @@ fi
 
 echo "  Building..."
 mkdir -p bin
-go build -o bin/dgop ./cmd/cli
+go build -o bin/dgop ./cmd/dgop
 
 echo "All Go CI checks passed!"
 exit 0

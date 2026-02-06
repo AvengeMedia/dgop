@@ -44,7 +44,7 @@ make deps
 ### Running the Application
 ```bash
 # Run locally without building
-go run ./cmd/cli [command]
+go run ./cmd/dgop [command]
 
 # After building
 ./bin/dgop [command]
@@ -57,7 +57,7 @@ go run ./cmd/cli [command]
 
 ### Core Components
 
-1. **CLI Entry Point** (`cmd/cli/`)
+1. **CLI Entry Point** (`cmd/dgop/`)
    - `main.go`: Sets up Cobra commands and initializes GopsUtil
    - `commands.go`: Implements individual CLI commands (cpu, memory, network, etc.)
    - `server.go`: Starts the REST API server

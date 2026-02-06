@@ -55,7 +55,7 @@ jobs:
         run: |
           VERSION=${{ github.ref_name }}
           BINARY_NAME="dgop-${{ matrix.goos }}-${{ matrix.goarch }}"
-          cd cmd/cli && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
+          cd cmd/dgop && go build -ldflags "-s -w -X main.Version=${VERSION}" -o "../../${BINARY_NAME}"
           cd ../..
 
           # Create .gz archive
