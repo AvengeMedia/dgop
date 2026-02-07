@@ -42,7 +42,7 @@ sudo pacman -S dgop
 
 ### Go Install
 ```bash
-go install github.com/AvengeMedia/dgop/cmd/dgop@latest
+go install github.com/AvengeMedia/dgop/cmd/dgop@master
 ```
 
 ### Build from Source
