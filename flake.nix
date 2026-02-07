@@ -54,7 +54,7 @@
 
             installPhase = ''
               mkdir -p $out/bin
-              cp $GOPATH/bin/cli $out/bin/dgop
+              cp $GOPATH/bin/dgop $out/bin/dgop
               wrapProgram $out/bin/dgop --prefix PATH : "${lib.makeBinPath [ pkgs.pciutils ]}"
 
               installShellCompletion --cmd dgop \
