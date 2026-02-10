@@ -14,7 +14,7 @@ type ProcessInput struct {
 	Limit          int             `query:"limit"`
 	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
 	Cursor         string          `query:"cursor" required:"false"`
-	MergeChildren  bool            `query:"merge_children" default:"false"`
+	MergeChildren  bool            `query:"merge_children" default:"true"`
 }
 
 type ProcessResponse struct {

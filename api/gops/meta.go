@@ -15,7 +15,7 @@ type MetaInput struct {
 	SortBy         gops.ProcSortBy `query:"sort_by" default:"cpu"`
 	Limit          int             `query:"limit" default:"0"`
 	DisableProcCPU bool            `query:"disable_proc_cpu" default:"false"`
-	MergeChildren  bool            `query:"merge_children" default:"false"`
+	MergeChildren  bool            `query:"merge_children" default:"true"`
 
 	// Module-specific parameters
 	GPUPciIds      []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs for GPU temperatures (when gpu module is requested)"`

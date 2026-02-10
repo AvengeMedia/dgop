@@ -77,6 +77,7 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 		logoTestMode:   false,
 		hideCPUCores:   hideCPUCores,
 		summarizeCores: summarizeCores,
+		mergeChildren:  true,
 	}
 
 	hardware, _ := gopsUtil.GetSystemHardware()
