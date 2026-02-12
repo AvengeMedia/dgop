@@ -3,10 +3,10 @@ name: Go CI
 on:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 concurrency:
   group: go-ci-${{ github.ref }}
@@ -39,7 +39,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1
+          version: v2.9
 
   test:
     name: Test
