@@ -26,33 +26,57 @@ func (self *GopsUtil) GetDiskInfo() ([]*models.DiskInfo, error) {
 }
 
 func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
-	partitions, err := self.diskProvider.Partitions(false)
+	partitions, err := self.diskProvider.Partitions(true)
+	if err != nil {
+		return nil, err
+	}
+
 	var metrics []*models.DiskMountInfo
-	if err == nil {
-		for _, p := range partitions {
-			// Skip tmpfs and devtmpfs
-			if p.Fstype == "tmpfs" || p.Fstype == "devtmpfs" {
-				continue
-			}
-
-			usage, err := self.diskProvider.Usage(p.Mountpoint)
-			if err != nil {
-				continue
-			}
-
-			metrics = append(metrics, &models.DiskMountInfo{
-				Device:  p.Device,
-				Mount:   p.Mountpoint,
-				FSType:  p.Fstype,
-				Size:    formatBytes(usage.Total),
-				Used:    formatBytes(usage.Used),
-				Avail:   formatBytes(usage.Free),
-				Percent: fmt.Sprintf("%.0f%%", usage.UsedPercent),
-			})
+	for _, p := range partitions {
+		if isVirtualFS(p.Fstype) || isVirtualMount(p.Mountpoint) {
+			continue
 		}
+
+		usage, err := self.diskProvider.Usage(p.Mountpoint)
+		if err != nil {
+			continue
+		}
+
+		metrics = append(metrics, &models.DiskMountInfo{
+			Device:  p.Device,
+			Mount:   p.Mountpoint,
+			FSType:  p.Fstype,
+			Size:    formatBytes(usage.Total),
+			Used:    formatBytes(usage.Used),
+			Avail:   formatBytes(usage.Free),
+			Percent: fmt.Sprintf("%.0f%%", usage.UsedPercent),
+		})
 	}
 
 	return metrics, nil
+}
+
+func isVirtualFS(fstype string) bool {
+	switch fstype {
+	case "tmpfs", "devtmpfs", "sysfs", "proc", "devpts",
+		"cgroup", "cgroup2", "securityfs", "pstore",
+		"efivarfs", "bpf", "autofs", "hugetlbfs",
+		"mqueue", "debugfs", "tracefs", "fusectl",
+		"configfs", "ramfs", "nsfs", "binfmt_misc",
+		"fuse.gvfsd-fuse", "fuse.portal":
+		return true
+	}
+	return false
+}
+
+func isVirtualMount(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/proc/"),
+		strings.HasPrefix(path, "/sys/"),
+		strings.HasPrefix(path, "/dev/"):
+		return true
+	}
+	return false
 }
 
 func matchesDiskDevice(name string) bool {
