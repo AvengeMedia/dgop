@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"syscall"
 
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
@@ -29,6 +31,26 @@ type fetchDiskMsg struct {
 type fetchTempMsg struct {
 	temps []models.TemperatureSensor
 	err   error
+}
+
+type processKillResultMsg struct {
+	message string
+}
+
+func killProcess(pid int32, force bool) tea.Cmd {
+	return func() tea.Msg {
+		sig := syscall.SIGTERM
+		sigName := "SIGTERM"
+		if force {
+			sig = syscall.SIGKILL
+			sigName = "SIGKILL"
+		}
+		err := syscall.Kill(int(pid), sig)
+		if err != nil {
+			return processKillResultMsg{message: fmt.Sprintf("Failed to kill PID %d: %v", pid, err)}
+		}
+		return processKillResultMsg{message: fmt.Sprintf("Sent %s to PID %d", sigName, pid)}
+	}
 }
 
 func (m *ResponsiveTUIModel) fetchData() tea.Cmd {

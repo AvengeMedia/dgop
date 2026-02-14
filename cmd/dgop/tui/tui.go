@@ -45,6 +45,32 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 	case tea.KeyMsg:
+		// Kill confirmation mode intercepts all keys
+		if m.killConfirmPID > 0 {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "escape", "q":
+				m.killConfirmPID = 0
+				m.killConfirmSelection = 0
+			case "left", "h":
+				if m.killConfirmSelection > 0 {
+					m.killConfirmSelection--
+				}
+			case "right", "l":
+				if m.killConfirmSelection < 1 {
+					m.killConfirmSelection++
+				}
+			case "enter":
+				pid := m.killConfirmPID
+				force := m.killConfirmSelection == 1
+				m.killConfirmPID = 0
+				m.killConfirmSelection = 0
+				return m, killProcess(pid, force)
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -53,6 +79,15 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchData()
 		case "d":
 			m.showDetails = !m.showDetails
+		case "x":
+			if m.metrics != nil && len(m.metrics.Processes) > 0 {
+				idx := m.processTable.Cursor()
+				if idx < len(m.metrics.Processes) {
+					m.killConfirmPID = m.metrics.Processes[idx].PID
+					m.killConfirmSelection = 0
+				}
+			}
+			return m, nil
 		case "c":
 			if m.sortBy == gops.SortByCPU {
 				return m, nil
@@ -98,7 +133,6 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
 
-			// Update selected PID when cursor moves
 			newCursor := m.processTable.Cursor()
 			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
 				m.selectedPID = m.metrics.Processes[newCursor].PID
@@ -108,7 +142,6 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
 
-			// Update selected PID when cursor moves
 			newCursor := m.processTable.Cursor()
 			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
 				m.selectedPID = m.metrics.Processes[newCursor].PID
@@ -239,6 +272,12 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.systemTemperatures = msg.temps
 		}
+
+	case processKillResultMsg:
+		m.killResultMsg = msg.message
+		m.killResultTime = time.Now()
+		m.fetchGeneration++
+		cmds = append(cmds, m.fetchData())
 
 	case colorUpdateMsg:
 		m.refreshColorCache()
@@ -521,12 +560,50 @@ func (m *ResponsiveTUIModel) renderHeader() string {
 
 func (m *ResponsiveTUIModel) renderFooter() string {
 	style := m.footerStyle()
+	colors := m.getColors()
+
+	if m.killConfirmPID > 0 {
+		procName := ""
+		if m.metrics != nil {
+			for _, p := range m.metrics.Processes {
+				if p.PID == m.killConfirmPID {
+					procName = p.Command
+					break
+				}
+			}
+		}
+
+		options := []string{"Kill (SIGTERM)", "Force Kill (SIGKILL)"}
+		var parts []string
+		selected := lipgloss.NewStyle().
+			Background(lipgloss.Color(colors.UI.SelectionBackground)).
+			Foreground(lipgloss.Color(colors.UI.SelectionText)).
+			Padding(0, 1)
+		normal := lipgloss.NewStyle().Padding(0, 1)
+
+		for i, opt := range options {
+			switch i {
+			case m.killConfirmSelection:
+				parts = append(parts, selected.Render(opt))
+			default:
+				parts = append(parts, normal.Render(opt))
+			}
+		}
+
+		text := fmt.Sprintf("Kill PID %d (%s)?  %s  ESC cancel", m.killConfirmPID, procName, strings.Join(parts, " "))
+		return style.Render(text)
+	}
+
+	if m.killResultMsg != "" && time.Since(m.killResultTime) < 3*time.Second {
+		return style.Render(m.killResultMsg)
+	}
+	m.killResultMsg = ""
 
 	groupStatus := ""
 	if m.mergeChildren {
 		groupStatus = "*"
 	}
-	controls := fmt.Sprintf("Controls: [q]uit [r]efresh [d]etails [g]roup%s | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate", groupStatus)
+	controls := fmt.Sprintf("Controls: [q]uit [r]efresh [d]etails [g]roup%s [x] kill | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate", groupStatus)
 	return style.Render(controls)
 }
 

@@ -90,6 +90,11 @@ type ResponsiveTUIModel struct {
 	cachedNetDownChar string
 	cachedNetUpChar   string
 	lastTableWidth    int
+
+	killConfirmPID       int32
+	killConfirmSelection int // 0=kill, 1=force kill
+	killResultMsg        string
+	killResultTime       time.Time
 }
 
 func (m *ResponsiveTUIModel) Cleanup() {
