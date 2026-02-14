@@ -1,6 +1,11 @@
 package gops
 
 import (
+	"bufio"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/AvengeMedia/dgop/models"
 )
 
@@ -16,9 +21,25 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	cached := v.Cached / 1024
 	sreclaimable := v.Sreclaimable / 1024
 	shared := v.Shared / 1024
+	available := v.Available / 1024
 
 	// gopsutil Cached includes SReclaimable, get raw value
 	rawCached := cached - sreclaimable
+
+	// ZFS ARC is reclaimable cache not reflected in /proc/meminfo.
+	// Read it from /proc/spl/kstat/zfs/arcstats (same approach as btop).
+	arcSize, arcMin := readZfsArcStats()
+	arcSizeKB := arcSize / 1024
+	arcMinKB := arcMin / 1024
+
+	var freeableArc uint64
+	switch {
+	case arcSizeKB > arcMinKB:
+		freeableArc = arcSizeKB - arcMinKB
+	}
+
+	rawCached += arcSizeKB
+	available += freeableArc
 
 	// Used = Total - Free - Cached - SReclaimable - Buffers + Shared
 	usedDiff := free + rawCached + sreclaimable + buffers
@@ -40,12 +61,38 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		Used:         used,
 		UsedPercent:  usedPercent,
 		Free:         free,
-		Available:    v.Available / 1024,
+		Available:    available,
 		Buffers:      buffers,
 		Cached:       rawCached,
 		SReclaimable: sreclaimable,
 		Shared:       shared,
+		ZfsArcSize:   arcSizeKB,
 		SwapTotal:    v.SwapTotal / 1024,
 		SwapFree:     v.SwapFree / 1024,
 	}, nil
+}
+
+// readZfsArcStats reads ARC size and c_min from /proc/spl/kstat/zfs/arcstats.
+// Returns (0, 0) if ZFS is not present.
+func readZfsArcStats() (size uint64, cMin uint64) {
+	f, err := os.Open("/proc/spl/kstat/zfs/arcstats")
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 3 {
+			continue
+		}
+		switch fields[0] {
+		case "size":
+			size, _ = strconv.ParseUint(fields[2], 10, 64)
+		case "c_min":
+			cMin, _ = strconv.ParseUint(fields[2], 10, 64)
+		}
+	}
+	return size, cMin
 }

@@ -10,6 +10,7 @@ type MemoryInfo struct {
 	Cached       uint64  `json:"cached"`
 	SReclaimable uint64  `json:"sreclaimable"`
 	Shared       uint64  `json:"shared"`
+	ZfsArcSize   uint64  `json:"zfsArcSize"`
 	SwapTotal    uint64  `json:"swaptotal"`
 	SwapFree     uint64  `json:"swapfree"`
 }
