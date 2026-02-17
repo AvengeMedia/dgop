@@ -151,11 +151,13 @@ func readThermalType(thermalPath, entryName string) (string, error) {
 	return strings.TrimSpace(string(typeBytes)), nil
 }
 
-// cpuUsageFromTimes on Linux uses the tick-ratio approach, which is accurate
+// cpuUsageFromProvider on Linux uses the tick-ratio approach, which is accurate
 // because /proc/stat always includes all cores (even idle ones).
-func cpuUsageFromTimes(prev, curr []float64, _ float64, _ int) float64 {
-	return calculateCPUPercentage(prev, curr)
+func cpuUsageFromProvider(_ CPUInfoProvider, cursorTotal, currentTotal []float64, _ float64, _ int) (float64, []float64) {
+	return calculateCPUPercentage(cursorTotal, currentTotal), nil
 }
+
+func primeCPUPercent() {}
 
 func readThermalTemp(thermalPath, entryName string) (float64, string, error) {
 	tempPath := filepath.Join(thermalPath, entryName, "temp")

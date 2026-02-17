@@ -103,16 +103,22 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	if len(cursorData.Total) > 0 && len(cpuInfo.Total) > 0 && cursorData.Timestamp > 0 {
 		timeDiff := float64(currentTime-cursorData.Timestamp) / 1000.0
 		if timeDiff > 0 {
-			cpuInfo.Usage = cpuUsageFromTimes(cursorData.Total, cpuInfo.Total, timeDiff, cpuInfo.Count)
+			totalUsage, coreUsages := cpuUsageFromProvider(self.cpuProvider, cursorData.Total, cpuInfo.Total, timeDiff, cpuInfo.Count)
+			cpuInfo.Usage = totalUsage
 
-			if len(cursorData.Cores) > 0 && len(cpuInfo.Cores) > 0 {
+			switch {
+			case coreUsages != nil:
+				cpuInfo.CoreUsage = coreUsages
+			case len(cursorData.Cores) > 0 && len(cpuInfo.Cores) > 0:
 				cpuInfo.CoreUsage = make([]float64, len(cpuInfo.Cores))
 				for i := 0; i < len(cpuInfo.Cores) && i < len(cursorData.Cores); i++ {
-					cpuInfo.CoreUsage[i] = cpuUsageFromTimes(cursorData.Cores[i], cpuInfo.Cores[i], timeDiff, 1)
+					cpuInfo.CoreUsage[i] = calculateCPUPercentage(cursorData.Cores[i], cpuInfo.Cores[i])
 				}
 			}
 		}
 	} else {
+		primeCPUPercent()
+
 		cpuPercent, err := self.cpuProvider.Percent(100*time.Millisecond, false)
 		if err == nil && len(cpuPercent) > 0 {
 			cpuInfo.Usage = cpuPercent[0]

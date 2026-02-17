@@ -3,6 +3,7 @@ package gops
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"runtime"
 	"sort"
@@ -66,70 +67,87 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		go func() {
 			for idx := range jobs {
 				p := procs[idx]
-				name, _ := p.Name()
-				cmdline, _ := p.Cmdline()
-				ppid, _ := p.Ppid()
-				memInfo, _ := p.MemoryInfo()
-				times, _ := p.Times()
-				username, _ := p.Username()
-				exePath, _ := p.Exe()
 
-				currentCPUTime := float64(0)
-				if times != nil {
-					currentCPUTime = times.User + times.System
-				}
+				// gopsutil can panic on macOS when reading process info
+				// for system processes or processes that exit mid-read.
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							results <- procResult{
+								index: idx,
+								info: &models.ProcessInfo{
+									PID:     p.Pid,
+									Command: fmt.Sprintf("[pid %d]", p.Pid),
+								},
+							}
+						}
+					}()
 
-				cpuPercent := 0.0
-				if enableCPU {
-					rawCpuPercent, _ := p.CPUPercent()
-					cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
-				}
+					name, _ := p.Name()
+					cmdline, _ := p.Cmdline()
+					ppid, _ := p.Ppid()
+					memInfo, _ := p.MemoryInfo()
+					times, _ := p.Times()
+					username, _ := p.Username()
+					exePath, _ := p.Exe()
 
-				rssKB := uint64(0)
-				rssPercent := float32(0)
-				pssKB := uint64(0)
-				pssPercent := float32(0)
-				memKB := uint64(0)
-				memPercent := float32(0)
-				memCalc := "rss"
+					currentCPUTime := float64(0)
+					if times != nil {
+						currentCPUTime = times.User + times.System
+					}
 
-				if memInfo != nil {
-					rssKB = memInfo.RSS / 1024
-					rssPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
+					cpuPercent := 0.0
+					if enableCPU {
+						rawCpuPercent, _ := p.CPUPercent()
+						cpuPercent = rawCpuPercent / float64(runtime.NumCPU())
+					}
 
-					memKB = rssKB
-					memPercent = rssPercent
+					rssKB := uint64(0)
+					rssPercent := float32(0)
+					pssKB := uint64(0)
+					pssPercent := float32(0)
+					memKB := uint64(0)
+					memPercent := float32(0)
+					memCalc := "rss"
 
-					if rssKB > 102400 {
-						pssDirty, err := getPssDirty(p.Pid)
-						if err == nil && pssDirty > 0 {
-							memKB = pssDirty
-							memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
-							memCalc = "pss_dirty"
+					if memInfo != nil {
+						rssKB = memInfo.RSS / 1024
+						rssPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
+
+						memKB = rssKB
+						memPercent = rssPercent
+
+						if rssKB > 102400 {
+							pssDirty, err := getPssDirty(p.Pid)
+							if err == nil && pssDirty > 0 {
+								memKB = pssDirty
+								memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
+								memCalc = "pss_dirty"
+							}
 						}
 					}
-				}
 
-				results <- procResult{
-					index: idx,
-					info: &models.ProcessInfo{
-						PID:               p.Pid,
-						PPID:              ppid,
-						CPU:               cpuPercent,
-						PTicks:            currentCPUTime,
-						MemoryPercent:     memPercent,
-						MemoryKB:          memKB,
-						MemoryCalculation: memCalc,
-						RSSKB:             rssKB,
-						RSSPercent:        rssPercent,
-						PSSKB:             pssKB,
-						PSSPercent:        pssPercent,
-						Username:          username,
-						Command:           name,
-						FullCommand:       cmdline,
-						ExecutablePath:    exePath,
-					},
-				}
+					results <- procResult{
+						index: idx,
+						info: &models.ProcessInfo{
+							PID:               p.Pid,
+							PPID:              ppid,
+							CPU:               cpuPercent,
+							PTicks:            currentCPUTime,
+							MemoryPercent:     memPercent,
+							MemoryKB:          memKB,
+							MemoryCalculation: memCalc,
+							RSSKB:             rssKB,
+							RSSPercent:        rssPercent,
+							PSSKB:             pssKB,
+							PSSPercent:        pssPercent,
+							Username:          username,
+							Command:           name,
+							FullCommand:       cmdline,
+							ExecutablePath:    exePath,
+						},
+					}
+				}()
 			}
 		}()
 	}
