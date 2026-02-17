@@ -556,6 +556,19 @@ func getAllDistroLogos() []struct {
 			"#7F3FBF",
 		},
 		{
+			"macOS",
+			[]string{
+				"       .:'",
+				"    __ :'__",
+				" .'`  `-'  ``.",
+				":          .-'",
+				":         :",
+				" :         `-;",
+				"  `.__.-.__.'",
+			},
+			"#FFFFFF",
+		},
+		{
 			"Generic Linux",
 			[]string{
 				"    ___",
@@ -700,6 +713,16 @@ func getDistroInfo(hardware *models.SystemHardware) ([]string, string) {
 			"//osssssssssssssso+-",
 			" `+++++++++++++++-`",
 		}, "#7F3FBF"
+	case strings.Contains(distro, "macos"), strings.Contains(distro, "mac os"):
+		return []string{
+			"       .:'",
+			"    __ :'__",
+			" .'`  `-'  ``.",
+			":          .-'",
+			":         :",
+			" :         `-;",
+			"  `.__.-.__.'",
+		}, "#FFFFFF"
 	default:
 		return []string{
 			"    ___",
