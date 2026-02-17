@@ -3,41 +3,14 @@ package gops
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"os"
 	"reflect"
 	"runtime"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
-
-func getPssDirty(pid int32) (uint64, error) {
-	smapsRollupPath := fmt.Sprintf("/proc/%d/smaps_rollup", pid)
-	contents, err := os.ReadFile(smapsRollupPath)
-	if err != nil {
-		return 0, err
-	}
-
-	lines := strings.Split(string(contents), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Pss_Dirty:") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				val, err := strconv.ParseUint(fields[1], 10, 64)
-				if err != nil {
-					return 0, err
-				}
-				return val, nil
-			}
-		}
-	}
-	return 0, fmt.Errorf("Pss_Dirty not found")
-}
 
 func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool, mergeChildren bool) (*models.ProcessListResponse, error) {
 	return self.GetProcessesWithCursor(sortBy, limit, enableCPU, "", mergeChildren)

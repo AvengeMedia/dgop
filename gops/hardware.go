@@ -3,11 +3,7 @@ package gops
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/AvengeMedia/dgop/models"
@@ -17,7 +13,6 @@ import (
 func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 	info := &models.SystemHardware{}
 
-	// Get CPU info from existing CPU API
 	cpuInfo, err := self.GetCPUInfo()
 	if err == nil {
 		info.CPU = models.CPUBasic{
@@ -31,11 +26,9 @@ func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 		}
 	}
 
-	// Get BIOS info
 	biosInfo := getBIOSInfo()
 	info.BIOS = biosInfo
 
-	// Get system info using gopsutil
 	hostInfo, err := host.Info()
 	if err != nil {
 		return nil, err
@@ -44,7 +37,6 @@ func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 	info.Kernel = hostInfo.KernelVersion
 	info.Hostname = hostInfo.Hostname
 	info.Arch = hostInfo.KernelArch
-	// Use manual distro detection for better results
 	info.Distro = getDistroName()
 
 	return info, nil
@@ -65,12 +57,10 @@ func (self *GopsUtil) GetGPUInfoWithTemp(pciIds []string) (*models.GPUInfo, erro
 		return nil, err
 	}
 
-	// If PCI IDs are specified, get temperatures for those GPUs
 	if len(pciIds) > 0 {
 		for i, gpu := range gpus {
 			for _, pciId := range pciIds {
 				if gpu.PciId == pciId {
-					// Get temperature for this specific GPU
 					if tempInfo, err := self.GetGPUTemp(pciId); err == nil {
 						gpus[i].Temperature = tempInfo.Temperature
 						gpus[i].Hwmon = tempInfo.Hwmon
@@ -89,7 +79,6 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 		return nil, fmt.Errorf("pciId is required")
 	}
 
-	// Find the GPU by PCI ID
 	gpuEntries, err := detectGPUEntries()
 	if err != nil {
 		return nil, err
@@ -108,13 +97,13 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 		return nil, fmt.Errorf("GPU with PCI ID %s not found", pciId)
 	}
 
-	// Auto-detect temperature method based on driver
 	var temperature float64
 	var hwmon string
 
-	if targetGPU.Driver == "nvidia" {
+	switch targetGPU.Driver {
+	case "nvidia":
 		temperature, hwmon = getNvidiaTemperature()
-	} else {
+	default:
 		temperature, hwmon = getHwmonTemperature(pciId)
 	}
 
@@ -125,135 +114,11 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 	}, nil
 }
 
-func getBIOSInfo() models.BIOSInfo {
-	dmip := "/sys/class/dmi/id"
-	if _, err := os.Stat(dmip); os.IsNotExist(err) {
-		dmip = "/sys/devices/virtual/dmi/id"
-	}
-
-	biosInfo := models.BIOSInfo{}
-
-	// Read motherboard vendor
-	if vendor, err := readFile(filepath.Join(dmip, "board_vendor")); err == nil {
-		biosInfo.Vendor = strings.TrimSpace(vendor)
-	} else {
-		biosInfo.Vendor = "Unknown"
-	}
-
-	// Read motherboard name
-	var boardName string
-	if name, err := readFile(filepath.Join(dmip, "board_name")); err == nil {
-		boardName = strings.TrimSpace(name)
-	}
-
-	// Combine vendor and board name
-	if biosInfo.Vendor != "Unknown" && boardName != "" {
-		biosInfo.Motherboard = biosInfo.Vendor + " " + boardName
-	} else if boardName != "" {
-		biosInfo.Motherboard = boardName
-	} else {
-		biosInfo.Motherboard = "Unknown"
-	}
-
-	// Read BIOS version
-	if version, err := readFile(filepath.Join(dmip, "bios_version")); err == nil {
-		biosInfo.Version = strings.TrimSpace(version)
-	} else {
-		biosInfo.Version = "Unknown"
-	}
-
-	// Read BIOS date
-	if date, err := readFile(filepath.Join(dmip, "bios_date")); err == nil {
-		biosInfo.Date = strings.TrimSpace(date)
-	}
-
-	return biosInfo
-}
-
-func getDistroName() string {
-	content, err := readFile("/etc/os-release")
-	if err != nil {
-		return "Unknown"
-	}
-
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "PRETTY_NAME=") {
-			// Remove PRETTY_NAME= and quotes
-			distro := strings.TrimPrefix(line, "PRETTY_NAME=")
-			distro = strings.Trim(distro, "\"")
-			return distro
-		}
-	}
-
-	return "Unknown"
-}
-
 type gpuEntry struct {
 	Priority int
 	Driver   string
 	Vendor   string
 	RawLine  string
-}
-
-func detectGPUEntries() ([]gpuEntry, error) {
-	return detectGPUEntriesFromSys()
-}
-
-func detectGPUEntriesFromSys() ([]gpuEntry, error) {
-	devices, err := filepath.Glob("/sys/bus/pci/devices/*")
-	if err != nil {
-		return nil, err
-	}
-
-	var gpuEntries []gpuEntry
-	for _, devicePath := range devices {
-		classBytes, err := os.ReadFile(filepath.Join(devicePath, "class"))
-		if err != nil {
-			continue
-		}
-
-		class := strings.TrimSpace(string(classBytes))
-		if !strings.HasPrefix(class, "0x03") {
-			continue
-		}
-
-		vendorBytes, err := os.ReadFile(filepath.Join(devicePath, "vendor"))
-		if err != nil {
-			continue
-		}
-
-		deviceBytes, err := os.ReadFile(filepath.Join(devicePath, "device"))
-		if err != nil {
-			continue
-		}
-
-		vendorId := strings.TrimSpace(strings.TrimPrefix(string(vendorBytes), "0x"))
-		deviceId := strings.TrimSpace(strings.TrimPrefix(string(deviceBytes), "0x"))
-		bdf := filepath.Base(devicePath)
-		driver := getGPUDriver(bdf)
-		displayName := lookupPCIDevice(vendorId, deviceId)
-		vendor := inferVendorFromId(vendorId, driver)
-		priority := getPriority(driver, bdf)
-		pciId := fmt.Sprintf("%s:%s", vendorId, deviceId)
-		rawLine := fmt.Sprintf("%s Display controller: %s [%s]", bdf, displayName, pciId)
-
-		gpuEntries = append(gpuEntries, gpuEntry{
-			Priority: priority,
-			Driver:   driver,
-			Vendor:   vendor,
-			RawLine:  rawLine,
-		})
-	}
-
-	sort.Slice(gpuEntries, func(i, j int) bool {
-		if gpuEntries[i].Priority != gpuEntries[j].Priority {
-			return gpuEntries[i].Priority > gpuEntries[j].Priority
-		}
-		return gpuEntries[i].Driver < gpuEntries[j].Driver
-	})
-
-	return gpuEntries, nil
 }
 
 func inferVendorFromId(vendorId, driver string) string {
@@ -267,54 +132,6 @@ func inferVendorFromId(vendorId, driver string) string {
 	default:
 		return inferVendor(driver, "")
 	}
-}
-
-func lookupPCIDevice(vendorId, deviceId string) string {
-	pciIdsPaths := []string{
-		"/usr/share/hwdata/pci.ids",
-		"/usr/share/misc/pci.ids",
-		"/var/lib/pciutils/pci.ids",
-	}
-
-	var pciIdsPath string
-	for _, path := range pciIdsPaths {
-		if _, err := os.Stat(path); err == nil {
-			pciIdsPath = path
-			break
-		}
-	}
-
-	if pciIdsPath == "" {
-		return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
-	}
-
-	content, err := os.ReadFile(pciIdsPath)
-	if err != nil {
-		return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
-	}
-
-	inVendor := false
-	for _, line := range strings.Split(string(content), "\n") {
-		if strings.HasPrefix(line, "#") || len(strings.TrimSpace(line)) == 0 {
-			continue
-		}
-
-		if !strings.HasPrefix(line, "\t") {
-			inVendor = strings.HasPrefix(line, vendorId)
-			continue
-		}
-
-		if !inVendor || strings.HasPrefix(line, "\t\t") {
-			continue
-		}
-
-		fields := strings.SplitN(strings.TrimPrefix(line, "\t"), " ", 2)
-		if len(fields) >= 2 && fields[0] == deviceId {
-			return strings.TrimSpace(fields[1])
-		}
-	}
-
-	return fmt.Sprintf("GPU %s:%s", vendorId, deviceId)
 }
 
 func detectGPUs() ([]models.GPU, error) {
@@ -335,24 +152,15 @@ func detectGPUs() ([]models.GPU, error) {
 			FullName:    fullName,
 			PciId:       pciId,
 			RawLine:     entry.RawLine,
-			Temperature: 0,         // TODO: Add GPU temperature detection
-			Hwmon:       "unknown", // TODO: Add hwmon path detection
+			Temperature: 0,
+			Hwmon:       "unknown",
 		})
 	}
 
 	return gpus, nil
 }
 
-func getGPUDriver(bdf string) string {
-	driverPath := filepath.Join("/sys/bus/pci/devices", bdf, "driver")
-	if link, err := os.Readlink(driverPath); err == nil {
-		return filepath.Base(link)
-	}
-	return ""
-}
-
 func inferVendor(driver, line string) string {
-	// Check driver first
 	switch driver {
 	case "nvidia", "nouveau":
 		return "NVIDIA"
@@ -362,16 +170,16 @@ func inferVendor(driver, line string) string {
 		return "Intel"
 	}
 
-	// Check line content
 	lineLower := strings.ToLower(line)
-	if strings.Contains(lineLower, "nvidia") {
+	switch {
+	case strings.Contains(lineLower, "nvidia"):
 		return "NVIDIA"
-	}
-	if strings.Contains(lineLower, "amd") || strings.Contains(lineLower, "ati") {
+	case strings.Contains(lineLower, "amd"), strings.Contains(lineLower, "ati"):
 		return "AMD"
-	}
-	if strings.Contains(lineLower, "intel") {
+	case strings.Contains(lineLower, "intel"):
 		return "Intel"
+	case strings.Contains(lineLower, "apple"):
+		return "Apple"
 	}
 
 	return "Unknown"
@@ -382,7 +190,6 @@ func getPriority(driver, bdf string) int {
 	case "nvidia":
 		return 3
 	case "amdgpu", "radeon":
-		// Check if it's the primary GPU (device 00)
 		parts := strings.Split(bdf, ":")
 		if len(parts) >= 3 {
 			deviceFunc := parts[2]
@@ -403,23 +210,18 @@ func parseGPUInfo(rawLine string) (displayName, pciId string) {
 		return "Unknown", ""
 	}
 
-	// Extract PCI ID [vvvv:dddd]
 	pciRegex := regexp.MustCompile(`\[([0-9a-f]{4}:[0-9a-f]{4})\]`)
 	if match := pciRegex.FindStringSubmatch(rawLine); len(match) > 1 {
 		pciId = match[1]
 	}
 
-	// Remove BDF and class prefix
 	s := regexp.MustCompile(`^[^:]+: `).ReplaceAllString(rawLine, "")
-	// Remove PCI ID [vvvv:dddd] and everything after
 	s = regexp.MustCompile(`\[[0-9a-f]{4}:[0-9a-f]{4}\].*$`).ReplaceAllString(s, "")
 
-	// Try to extract text after last ']'
 	afterBracketRegex := regexp.MustCompile(`\]\s*([^\[]+)$`)
 	if match := afterBracketRegex.FindStringSubmatch(s); len(match) > 1 && strings.TrimSpace(match[1]) != "" {
 		displayName = strings.TrimSpace(match[1])
 	} else {
-		// Try to get last bracketed text
 		lastBracketRegex := regexp.MustCompile(`\[([^\]]+)\]([^\[]*$)`)
 		if match := lastBracketRegex.FindStringSubmatch(s); len(match) > 1 {
 			displayName = match[1]
@@ -428,7 +230,6 @@ func parseGPUInfo(rawLine string) (displayName, pciId string) {
 		}
 	}
 
-	// Remove vendor prefixes
 	displayName = removeVendorPrefixes(displayName)
 
 	if displayName == "" {
@@ -448,6 +249,7 @@ func removeVendorPrefixes(name string) string {
 		"ATI ",
 		"Intel Corporation ",
 		"Intel ",
+		"Apple ",
 	}
 
 	result := name
@@ -473,169 +275,11 @@ func buildFullName(vendor, displayName string) string {
 		return "AMD " + displayName
 	case "Intel":
 		return "Intel " + displayName
+	case "Apple":
+		return "Apple " + displayName
 	default:
 		return displayName
 	}
-}
-
-func getNvidiaTemperature() (float64, string) {
-	// Use nvidia-smi to get GPU temperature
-	cmd := exec.Command("nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	tempStr := strings.TrimSpace(string(output))
-	lines := strings.Split(tempStr, "\n")
-	if len(lines) > 0 && lines[0] != "" {
-		if temp, err := strconv.ParseFloat(lines[0], 64); err == nil {
-			return temp, "nvidia"
-		}
-	}
-
-	return 0, "unknown"
-}
-
-func getHwmonTemperature(pciId string) (float64, string) {
-	// Convert PCI ID format to search for DRM cards
-	// Look for /sys/class/drm/card* that match our PCI device
-	drmCards, err := filepath.Glob("/sys/class/drm/card*")
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	for _, card := range drmCards {
-		// Check if this card's device driver matches our target
-		devicePath := filepath.Join(card, "device")
-
-		// Check if this device matches our PCI ID
-		vendorFile := filepath.Join(devicePath, "vendor")
-		deviceFile := filepath.Join(devicePath, "device")
-
-		vendorBytes, err1 := os.ReadFile(vendorFile)
-		deviceBytes, err2 := os.ReadFile(deviceFile)
-
-		if err1 != nil || err2 != nil {
-			continue
-		}
-
-		vendorId := strings.TrimSpace(string(vendorBytes))
-		deviceId := strings.TrimSpace(string(deviceBytes))
-
-		// Remove 0x prefix if present
-		vendorId = strings.TrimPrefix(vendorId, "0x")
-		deviceId = strings.TrimPrefix(deviceId, "0x")
-
-		// Construct the PCI ID in the format vvvv:dddd
-		cardPciId := fmt.Sprintf("%s:%s", vendorId, deviceId)
-
-		// Only proceed if this card matches our target PCI ID
-		if cardPciId != pciId {
-			continue
-		}
-
-		driverPath := filepath.Join(devicePath, "driver")
-		if _, err := os.Stat(driverPath); os.IsNotExist(err) {
-			continue
-		}
-
-		// Look for hwmon directory under this device
-		hwmonGlob := filepath.Join(devicePath, "hwmon", "hwmon*")
-		hwmonDirs, err := filepath.Glob(hwmonGlob)
-		if err != nil {
-			continue
-		}
-
-		for _, hwmonDir := range hwmonDirs {
-			tempFile := filepath.Join(hwmonDir, "temp1_input")
-			if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-				continue
-			}
-
-			tempBytes, err := os.ReadFile(tempFile)
-			if err != nil {
-				continue
-			}
-
-			tempStr := strings.TrimSpace(string(tempBytes))
-			if tempInt, err := strconv.Atoi(tempStr); err == nil {
-				hwmonName := filepath.Base(hwmonDir)
-				return float64(tempInt) / 1000.0, hwmonName
-			}
-		}
-	}
-
-	thermalPath := "/sys/class/thermal"
-	thermalEntries, err := os.ReadDir(thermalPath)
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	maxTemp := getMaxACPITZTemperatureForGPU(thermalPath, thermalEntries, 20, 90)
-	if maxTemp > 0 {
-		return maxTemp, "acpitz"
-	}
-
-	return 0, "unknown"
-}
-
-func getMaxACPITZTemperatureForGPU(thermalPath string, thermalEntries []os.DirEntry, minTemp, maxTemp float64) float64 {
-	var highestTemp float64
-
-	for _, entry := range thermalEntries {
-		if !strings.HasPrefix(entry.Name(), "thermal_zone") {
-			continue
-		}
-
-		thermalType, err := readThermalTypeForGPU(thermalPath, entry.Name())
-		if err != nil {
-			continue
-		}
-
-		if thermalType != "acpitz" {
-			continue
-		}
-
-		temp, err := readThermalTempForGPU(thermalPath, entry.Name())
-		if err != nil {
-			continue
-		}
-
-		if temp < minTemp || temp > maxTemp {
-			continue
-		}
-
-		if temp > highestTemp {
-			highestTemp = temp
-		}
-	}
-
-	return highestTemp
-}
-
-func readThermalTypeForGPU(thermalPath, entryName string) (string, error) {
-	typePath := filepath.Join(thermalPath, entryName, "type")
-	typeBytes, err := os.ReadFile(typePath)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(typeBytes)), nil
-}
-
-func readThermalTempForGPU(thermalPath, entryName string) (float64, error) {
-	tempPath := filepath.Join(thermalPath, entryName, "temp")
-	tempBytes, err := os.ReadFile(tempPath)
-	if err != nil {
-		return 0, err
-	}
-
-	temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
-	if err != nil {
-		return 0, err
-	}
-
-	return float64(temp) / 1000.0, nil
 }
 
 func readFile(path string) (string, error) {

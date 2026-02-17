@@ -1,10 +1,6 @@
 package gops
 
-import (
-	"strings"
-
-	"github.com/AvengeMedia/dgop/models"
-)
+import "github.com/AvengeMedia/dgop/models"
 
 func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 	netIO, err := self.netProvider.IOCounters(true)
@@ -22,14 +18,4 @@ func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 		}
 	}
 	return res, nil
-}
-
-func matchesNetworkInterface(name string) bool {
-	prefixes := []string{"wlan", "wlo", "wlp", "eth", "eno", "enp", "ens", "lxc"}
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-	return false
 }

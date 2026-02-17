@@ -1,3 +1,5 @@
+//go:build linux
+
 package gops
 
 import (
@@ -23,11 +25,8 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	shared := v.Shared / 1024
 	available := v.Available / 1024
 
-	// gopsutil Cached includes SReclaimable, get raw value
 	rawCached := cached - sreclaimable
 
-	// ZFS ARC is reclaimable cache not reflected in /proc/meminfo.
-	// Read it from /proc/spl/kstat/zfs/arcstats (same approach as btop).
 	arcSize, arcMin := readZfsArcStats()
 	arcSizeKB := arcSize / 1024
 	arcMinKB := arcMin / 1024
@@ -41,7 +40,6 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	rawCached += arcSizeKB
 	available += freeableArc
 
-	// Used = Total - Free - Cached - SReclaimable - Buffers + Shared
 	usedDiff := free + rawCached + sreclaimable + buffers
 	var used uint64
 	switch {
@@ -72,8 +70,6 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	}, nil
 }
 
-// readZfsArcStats reads ARC size and c_min from /proc/spl/kstat/zfs/arcstats.
-// Returns (0, 0) if ZFS is not present.
 func readZfsArcStats() (size uint64, cMin uint64) {
 	f, err := os.Open("/proc/spl/kstat/zfs/arcstats")
 	if err != nil {
