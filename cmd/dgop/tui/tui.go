@@ -670,17 +670,17 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 		if selectedIdx < len(m.metrics.Processes) {
 			proc := m.metrics.Processes[selectedIdx]
 
-			content.WriteString(fmt.Sprintf("PID: %d\n", proc.PID))
-			content.WriteString(fmt.Sprintf("PPID: %d\n", proc.PPID))
-			content.WriteString(fmt.Sprintf("USER: %s\n", proc.Username))
-			content.WriteString(fmt.Sprintf("CPU: %.1f%%\n", proc.CPU))
+			fmt.Fprintf(&content, "PID: %d\n", proc.PID)
+			fmt.Fprintf(&content, "PPID: %d\n", proc.PPID)
+			fmt.Fprintf(&content, "USER: %s\n", proc.Username)
+			fmt.Fprintf(&content, "CPU: %.1f%%\n", proc.CPU)
 			memGB := float64(proc.MemoryKB) / 1024 / 1024
 			if memGB >= 1.0 {
-				content.WriteString(fmt.Sprintf("Memory: %.1f%% (%.1f GB)\n", proc.MemoryPercent, memGB))
+				fmt.Fprintf(&content, "Memory: %.1f%% (%.1f GB)\n", proc.MemoryPercent, memGB)
 			} else {
-				content.WriteString(fmt.Sprintf("Memory: %.1f%% (%.0f MB)\n", proc.MemoryPercent, memGB*1024))
+				fmt.Fprintf(&content, "Memory: %.1f%% (%.0f MB)\n", proc.MemoryPercent, memGB*1024)
 			}
-			content.WriteString(fmt.Sprintf("Command: %s\n", proc.Command))
+			fmt.Fprintf(&content, "Command: %s\n", proc.Command)
 
 			// Show full command with word wrapping
 			maxWidth := width - 6
@@ -707,7 +707,7 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 					content.WriteString(currentLine)
 				}
 			} else {
-				content.WriteString(fmt.Sprintf("Full Command: %s", proc.FullCommand))
+				fmt.Fprintf(&content, "Full Command: %s", proc.FullCommand)
 			}
 		} else {
 			content.WriteString("No process selected")
@@ -753,7 +753,7 @@ func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
 	rxRateStr := m.formatBytes(uint64(latest.rxRate))
 	txRateStr := m.formatBytes(uint64(latest.txRate))
 
-	content.WriteString(fmt.Sprintf("↓%s/s ↑%s/s\n", rxRateStr, txRateStr))
+	fmt.Fprintf(&content, "↓%s/s ↑%s/s\n", rxRateStr, txRateStr)
 
 	// Build totals line first to know exact space needed
 	totalRx := m.formatBytes(latest.rxBytes)

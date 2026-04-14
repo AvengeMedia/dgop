@@ -52,7 +52,7 @@ func (m *ResponsiveTUIModel) renderCPUPanel(width, height int) string {
 	// Format as fixed-width strings for consistent alignment
 	usageText := fmt.Sprintf("%3.0f%%", cpu.Usage) // Always 3 chars for percentage (e.g. " 5%" or "100%")
 	tempText := fmt.Sprintf("%.0f°C", cpu.Temperature)
-	content.WriteString(fmt.Sprintf("%s %s %s\n", cpuBar, usageText, tempText))
+	fmt.Fprintf(&content, "%s %s %s\n", cpuBar, usageText, tempText)
 
 	// Cores display - handle hide/summarize options
 	if len(cpu.CoreUsage) > 0 && !m.hideCPUCores {

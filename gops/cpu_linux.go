@@ -30,23 +30,20 @@ func getCPUTemperatureCached() float64 {
 		return getACPITZFallback()
 	}
 
-	cpuHwmonNames := []string{"coretemp", "k10temp", "k8temp", "cpu_thermal", "zenpower"}
 	for _, entry := range entries {
-		namePath := filepath.Join(hwmonPath, entry.Name(), "name")
-		nameBytes, err := os.ReadFile(namePath)
+		// CPU temp sensors are never on i2c; skip to avoid blocking on a held bus (e.g. OpenRGB).
+		if target, err := os.Readlink(filepath.Join(hwmonPath, entry.Name())); err == nil && strings.Contains(target, "/i2c-") {
+			continue
+		}
+
+		nameBytes, err := os.ReadFile(filepath.Join(hwmonPath, entry.Name(), "name"))
 		if err != nil {
 			continue
 		}
 
-		name := strings.TrimSpace(string(nameBytes))
-		found := false
-		for _, cpuName := range cpuHwmonNames {
-			if name == cpuName {
-				found = true
-				break
-			}
-		}
-		if !found {
+		switch strings.TrimSpace(string(nameBytes)) {
+		case "coretemp", "k10temp", "k8temp", "cpu_thermal", "zenpower":
+		default:
 			continue
 		}
 
