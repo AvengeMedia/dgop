@@ -97,7 +97,7 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use: "dankgop",
+	Use: "dgop",
 	Run: func(cmd *cobra.Command, args []string) {
 		gopsUtil := gops.NewGopsUtil()
 		if err := runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores); err != nil {

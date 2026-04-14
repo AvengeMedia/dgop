@@ -8,7 +8,7 @@ import (
 var helpCmd = &cobra.Command{
 	Use:   "help",
 	Short: "Show available commands",
-	Long:  "Display all available dankgop commands and options.",
+	Long:  "Display all available dgop commands and options.",
 	Run: func(cmd *cobra.Command, args []string) {
 		printHeader()
 		rootCmd.Usage()
