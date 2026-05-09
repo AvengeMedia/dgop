@@ -47,7 +47,7 @@ func getCPUTemperatureCached() float64 {
 			continue
 		}
 
-		tempPath := filepath.Join(hwmonPath, entry.Name(), "temp1_input")
+		tempPath := filepath.Join(hwmonPath, entry.Name(), "temp3_input")
 		tempBytes, err := os.ReadFile(tempPath)
 		if err != nil {
 			continue
