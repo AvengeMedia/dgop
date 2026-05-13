@@ -288,12 +288,33 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+const (
+	minTerminalWidth  = 60
+	minTerminalHeight = 20
+)
+
 func (m *ResponsiveTUIModel) View() string {
 	if !m.ready {
 		return "Loading..."
 	}
 
+	if m.width < minTerminalWidth || m.height < minTerminalHeight {
+		return m.renderTooSmall()
+	}
+
 	return m.renderLayout()
+}
+
+func (m *ResponsiveTUIModel) renderTooSmall() string {
+	msg := fmt.Sprintf("Terminal too small: %dx%d (need %dx%d)", m.width, m.height, minTerminalWidth, minTerminalHeight)
+	if m.width <= 0 || m.height <= 0 {
+		return msg
+	}
+	if lipgloss.Width(msg) > m.width {
+		msg = msg[:m.width]
+	}
+	topPad := (m.height - 1) / 2
+	return strings.Repeat("\n", topPad) + msg
 }
 
 func (m *ResponsiveTUIModel) renderLayout() string {

@@ -22,8 +22,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/schema"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 var serverCmd = &cobra.Command{
@@ -180,11 +178,14 @@ func startAPI(cfg *config.Config) error {
 	log.Infof(" OpenAPI Spec: http://localhost%s/openapi.json", addr)
 	log.Infof(" Health Check: http://localhost%s/health", addr)
 
-	h2s := &http2.Server{}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 
 	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: h2c.NewHandler(r, h2s),
+		Addr:      addr,
+		Handler:   r,
+		Protocols: protocols,
 	}
 
 	// Start the server in a goroutine

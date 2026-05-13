@@ -3,7 +3,10 @@ package gops
 import (
 	"testing"
 
+	"github.com/AvengeMedia/dgop/gops/mocks"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFormatBytes(t *testing.T) {
@@ -55,4 +58,59 @@ func TestFormatBytesRounding(t *testing.T) {
 			assert.Equal(t, tt.contains, result)
 		})
 	}
+}
+
+func TestGetDiskMountsDedupesSharedDevice(t *testing.T) {
+	mockDisk := mocks.NewMockDiskInfoProvider(t)
+
+	mockDisk.EXPECT().Partitions(true).Return([]disk.PartitionStat{
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/", Fstype: "btrfs", Opts: []string{"rw", "subvol=/root"}},
+		{Device: "/dev/nvme0n1p3", Mountpoint: "/home", Fstype: "btrfs", Opts: []string{"rw", "subvol=/home"}},
+		{Device: "/dev/nvme0n1p1", Mountpoint: "/boot", Fstype: "vfat", Opts: []string{"rw"}},
+		{Device: "proc", Mountpoint: "/proc", Fstype: "proc", Opts: []string{"rw"}},
+	}, nil)
+
+	mockDisk.EXPECT().Usage("/").Return(&disk.UsageStat{
+		Total: 500 * 1024 * 1024 * 1024,
+		Used:  200 * 1024 * 1024 * 1024,
+		Free:  300 * 1024 * 1024 * 1024,
+	}, nil)
+	mockDisk.EXPECT().Usage("/boot").Return(&disk.UsageStat{
+		Total: 1 * 1024 * 1024 * 1024,
+		Used:  256 * 1024 * 1024,
+		Free:  768 * 1024 * 1024,
+	}, nil)
+
+	g := &GopsUtil{diskProvider: mockDisk}
+	mounts, err := g.GetDiskMounts()
+	require.NoError(t, err)
+
+	require.Len(t, mounts, 2)
+	assert.Equal(t, "/dev/nvme0n1p3", mounts[0].Device)
+	assert.Equal(t, "/", mounts[0].Mount)
+	assert.Equal(t, "/dev/nvme0n1p1", mounts[1].Device)
+	assert.Equal(t, "/boot", mounts[1].Mount)
+}
+
+func TestGetDiskMountsSkipsFailedUsage(t *testing.T) {
+	mockDisk := mocks.NewMockDiskInfoProvider(t)
+
+	mockDisk.EXPECT().Partitions(true).Return([]disk.PartitionStat{
+		{Device: "/dev/sda1", Mountpoint: "/mnt/broken", Fstype: "ext4"},
+		{Device: "/dev/sda2", Mountpoint: "/data", Fstype: "ext4"},
+	}, nil)
+
+	mockDisk.EXPECT().Usage("/mnt/broken").Return(nil, assert.AnError)
+	mockDisk.EXPECT().Usage("/data").Return(&disk.UsageStat{
+		Total: 100 * 1024 * 1024 * 1024,
+		Used:  50 * 1024 * 1024 * 1024,
+		Free:  50 * 1024 * 1024 * 1024,
+	}, nil)
+
+	g := &GopsUtil{diskProvider: mockDisk}
+	mounts, err := g.GetDiskMounts()
+	require.NoError(t, err)
+
+	require.Len(t, mounts, 1)
+	assert.Equal(t, "/dev/sda2", mounts[0].Device)
 }

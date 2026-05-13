@@ -31,8 +31,14 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 	}
 
 	var metrics []*models.DiskMountInfo
+	seen := make(map[string]struct{})
 	for _, p := range partitions {
-		if isVirtualFS(p.Fstype) || isVirtualMount(p.Mountpoint) {
+		switch {
+		case isVirtualFS(p.Fstype), isVirtualMount(p.Mountpoint):
+			continue
+		}
+
+		if _, dup := seen[p.Device]; dup {
 			continue
 		}
 
@@ -41,6 +47,7 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 			continue
 		}
 
+		seen[p.Device] = struct{}{}
 		metrics = append(metrics, &models.DiskMountInfo{
 			Device:  p.Device,
 			Mount:   p.Mountpoint,
