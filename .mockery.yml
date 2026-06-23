@@ -1,17 +1,18 @@
-with-expecter: true
-dir: "gops/mocks"
-mockname: "Mock{{.InterfaceName}}"
-outpkg: "mocks"
-filename: "mock_{{.InterfaceName | snakecase}}.go"
-
+dir: gops/mocks
+structname: Mock{{.InterfaceName}}
+pkgname: mocks
+filename: 'mock_{{.InterfaceName | snakecase}}.go'
+template: testify
+template-data:
+  unroll-variadic: true
 packages:
   github.com/AvengeMedia/dgop/gops:
     interfaces:
-      CPUInfoProvider:
-      MemoryInfoProvider:
-      DiskInfoProvider:
-      NetworkInfoProvider:
-      ProcessInfoProvider:
-      HostInfoProvider:
-      LoadInfoProvider:
-      FileSystem:
+      CPUInfoProvider: {}
+      DiskInfoProvider: {}
+      FileSystem: {}
+      HostInfoProvider: {}
+      LoadInfoProvider: {}
+      MemoryInfoProvider: {}
+      NetworkInfoProvider: {}
+      ProcessInfoProvider: {}
