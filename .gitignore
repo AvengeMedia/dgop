@@ -31,3 +31,6 @@ go.work.sum
 # .idea/
 # .vscode/
 vendor
+
+# Local git hooks (managed manually / superseded by prek)
+.githooks/

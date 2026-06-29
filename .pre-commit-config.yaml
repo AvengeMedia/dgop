@@ -1,0 +1,32 @@
+# Pre-commit hooks for dgop, run via prek (https://github.com/j178/prek)
+# or the classic `pre-commit` tool. They run on `git commit` after a one-time
+# `prek install`, and can be run on demand with `prek run --all-files`.
+repos:
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -s -l -w
+        language: system
+        types: [go]
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-test
+        name: go test
+        entry: go test ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-build
+        name: go build
+        entry: go build -o bin/dgop ./cmd/dgop
+        language: system
+        types: [go]
+        pass_filenames: false
