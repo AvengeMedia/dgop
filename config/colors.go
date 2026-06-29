@@ -150,11 +150,16 @@ func (cm *ColorManager) startWatching() error {
 }
 
 func getConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	configDir, ok := os.LookupEnv("XDG_CONFIG_HOME")
+	if !ok {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		configDir = filepath.Join(homeDir, ".config")
 	}
-	return filepath.Join(homeDir, ".config", "dgop"), nil
+
+	return filepath.Join(configDir, "dgop"), nil
 }
 
 func ensureConfigDir(dir string) error {
