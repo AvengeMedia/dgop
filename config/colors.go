@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/AvengeMedia/dgop/models"
+	"github.com/AvengeMedia/dgop/utils"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -20,12 +21,9 @@ type ColorManager struct {
 }
 
 func NewColorManager() (*ColorManager, error) {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config directory: %w", err)
-	}
+	configDir := utils.ConfigDir()
 
-	if err := ensureConfigDir(configDir); err != nil {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -147,16 +145,4 @@ func (cm *ColorManager) startWatching() error {
 	}()
 
 	return watcher.Add(cm.filePath)
-}
-
-func getConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(homeDir, ".config", "dgop"), nil
-}
-
-func ensureConfigDir(dir string) error {
-	return os.MkdirAll(dir, 0755)
 }
