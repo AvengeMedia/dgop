@@ -11,6 +11,8 @@ type MemoryInfo struct {
 	SReclaimable uint64  `json:"sreclaimable"`
 	Shared       uint64  `json:"shared"`
 	ZfsArcSize   uint64  `json:"zfsArcSize"`
+	GPUActive    uint64  `json:"gpuActive"`
+	GPUReclaim   uint64  `json:"gpuReclaim"`
 	SwapTotal    uint64  `json:"swaptotal"`
 	SwapFree     uint64  `json:"swapfree"`
 }

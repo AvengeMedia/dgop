@@ -40,7 +40,10 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 	rawCached += arcSizeKB
 	available += freeableArc
 
-	usedDiff := free + rawCached + sreclaimable + buffers
+	gpuActive, gpuReclaim := readGPUMemStats()
+	available += gpuReclaim
+
+	usedDiff := free + rawCached + sreclaimable + buffers + gpuReclaim
 	var used uint64
 	switch {
 	case total >= usedDiff:
@@ -65,9 +68,34 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		SReclaimable: sreclaimable,
 		Shared:       shared,
 		ZfsArcSize:   arcSizeKB,
+		GPUActive:    gpuActive,
+		GPUReclaim:   gpuReclaim,
 		SwapTotal:    v.SwapTotal / 1024,
 		SwapFree:     v.SwapFree / 1024,
 	}, nil
+}
+
+func readGPUMemStats() (active uint64, reclaim uint64) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "GPUActive:":
+			active, _ = strconv.ParseUint(fields[1], 10, 64)
+		case "GPUReclaim:":
+			reclaim, _ = strconv.ParseUint(fields[1], 10, 64)
+		}
+	}
+	return active, reclaim
 }
 
 func readZfsArcStats() (size uint64, cMin uint64) {
