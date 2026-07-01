@@ -22,6 +22,10 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 	if err != nil {
 		colorManager = nil
 	}
+	keybindManager, err := config.NewKeybindManager()
+	if err != nil {
+		keybindManager = nil
+	}
 	columns := []table.Column{
 		{Title: "PID", Width: 5},
 		{Title: "USER", Width: 4},
@@ -68,6 +72,7 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 	model := &ResponsiveTUIModel{
 		gops:           gopsUtil,
 		colorManager:   colorManager,
+		keybindManager: keybindManager,
 		processTable:   t,
 		sortBy:         gops.SortByCPU,
 		procLimit:      100,
@@ -78,6 +83,12 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 		hideCPUCores:   hideCPUCores,
 		summarizeCores: summarizeCores,
 		mergeChildren:  true,
+	}
+
+	if keybindManager != nil {
+		model.keybinds = keybindManager.Resolve()
+	} else {
+		model.keybinds = defaultResolvedKeybinds()
 	}
 
 	hardware, _ := gopsUtil.GetSystemHardware()

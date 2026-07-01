@@ -24,6 +24,10 @@ func (m *ResponsiveTUIModel) Init() tea.Cmd {
 		cmds = append(cmds, m.listenForColorChanges())
 	}
 
+	if m.keybindManager != nil {
+		cmds = append(cmds, m.listenForKeybindChanges())
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -31,6 +35,13 @@ func (m *ResponsiveTUIModel) listenForColorChanges() tea.Cmd {
 	return func() tea.Msg {
 		<-m.colorManager.ColorChanges()
 		return colorUpdateMsg{}
+	}
+}
+
+func (m *ResponsiveTUIModel) listenForKeybindChanges() tea.Cmd {
+	return func() tea.Msg {
+		<-m.keybindManager.Changes()
+		return keybindUpdateMsg{}
 	}
 }
 
@@ -45,23 +56,26 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 	case tea.KeyMsg:
+		key := msg.String()
+		act := m.action(key)
+
 		// Kill confirmation mode intercepts all keys
 		if m.killConfirmPID > 0 {
-			switch msg.String() {
-			case "ctrl+c":
+			switch {
+			case key == "ctrl+c":
 				return m, tea.Quit
-			case "esc", "escape", "q":
+			case act == models.ActionCancel, act == models.ActionQuit:
 				m.killConfirmPID = 0
 				m.killConfirmSelection = 0
-			case "left", "h":
+			case act == models.ActionSelectLeft:
 				if m.killConfirmSelection > 0 {
 					m.killConfirmSelection--
 				}
-			case "right", "l":
+			case act == models.ActionSelectRight:
 				if m.killConfirmSelection < 1 {
 					m.killConfirmSelection++
 				}
-			case "enter":
+			case act == models.ActionConfirm:
 				pid := m.killConfirmPID
 				force := m.killConfirmSelection == 1
 				m.killConfirmPID = 0
@@ -71,15 +85,15 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch act {
+		case models.ActionQuit:
 			return m, tea.Quit
-		case "r":
+		case models.ActionRefresh:
 			m.fetchGeneration++
 			return m, m.fetchData()
-		case "d":
+		case models.ActionDetails:
 			m.showDetails = !m.showDetails
-		case "x":
+		case models.ActionKill:
 			if m.metrics != nil && len(m.metrics.Processes) > 0 {
 				idx := m.processTable.Cursor()
 				if idx < len(m.metrics.Processes) {
@@ -88,7 +102,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
-		case "c":
+		case models.ActionSortCPU:
 			if m.sortBy == gops.SortByCPU {
 				return m, nil
 			}
@@ -97,7 +111,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortProcessesLocally()
 			m.updateProcessTable()
 			return m, m.fetchData()
-		case "m":
+		case models.ActionSortMemory:
 			if m.sortBy == gops.SortByMemory {
 				return m, nil
 			}
@@ -106,7 +120,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortProcessesLocally()
 			m.updateProcessTable()
 			return m, m.fetchData()
-		case "n":
+		case models.ActionSortName:
 			if m.sortBy == gops.SortByName {
 				return m, nil
 			}
@@ -115,7 +129,7 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortProcessesLocally()
 			m.updateProcessTable()
 			return m, m.fetchData()
-		case "p":
+		case models.ActionSortPID:
 			if m.sortBy == gops.SortByPID {
 				return m, nil
 			}
@@ -124,24 +138,20 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortProcessesLocally()
 			m.updateProcessTable()
 			return m, m.fetchData()
-		case "g":
+		case models.ActionGroup:
 			m.mergeChildren = !m.mergeChildren
 			m.fetchGeneration++
 			return m, m.fetchData()
-		case "up", "k":
+		case models.ActionNavUp:
 			oldCursor := m.processTable.Cursor()
-			m.processTable, cmd = m.processTable.Update(msg)
-			cmds = append(cmds, cmd)
-
+			m.processTable.MoveUp(1)
 			newCursor := m.processTable.Cursor()
 			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
 				m.selectedPID = m.metrics.Processes[newCursor].PID
 			}
-		case "down", "j":
+		case models.ActionNavDown:
 			oldCursor := m.processTable.Cursor()
-			m.processTable, cmd = m.processTable.Update(msg)
-			cmds = append(cmds, cmd)
-
+			m.processTable.MoveDown(1)
 			newCursor := m.processTable.Cursor()
 			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
 				m.selectedPID = m.metrics.Processes[newCursor].PID
@@ -283,6 +293,12 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshColorCache()
 		m.updateTableStyles()
 		cmds = append(cmds, m.listenForColorChanges())
+
+	case keybindUpdateMsg:
+		if m.keybindManager != nil {
+			m.keybinds = m.keybindManager.Resolve()
+		}
+		cmds = append(cmds, m.listenForKeybindChanges())
 	}
 
 	return m, tea.Batch(cmds...)
@@ -624,7 +640,11 @@ func (m *ResponsiveTUIModel) renderFooter() string {
 	if m.mergeChildren {
 		groupStatus = "*"
 	}
-	controls := fmt.Sprintf("Controls: [q]uit [r]efresh [d]etails [g]roup%s [x] kill | Sort: [c]pu [m]emory [n]ame [p]id | ↑↓ Navigate", groupStatus)
+	k := m.hint
+	controls := fmt.Sprintf("Controls: [%s]uit [%s]efresh [%s]etails [%s]group%s [%s] kill | Sort: [%s]cpu [%s]mem [%s]name [%s]pid | %s%s Navigate",
+		k(models.ActionQuit), k(models.ActionRefresh), k(models.ActionDetails), k(models.ActionGroup), groupStatus, k(models.ActionKill),
+		k(models.ActionSortCPU), k(models.ActionSortMemory), k(models.ActionSortName), k(models.ActionSortPID),
+		k(models.ActionNavUp), k(models.ActionNavDown))
 	return style.Render(controls)
 }
 
