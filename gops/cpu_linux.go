@@ -47,20 +47,52 @@ func getCPUTemperatureCached() float64 {
 			continue
 		}
 
-		tempPath := filepath.Join(hwmonPath, entry.Name(), "temp1_input")
-		tempBytes, err := os.ReadFile(tempPath)
-		if err != nil {
-			continue
-		}
-		temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
-		if err != nil {
+		temp, tempPath, ok := readCoretempInput(filepath.Join(hwmonPath, entry.Name()))
+		if !ok {
 			continue
 		}
 		cpuTracker.tempPath = tempPath
-		return float64(temp) / 1000.0
+		return temp
 	}
 
 	return getACPITZFallback()
+}
+
+// readCoretempInput reads a CPU temperature from a coretemp hwmon directory,
+// preferring the package sensor (temp1_input). Older CPUs (e.g. Nehalem i7 9xx)
+// lack it and expose only per-core inputs, so fall back to the hottest core.
+func readCoretempInput(dir string) (float64, string, bool) {
+	pkgPath := filepath.Join(dir, "temp1_input")
+	if temp, ok := readMilliCelsius(pkgPath); ok {
+		return temp, pkgPath, true
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(dir, "temp*_input"))
+	var bestTemp float64
+	var bestPath string
+	for _, path := range matches {
+		temp, ok := readMilliCelsius(path)
+		if !ok || (bestPath != "" && temp <= bestTemp) {
+			continue
+		}
+		bestTemp, bestPath = temp, path
+	}
+	if bestPath == "" {
+		return 0, "", false
+	}
+	return bestTemp, bestPath, true
+}
+
+func readMilliCelsius(path string) (float64, bool) {
+	tempBytes, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+	if err != nil {
+		return 0, false
+	}
+	return float64(temp) / 1000.0, true
 }
 
 func getACPITZFallback() float64 {
