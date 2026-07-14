@@ -1,7 +1,7 @@
 package gops
 
 import (
-	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/sensors"
 )

@@ -3,9 +3,9 @@ package tui
 import (
 	"time"
 
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/config"
 	"github.com/AvengeMedia/dgop/gops"
-	"github.com/AvengeMedia/dgop/internal/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"

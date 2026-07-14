@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/gops"
-	"github.com/AvengeMedia/dgop/internal/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )

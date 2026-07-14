@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"golang.org/x/sync/errgroup"
 )

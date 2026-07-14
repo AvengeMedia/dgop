@@ -3,8 +3,8 @@ package gops_handler
 import (
 	"context"
 
-	"github.com/AvengeMedia/dgop/api/server"
-	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dankgo/httpapi"
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -16,7 +16,7 @@ type DiskResponse struct {
 }
 
 // GET /disk
-func (self *HandlerGroup) Disk(ctx context.Context, _ *server.EmptyInput) (*DiskResponse, error) {
+func (self *HandlerGroup) Disk(ctx context.Context, _ *httpapi.EmptyInput) (*DiskResponse, error) {
 	diskInfo, err := self.srv.Gops.GetDiskInfo()
 	if err != nil {
 		log.Error("Error getting Disk info")
@@ -35,7 +35,7 @@ type DiskMountsResponse struct {
 	}
 }
 
-func (self *HandlerGroup) DiskMounts(ctx context.Context, _ *server.EmptyInput) (*DiskMountsResponse, error) {
+func (self *HandlerGroup) DiskMounts(ctx context.Context, _ *httpapi.EmptyInput) (*DiskMountsResponse, error) {
 	diskMountsInfo, err := self.srv.Gops.GetDiskMounts()
 	if err != nil {
 		log.Error("Error getting Disk Mounts info")

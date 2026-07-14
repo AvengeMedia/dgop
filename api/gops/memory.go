@@ -3,8 +3,8 @@ package gops_handler
 import (
 	"context"
 
-	"github.com/AvengeMedia/dgop/api/server"
-	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dankgo/httpapi"
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -16,7 +16,7 @@ type MemoryResponse struct {
 }
 
 // GET /memory
-func (self *HandlerGroup) Memory(ctx context.Context, _ *server.EmptyInput) (*MemoryResponse, error) {
+func (self *HandlerGroup) Memory(ctx context.Context, _ *httpapi.EmptyInput) (*MemoryResponse, error) {
 
 	memoryInfo, err := self.srv.Gops.GetMemoryInfo()
 	if err != nil {

@@ -3,8 +3,8 @@ package gops_handler
 import (
 	"context"
 
-	"github.com/AvengeMedia/dgop/api/server"
-	"github.com/AvengeMedia/dgop/internal/log"
+	"github.com/AvengeMedia/dankgo/httpapi"
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -16,7 +16,7 @@ type SystemResponse struct {
 }
 
 // GET /system
-func (self *HandlerGroup) System(ctx context.Context, _ *server.EmptyInput) (*SystemResponse, error) {
+func (self *HandlerGroup) System(ctx context.Context, _ *httpapi.EmptyInput) (*SystemResponse, error) {
 
 	systemInfo, err := self.srv.Gops.GetSystemInfo()
 	if err != nil {

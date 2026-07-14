@@ -3,8 +3,11 @@ package config
 import (
 	"log"
 
+	"github.com/AvengeMedia/dankgo/paths"
 	"github.com/caarlos0/env/v11"
 )
+
+var appPaths = paths.New("dgop")
 
 type Config struct {
 	ApiPort string `env:"API_PORT" envDefault:":63484"` // Default port for the API server

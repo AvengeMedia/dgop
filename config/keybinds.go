@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/AvengeMedia/dgop/utils"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -21,9 +20,8 @@ type KeybindManager struct {
 }
 
 func NewKeybindManager() (*KeybindManager, error) {
-	configDir := utils.ConfigDir()
-
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	configDir, err := appPaths.ConfigDir()
+	if err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 

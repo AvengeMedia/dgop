@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
 
@@ -107,6 +107,8 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
+	log.SetEnvPrefix("DGOP")
+
 	gopsUtil := gops.NewGopsUtil()
 
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
