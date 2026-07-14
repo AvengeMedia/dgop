@@ -8,6 +8,26 @@
   outputs =
     { self, nixpkgs }:
     let
+      goModVersion =
+        let
+          content = builtins.readFile ./go.mod;
+          lines = builtins.filter builtins.isString (builtins.split "\n" content);
+          goLines = builtins.filter (l: builtins.match "go [0-9]+\\..*" l != null) lines;
+          matched =
+            if goLines != [ ] then builtins.match "go ([0-9]+)\\.([0-9]+).*" (builtins.head goLines) else null;
+        in
+        if matched != null then
+          {
+            major = builtins.elemAt matched 0;
+            minor = builtins.elemAt matched 1;
+          }
+        else
+          {
+            major = "1";
+            minor = "25";
+          };
+      goForPkgs = pkgs: pkgs.${"go_${goModVersion.major}_${goModVersion.minor}"};
+
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -33,11 +53,11 @@
           inherit (pkgs) lib;
         in
         {
-          dgop = pkgs.buildGoModule (finalAttrs: {
+          dgop = (pkgs.buildGoModule.override { go = goForPkgs pkgs; }) (finalAttrs: {
             pname = "dgop";
             version = "0.1.11";
             src = ./.;
-            vendorHash = "sha256-M46W8rnexs0GR5hahAqCiAX+bsQEmdwTIccUox+oJas=";
+            vendorHash = "sha256-rCNO3bUOJmuNF+KG3ChDZY/OdgGaaJ5vq4wSGUX1df8=";
 
             ldflags = [
               "-s"
