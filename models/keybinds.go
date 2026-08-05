@@ -12,6 +12,7 @@ const (
 	ActionSortName    KeyAction = "sortName"
 	ActionSortPID     KeyAction = "sortPID"
 	ActionGroup       KeyAction = "group"
+	ActionSearch      KeyAction = "search"
 	ActionNavUp       KeyAction = "navUp"
 	ActionNavDown     KeyAction = "navDown"
 	ActionSelectLeft  KeyAction = "selectLeft"
@@ -33,6 +34,7 @@ func DefaultKeybinds() Keybinds {
 		ActionSortName:    {"n"},
 		ActionSortPID:     {"p"},
 		ActionGroup:       {"g"},
+		ActionSearch:      {"/"},
 		ActionNavUp:       {"up", "k"},
 		ActionNavDown:     {"down", "j"},
 		ActionSelectLeft:  {"left", "h"},

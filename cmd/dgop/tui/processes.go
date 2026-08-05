@@ -7,13 +7,63 @@ import (
 	"strings"
 
 	"github.com/AvengeMedia/dgop/gops"
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/charmbracelet/bubbles/table"
 )
 
-func (m *ResponsiveTUIModel) updateProcessTable() {
-	if m.metrics == nil || len(m.metrics.Processes) == 0 {
+func (m *ResponsiveTUIModel) activeSearchQuery() string {
+	if m.searchActive {
+		return m.searchInput
+	}
+	return m.searchQuery
+}
+
+func (m *ResponsiveTUIModel) visibleProcesses() []*models.ProcessInfo {
+	if m.metrics == nil {
+		return nil
+	}
+
+	query := strings.ToLower(m.activeSearchQuery())
+	if query == "" {
+		return m.metrics.Processes
+	}
+
+	filtered := make([]*models.ProcessInfo, 0, len(m.metrics.Processes))
+	for _, proc := range m.metrics.Processes {
+		if strings.Contains(strings.ToLower(proc.Command), query) ||
+			strings.Contains(strings.ToLower(proc.FullCommand), query) {
+			filtered = append(filtered, proc)
+		}
+	}
+	return filtered
+}
+
+func (m *ResponsiveTUIModel) moveProcessCursor(delta int) {
+	oldCursor := m.processTable.Cursor()
+	if delta < 0 {
+		m.processTable.MoveUp(-delta)
+	} else {
+		m.processTable.MoveDown(delta)
+	}
+
+	newCursor := m.processTable.Cursor()
+	if newCursor == oldCursor {
 		return
 	}
+
+	visible := m.visibleProcesses()
+	if newCursor >= len(visible) {
+		return
+	}
+	m.selectedPID = visible[newCursor].PID
+}
+
+func (m *ResponsiveTUIModel) updateProcessTable() {
+	if m.metrics == nil {
+		return
+	}
+
+	processes := m.visibleProcesses()
 
 	columns := m.processTable.Columns()
 	numCols := len(columns)
@@ -29,10 +79,10 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 		commandWidth = 30
 	}
 
-	rows := make([]table.Row, 0, len(m.metrics.Processes))
+	rows := make([]table.Row, 0, len(processes))
 	selectedIndex := -1
 
-	for i, proc := range m.metrics.Processes {
+	for i, proc := range processes {
 		if m.selectedPID > 0 && proc.PID == m.selectedPID {
 			selectedIndex = i
 		}
@@ -70,10 +120,18 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 
 	m.processTable.SetRows(rows)
 
-	if selectedIndex >= 0 {
-		m.processTable.SetCursor(selectedIndex)
-	} else if m.selectedPID == -1 {
+	if len(rows) == 0 {
 		m.processTable.SetCursor(0)
+		return
+	}
+
+	switch {
+	case selectedIndex >= 0:
+		m.processTable.SetCursor(selectedIndex)
+	case m.selectedPID == -1:
+		m.processTable.SetCursor(0)
+	case m.processTable.Cursor() >= len(rows):
+		m.processTable.SetCursor(len(rows) - 1)
 	}
 }
 

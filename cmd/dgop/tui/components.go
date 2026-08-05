@@ -75,7 +75,7 @@ func NewResponsiveTUIModelWithOptions(gopsUtil *gops.GopsUtil, hideCPUCores, sum
 		keybindManager: keybindManager,
 		processTable:   t,
 		sortBy:         gops.SortByCPU,
-		procLimit:      100,
+		procLimit:      0,
 		maxNetHistory:  60,
 		maxDiskHistory: 60,
 		selectedPID:    -1,

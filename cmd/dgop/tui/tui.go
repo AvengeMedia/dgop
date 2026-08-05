@@ -85,6 +85,36 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Search input mode captures keys as literal text
+		if m.searchActive {
+			switch {
+			case key == "ctrl+c":
+				return m, tea.Quit
+			case key == "esc" || key == "escape":
+				m.searchActive = false
+				m.searchInput = ""
+			case key == "enter":
+				m.searchActive = false
+				m.searchQuery = m.searchInput
+				m.searchInput = ""
+			case key == "up":
+				m.moveProcessCursor(-1)
+			case key == "down":
+				m.moveProcessCursor(1)
+			case key == "backspace":
+				if m.searchInput == "" {
+					m.searchActive = false
+					break
+				}
+				runes := []rune(m.searchInput)
+				m.searchInput = string(runes[:len(runes)-1])
+			case msg.Type == tea.KeyRunes, msg.Type == tea.KeySpace:
+				m.searchInput += string(msg.Runes)
+			}
+			m.updateProcessTable()
+			return m, nil
+		}
+
 		switch act {
 		case models.ActionQuit:
 			return m, tea.Quit
@@ -93,14 +123,26 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchData()
 		case models.ActionDetails:
 			m.showDetails = !m.showDetails
-		case models.ActionKill:
-			if m.metrics != nil && len(m.metrics.Processes) > 0 {
-				idx := m.processTable.Cursor()
-				if idx < len(m.metrics.Processes) {
-					m.killConfirmPID = m.metrics.Processes[idx].PID
-					m.killConfirmSelection = 0
-				}
+		case models.ActionSearch:
+			m.searchActive = true
+			m.searchInput = ""
+			m.updateProcessTable()
+			return m, nil
+		case models.ActionCancel:
+			if m.searchQuery == "" {
+				return m, nil
 			}
+			m.searchQuery = ""
+			m.updateProcessTable()
+			return m, nil
+		case models.ActionKill:
+			visible := m.visibleProcesses()
+			idx := m.processTable.Cursor()
+			if idx >= len(visible) {
+				return m, nil
+			}
+			m.killConfirmPID = visible[idx].PID
+			m.killConfirmSelection = 0
 			return m, nil
 		case models.ActionSortCPU:
 			if m.sortBy == gops.SortByCPU {
@@ -143,19 +185,9 @@ func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fetchGeneration++
 			return m, m.fetchData()
 		case models.ActionNavUp:
-			oldCursor := m.processTable.Cursor()
-			m.processTable.MoveUp(1)
-			newCursor := m.processTable.Cursor()
-			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
-				m.selectedPID = m.metrics.Processes[newCursor].PID
-			}
+			m.moveProcessCursor(-1)
 		case models.ActionNavDown:
-			oldCursor := m.processTable.Cursor()
-			m.processTable.MoveDown(1)
-			newCursor := m.processTable.Cursor()
-			if oldCursor != newCursor && m.metrics != nil && len(m.metrics.Processes) > newCursor {
-				m.selectedPID = m.metrics.Processes[newCursor].PID
-			}
+			m.moveProcessCursor(1)
 		default:
 			m.processTable, cmd = m.processTable.Update(msg)
 			cmds = append(cmds, cmd)
@@ -631,6 +663,10 @@ func (m *ResponsiveTUIModel) renderFooter() string {
 		return style.Render(text)
 	}
 
+	if m.searchActive {
+		return style.Render(fmt.Sprintf("Search: /%s█  [enter] apply  [esc] cancel  [↑↓] navigate", m.searchInput))
+	}
+
 	if m.killResultMsg != "" && time.Since(m.killResultTime) < 3*time.Second {
 		return style.Render(m.killResultMsg)
 	}
@@ -641,8 +677,8 @@ func (m *ResponsiveTUIModel) renderFooter() string {
 		groupStatus = "*"
 	}
 	k := m.hint
-	controls := fmt.Sprintf("Controls: [%s]uit [%s]efresh [%s]etails [%s]group%s [%s] kill | Sort: [%s]cpu [%s]mem [%s]name [%s]pid | %s%s Navigate",
-		k(models.ActionQuit), k(models.ActionRefresh), k(models.ActionDetails), k(models.ActionGroup), groupStatus, k(models.ActionKill),
+	controls := fmt.Sprintf("Controls: [%s]uit [%s]efresh [%s]etails [%s]group%s [%s] kill [%s] search | Sort: [%s]cpu [%s]mem [%s]name [%s]pid | %s%s Navigate",
+		k(models.ActionQuit), k(models.ActionRefresh), k(models.ActionDetails), k(models.ActionGroup), groupStatus, k(models.ActionKill), k(models.ActionSearch),
 		k(models.ActionSortCPU), k(models.ActionSortMemory), k(models.ActionSortName), k(models.ActionSortPID),
 		k(models.ActionNavUp), k(models.ActionNavDown))
 	return style.Render(controls)
@@ -666,17 +702,19 @@ func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
 		sortIndicator = " ↓PID"
 	}
 
-	processCount := 0
-	if m.metrics != nil {
-		processCount = len(m.metrics.Processes)
-	}
+	processCount := len(m.visibleProcesses())
 
 	groupIndicator := ""
 	if m.mergeChildren {
 		groupIndicator = " [grouped]"
 	}
 
-	title := fmt.Sprintf("PROCESSES (%d)%s%s", processCount, sortIndicator, groupIndicator)
+	searchIndicator := ""
+	if !m.searchActive && m.searchQuery != "" {
+		searchIndicator = fmt.Sprintf(" /%s", m.searchQuery)
+	}
+
+	title := fmt.Sprintf("PROCESSES (%d)%s%s%s", processCount, sortIndicator, groupIndicator, searchIndicator)
 	titleStyle := m.titleStyle()
 
 	content.WriteString(titleStyle.Render(title) + "\n")
@@ -706,10 +744,11 @@ func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string
 
 	content.WriteString(titleStyle.Render(title) + "\n")
 
-	if m.metrics != nil && len(m.metrics.Processes) > 0 {
+	visible := m.visibleProcesses()
+	if len(visible) > 0 {
 		selectedIdx := m.processTable.Cursor()
-		if selectedIdx < len(m.metrics.Processes) {
-			proc := m.metrics.Processes[selectedIdx]
+		if selectedIdx < len(visible) {
+			proc := visible[selectedIdx]
 
 			fmt.Fprintf(&content, "PID: %d\n", proc.PID)
 			fmt.Fprintf(&content, "PPID: %d\n", proc.PPID)

@@ -109,6 +109,10 @@ type ResponsiveTUIModel struct {
 	killConfirmSelection int // 0=kill, 1=force kill
 	killResultMsg        string
 	killResultTime       time.Time
+
+	searchActive bool
+	searchInput  string
+	searchQuery  string
 }
 
 func (m *ResponsiveTUIModel) Cleanup() {
