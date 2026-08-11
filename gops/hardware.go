@@ -140,10 +140,16 @@ func detectGPUs() ([]models.GPU, error) {
 		return nil, err
 	}
 
+	gopsUtil := &GopsUtil{}
+
 	var gpus []models.GPU
 	for _, entry := range gpuEntries {
 		displayName, pciId := parseGPUInfo(entry.RawLine)
 		fullName := buildFullName(entry.Vendor, displayName)
+
+		// Added Temperature and Usage info
+		tempInfo, _ := gopsUtil.GetGPUTemp(pciId)
+		gpuUsage := getIntelGpuUsage()
 
 		gpus = append(gpus, models.GPU{
 			Driver:      entry.Driver,
@@ -152,7 +158,8 @@ func detectGPUs() ([]models.GPU, error) {
 			FullName:    fullName,
 			PciId:       pciId,
 			RawLine:     entry.RawLine,
-			Temperature: 0,
+			Temperature: tempInfo.Temperature, // Replaced the previous "0" value
+			Usage:		 gpuUsage,
 			Hwmon:       "unknown",
 		})
 	}

@@ -550,6 +550,7 @@ func displayGPUInfo(gpuInfo *models.GPUInfo) {
 			{"Full Name:", gpu.FullName},
 			{"PCI ID:", gpu.PciId},
 			{"Temperature:", fmt.Sprintf("%.1f°C", gpu.Temperature)},
+			{"Usage:", fmt.Sprintf("%.1f%%", gpu.Usage)},
 		}
 
 		printTable(rows)

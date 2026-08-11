@@ -110,6 +110,31 @@ func (m *ResponsiveTUIModel) renderMemDiskPanel(width, height int) string {
 			content = append(content, "")
 			content = append(content, m.titleStyle().Render("SENSORS"))
 
+			// VIBE CODED BY GEMINI
+			// Check if your TUI model has access to the gops wrapper instance
+			if m.gops != nil {
+				// Query your updated GPU information array
+				if gpuInfo, err := m.gops.GetGPUInfo(); err == nil && len(gpuInfo.GPUs) > 0 {
+					for _, gpu := range gpuInfo.GPUs {
+						if gpu.Vendor == "Intel" || gpu.Driver == "i915" {
+							// Format the live dynamic temperature using Lipgloss styles
+							gpuTempStr := fmt.Sprintf("%.0f°C", gpu.Temperature)
+							tempColor := m.getTemperatureColor(gpu.Temperature)
+							gpuTempStr = lipgloss.NewStyle().Foreground(lipgloss.Color(tempColor)).Render(gpuTempStr)
+
+							// Format your working live usage percentage line
+							gpuUsageStr := fmt.Sprintf("%.1f%%", gpu.Usage)
+							usageColor := m.getProgressBarColor(gpu.Usage, "primary")
+							gpuUsageStr = lipgloss.NewStyle().Foreground(lipgloss.Color(usageColor)).Render(gpuUsageStr)
+
+							// Append them right at the top of the SENSORS list
+							content = append(content, fmt.Sprintf("gpu_temp: %s", gpuTempStr))
+							content = append(content, fmt.Sprintf("gpu_usage: %s", gpuUsageStr))
+						}
+					}
+				}
+			}
+
 			// Show a reasonable number of sensors that fit
 			sensorsToShow := len(m.systemTemperatures)
 			if sensorsToShow > 6 { // Limit to prevent overcrowding

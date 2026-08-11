@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
+	"unsafe"
 
 	"github.com/AvengeMedia/dgop/models"
 )
@@ -125,6 +128,8 @@ func detectGPUEntries() ([]gpuEntry, error) {
 		return gpuEntries[i].Driver < gpuEntries[j].Driver
 	})
 
+	//fmt.Println(gpuEntries[0].Driver)
+
 	return gpuEntries, nil
 }
 
@@ -238,8 +243,35 @@ func getHwmonTemperature(pciId string) (float64, string) {
 			continue
 		}
 
+		// Build the standard path used by AMD/Generic cards
 		hwmonGlob := filepath.Join(devicePath, "hwmon", "hwmon*")
 		hwmonDirs, err := filepath.Glob(hwmonGlob)
+
+		// VIBE CODED BY GEMINI
+		// INTEL INTEGRATED FALLBACK: Only trigger if the hardware belongs to Intel (8086)
+		// AND the system is running integrated graphics architecture (i915 driver)
+		if (err != nil || len(hwmonDirs) == 0) && vendorId == "8086" {
+			driverLink, driverErr := os.Readlink(filepath.Join(devicePath, "driver"))
+			isIntegratedIntel := driverErr == nil && strings.Contains(filepath.Base(driverLink), "i915")
+
+			if isIntegratedIntel {
+				globalHwmons, globalErr := filepath.Glob("/sys/class/hwmon/hwmon*")
+				if globalErr == nil {
+					for _, gHwmon := range globalHwmons {
+						nameBytes, nameErr := os.ReadFile(filepath.Join(gHwmon, "name"))
+						if nameErr == nil {
+							nameStr := strings.TrimSpace(string(nameBytes))
+							// Target Intel's CPU/iGPU package temperature layer safely
+							if nameStr == "coretemp" {
+								hwmonDirs = []string{gHwmon}
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
 		if err != nil {
 			continue
 		}
@@ -333,4 +365,103 @@ func readThermalTempForGPU(thermalPath, entryName string) (float64, error) {
 	}
 
 	return float64(temp) / 1000.0, nil
+}
+
+// VIBE CODED BY GEMINI
+// Global state trackers for the PMU reader loop
+var (
+	intelPerfFd      int       = -1
+	lastIntelTicks   uint64
+	lastSampleTime   time.Time
+)
+
+// VIBE CODED BY GEMINI
+// initIntelPMU opens the direct kernel performance event counter
+func initIntelPMU() error {
+	typeBytes, err := os.ReadFile("/sys/bus/event_source/devices/i915/type")
+	if err != nil {
+		typeBytes, err = os.ReadFile("/sys/bus/event_source/devices/xe/type")
+		if err != nil {
+			return err
+		}
+	}
+	pmuType, err := strconv.ParseUint(strings.TrimSpace(string(typeBytes)), 10, 32)
+	if err != nil {
+		return err
+	}
+
+	attr := make([]uint64, 16)
+
+	// Pack Type and Size. Modern kernels require 112 bytes for VER0/VER1 configurations
+	attr[0] = uint64(pmuType) | (uint64(112) << 32)
+	attr[1] = 0 // config=0x0 for rcs0-busy (Intel Render engine)
+
+	// Bit 0 inside index 4 maps to 'disabled'. Setting it to 0 forces the counter to ENABLE immediately
+	attr[4] = 0
+
+	fd, _, sysErr := syscall.Syscall6(
+		syscall.SYS_PERF_EVENT_OPEN,
+		uintptr(unsafe.Pointer(&attr[0])),
+		^uintptr(0), // PID -1 (System-wide context tracking)
+		uintptr(0),  // CPU 0
+		^uintptr(0), // Group FD -1
+		uintptr(0),  // Flags 0
+		0,
+	)
+
+	if sysErr != 0 {
+		return sysErr
+	}
+
+	intelPerfFd = int(fd)
+	return nil
+}
+
+
+// VIBE CODED BY GEMINI
+func getIntelGpuUsage() float64 {
+	// Initialize the connection once if it's closed
+	if intelPerfFd == -1 {
+		if err := initIntelPMU(); err != nil {
+			return 0.0
+		}
+	}
+
+	// 1. Perform ONE instantaneous system counter file-descriptor read
+	var buf [8]byte
+	n, err := syscall.Read(intelPerfFd, buf[:])
+	if err != nil || n < 8 {
+		return 0.0
+	}
+	currentTicks := *(*uint64)(unsafe.Pointer(&buf))
+	currentTime := time.Now()
+
+	// 2. Establish baseline memory state on the very first daemon iteration pass
+	if lastSampleTime.IsZero() {
+		lastIntelTicks = currentTicks
+		lastSampleTime = currentTime
+		return 0.0
+	}
+
+	// 3. Measure time differences utilizing the daemon's natural background window intervals
+	measuredDuration := uint64(currentTime.Sub(lastSampleTime).Nanoseconds())
+	busyDuration := currentTicks - lastIntelTicks
+
+	// Prevent mathematical divide-by-zero crashes during layout glitches
+	if measuredDuration == 0 {
+		return 0.0
+	}
+
+	// 4. Calculate engine load percentage
+	usagePercent := (float64(busyDuration) / float64(measuredDuration)) * 100.0
+
+	// Handle standard clamping boundaries safely
+	if usagePercent > 100.0 { usagePercent = 100.0 }
+	if usagePercent < 0.0   { usagePercent = 0.0 }
+
+	// 5. Explicitly cache current parameters to drive the NEXT background daemon loop
+	lastIntelTicks = currentTicks
+	lastSampleTime = currentTime
+
+	return usagePercent
 }
