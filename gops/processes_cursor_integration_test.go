@@ -85,6 +85,16 @@ func TestGetProcessesWithCursor_ClampsToWholeMachine(t *testing.T) {
 		"CPU is a share of the whole machine and must never be published above 100")
 }
 
+func TestGetProcessesWithCursor_SkipsCursorEntryWhenTimesUnreadable(t *testing.T) {
+	util := newProcessTestUtil(t, &process.Process{Pid: 999999})
+
+	res, err := util.GetProcessesWithCursor(SortByCPU, 0, true, "", false)
+	require.NoError(t, err)
+
+	assert.Empty(t, decodeProcessCursor(res.Cursor),
+		"a process whose CPU times could not be read must not enter the cursor as 0 ticks")
+}
+
 func TestGetProcessesWithCursor_CursorCoversAllProcesses(t *testing.T) {
 	self, err := process.NewProcess(int32(os.Getpid()))
 	require.NoError(t, err)

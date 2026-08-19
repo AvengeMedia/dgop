@@ -235,7 +235,7 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 					results <- procResult{
 						index:     idx,
 						sampledAt: sampledAt,
-						sampled:   true,
+						sampled:   times != nil,
 						info: &models.ProcessInfo{
 							PID:               p.Pid,
 							PPID:              ppid,
