@@ -66,10 +66,6 @@ linters:
       - linters:
           - errcheck
         text: "Error return value of `(w\\.Write|huma\\.WriteErr|recovererErrorWriter\\.Write)` is not checked"
-      # Process CPU priming call (intentionally ignored)
-      - linters:
-          - errcheck
-        text: "Error return value of `p\\.CPUPercent` is not checked"
       # Cleanup operations
       - linters:
           - errcheck

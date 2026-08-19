@@ -3,8 +3,8 @@ package models
 type ProcessInfo struct {
 	PID               int32   `json:"pid"`
 	PPID              int32   `json:"ppid"`
-	CPU               float64 `json:"cpu"`
-	PTicks            float64 `json:"pticks"`
+	CPU               float64 `json:"cpu" doc:"Percentage of total machine CPU capacity used since the cursor, in the range 0-100."`
+	PTicks            float64 `json:"pticks" doc:"Cumulative CPU seconds (user + system) consumed by this process."`
 	MemoryPercent     float32 `json:"memoryPercent"`
 	MemoryKB          uint64  `json:"memoryKB"`
 	MemoryCalculation string  `json:"memoryCalculation"`
@@ -23,10 +23,6 @@ type ProcessCursorData struct {
 	PID       int32   `json:"pid"`
 	Ticks     float64 `json:"ticks"`
 	Timestamp int64   `json:"timestamp"`
-	Name      string  `json:"name,omitempty"`
-	Cmdline   string  `json:"cmdline,omitempty"`
-	Username  string  `json:"username,omitempty"`
-	PPID      int32   `json:"ppid,omitempty"`
 }
 
 type ProcessListResponse struct {
