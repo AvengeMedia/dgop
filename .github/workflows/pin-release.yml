@@ -1,0 +1,103 @@
+name: Pin release
+
+# Pins this repo to a DankMaterialShell release version. Dispatched by the DMS
+# Release workflow; the tag push that lands here runs Create Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to pin to (e.g. v1.6.0)"
+        required: true
+        type: string
+      force:
+        description: "Tag even when there are no new commits since the last tag"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pin-release
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub App token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app_token.outputs.token }}
+
+      - name: Decide whether to tag
+        id: decide
+        env:
+          VERSION: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION#v}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be X.Y.Z (got '$VERSION')"; exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "${tag} already exists — nothing to do" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # X.Y.0 always tags, to keep the version aligned with DMS.
+          if [ "$FORCE" = "true" ] || [ "${tag##*.}" = "0" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -z "$last_tag" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Bot commits are version bumps from previous releases, not real work.
+          human_commits=$(git log --format='%an' "${last_tag}..HEAD" | grep -cv '\[bot\]' || true)
+          if [ "$human_commits" -gt 0 ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          echo "no commits since ${last_tag} — skipping ${tag}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bump version, tag, and push
+        if: steps.decide.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "dms-ci[bot]"
+          git config user.email "dms-ci[bot]@users.noreply.github.com"
+
+          sed -i "s/version = \"[0-9][^\"]*\"/version = \"${VERSION}\"/" flake.nix
+          git add flake.nix
+          git diff --cached --quiet || git commit -m "flake: bump version to ${VERSION}"
+
+          git tag "${TAG}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+            "HEAD:${{ github.ref_name }}" "refs/tags/${TAG}"
+          echo "tagged ${TAG}" >> "$GITHUB_STEP_SUMMARY"
