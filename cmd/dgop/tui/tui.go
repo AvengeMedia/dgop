@@ -7,12 +7,16 @@ import (
 
 	"github.com/AvengeMedia/dgop/gops"
 	"github.com/AvengeMedia/dgop/models"
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 var Version = "dev"
+
+const (
+	minTerminalWidth  = 60
+	minTerminalHeight = 20
+)
 
 func (m *ResponsiveTUIModel) Init() tea.Cmd {
 	diskMounts, _ := m.gops.GetDiskMounts()
@@ -46,300 +50,295 @@ func (m *ResponsiveTUIModel) listenForKeybindChanges() tea.Cmd {
 }
 
 func (m *ResponsiveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		return m, nil
 
 	case tea.KeyMsg:
-		key := msg.String()
-		act := m.action(key)
-
-		// Kill confirmation mode intercepts all keys
-		if m.killConfirmPID > 0 {
-			switch {
-			case key == "ctrl+c":
-				return m, tea.Quit
-			case act == models.ActionCancel, act == models.ActionQuit:
-				m.killConfirmPID = 0
-				m.killConfirmSelection = 0
-			case act == models.ActionSelectLeft:
-				if m.killConfirmSelection > 0 {
-					m.killConfirmSelection--
-				}
-			case act == models.ActionSelectRight:
-				if m.killConfirmSelection < 1 {
-					m.killConfirmSelection++
-				}
-			case act == models.ActionConfirm:
-				pid := m.killConfirmPID
-				force := m.killConfirmSelection == 1
-				m.killConfirmPID = 0
-				m.killConfirmSelection = 0
-				return m, killProcess(pid, force)
-			}
-			return m, nil
-		}
-
-		// Search input mode captures keys as literal text
-		if m.searchActive {
-			switch {
-			case key == "ctrl+c":
-				return m, tea.Quit
-			case key == "esc" || key == "escape":
-				m.searchActive = false
-				m.searchInput = ""
-			case key == "enter":
-				m.searchActive = false
-				m.searchQuery = m.searchInput
-				m.searchInput = ""
-			case key == "up":
-				m.moveProcessCursor(-1)
-			case key == "down":
-				m.moveProcessCursor(1)
-			case key == "backspace":
-				if m.searchInput == "" {
-					m.searchActive = false
-					break
-				}
-				runes := []rune(m.searchInput)
-				m.searchInput = string(runes[:len(runes)-1])
-			case msg.Type == tea.KeyRunes, msg.Type == tea.KeySpace:
-				m.searchInput += string(msg.Runes)
-			}
-			m.updateProcessTable()
-			return m, nil
-		}
-
-		switch act {
-		case models.ActionQuit:
-			return m, tea.Quit
-		case models.ActionRefresh:
-			m.fetchGeneration++
-			return m, m.fetchData()
-		case models.ActionDetails:
-			m.showDetails = !m.showDetails
-		case models.ActionSearch:
-			m.searchActive = true
-			m.searchInput = ""
-			m.updateProcessTable()
-			return m, nil
-		case models.ActionCancel:
-			if m.searchQuery == "" {
-				return m, nil
-			}
-			m.searchQuery = ""
-			m.updateProcessTable()
-			return m, nil
-		case models.ActionKill:
-			visible := m.visibleProcesses()
-			idx := m.processTable.Cursor()
-			if idx >= len(visible) {
-				return m, nil
-			}
-			m.killConfirmPID = visible[idx].PID
-			m.killConfirmSelection = 0
-			return m, nil
-		case models.ActionSortCPU:
-			if m.sortBy == gops.SortByCPU {
-				return m, nil
-			}
-			m.sortBy = gops.SortByCPU
-			m.fetchGeneration++
-			m.sortProcessesLocally()
-			m.updateProcessTable()
-			return m, m.fetchData()
-		case models.ActionSortMemory:
-			if m.sortBy == gops.SortByMemory {
-				return m, nil
-			}
-			m.sortBy = gops.SortByMemory
-			m.fetchGeneration++
-			m.sortProcessesLocally()
-			m.updateProcessTable()
-			return m, m.fetchData()
-		case models.ActionSortName:
-			if m.sortBy == gops.SortByName {
-				return m, nil
-			}
-			m.sortBy = gops.SortByName
-			m.fetchGeneration++
-			m.sortProcessesLocally()
-			m.updateProcessTable()
-			return m, m.fetchData()
-		case models.ActionSortPID:
-			if m.sortBy == gops.SortByPID {
-				return m, nil
-			}
-			m.sortBy = gops.SortByPID
-			m.fetchGeneration++
-			m.sortProcessesLocally()
-			m.updateProcessTable()
-			return m, m.fetchData()
-		case models.ActionGroup:
-			m.mergeChildren = !m.mergeChildren
-			m.fetchGeneration++
-			return m, m.fetchData()
-		case models.ActionNavUp:
-			m.moveProcessCursor(-1)
-		case models.ActionNavDown:
-			m.moveProcessCursor(1)
-		default:
-			m.processTable, cmd = m.processTable.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		return m.handleKey(msg)
 
 	case tickMsg:
-		cmds = append(cmds, tick())
-		now := time.Now()
-
-		if now.Sub(m.lastUpdate) >= time.Second {
-			cmds = append(cmds, m.fetchData())
-		}
-
-		if now.Sub(m.lastNetworkUpdate) >= 2*time.Second {
-			cmds = append(cmds, m.fetchNetworkData())
-			m.lastNetworkUpdate = now
-		}
-
-		if now.Sub(m.lastDiskUpdate) >= 2*time.Second {
-			cmds = append(cmds, m.fetchDiskData())
-			m.lastDiskUpdate = now
-		}
-
-		if now.Sub(m.lastTempUpdate) >= 10*time.Second {
-			cmds = append(cmds, m.fetchTemperatureData())
-			m.lastTempUpdate = now
-		}
-
-		if m.logoTestMode && now.Sub(m.lastLogoUpdate) >= 3*time.Second {
-			allLogos := getAllDistroLogos()
-			m.currentLogoIndex = (m.currentLogoIndex + 1) % len(allLogos)
-			currentLogo := allLogos[m.currentLogoIndex]
-			m.distroLogo = currentLogo.logo
-			m.distroColor = currentLogo.color
-			if m.hardware != nil {
-				m.hardware.Distro = currentLogo.name
-			}
-			m.lastLogoUpdate = now
-		}
+		return m, tea.Batch(m.scheduledFetches()...)
 
 	case fetchDataMsg:
-		if msg.generation != m.fetchGeneration {
-			return m, nil
-		}
-		m.metrics = msg.metrics
-		if m.metrics != nil {
-			m.metrics.DiskMounts = m.diskMounts
-		}
-		m.err = msg.err
-		m.cpuCursor = msg.cpuCursor
-		m.procCursor = msg.procCursor
-		m.lastUpdate = time.Now()
-		m.updateProcessTable()
+		m.applyFetchData(msg)
+		return m, nil
 
 	case fetchNetworkMsg:
-		if msg.rates != nil && len(msg.rates.Interfaces) > 0 {
-			m.networkCursor = msg.rates.Cursor
-
-			bestInterface := m.selectBestNetworkInterface(msg.rates.Interfaces)
-			if bestInterface != nil {
-				m.selectedInterfaceName = bestInterface.Interface
-
-				sample := NetworkSample{
-					timestamp: time.Now(),
-					rxBytes:   bestInterface.RxTotal,
-					txBytes:   bestInterface.TxTotal,
-					rxRate:    bestInterface.RxRate,
-					txRate:    bestInterface.TxRate,
-				}
-
-				m.networkHistory = append(m.networkHistory, sample)
-				if len(m.networkHistory) > m.maxNetHistory {
-					m.networkHistory = m.networkHistory[1:]
-				}
-			}
-		}
+		m.applyNetworkData(msg)
+		return m, nil
 
 	case fetchDiskMsg:
-		// Force some data into history to test rendering
-		if len(m.diskHistory) == 0 {
-			// Add some initial samples to get started
-			for i := 0; i < 5; i++ {
-				m.diskHistory = append(m.diskHistory, DiskSample{
-					timestamp:  time.Now().Add(time.Duration(-i) * time.Second),
-					readBytes:  uint64(i * 1000000),
-					writeBytes: uint64(i * 2000000),
-					readRate:   float64(i * 100000),
-					writeRate:  float64(i * 200000),
-					device:     "test",
-				})
-			}
-		}
-
-		if msg.rates != nil && len(msg.rates.Disks) > 0 {
-			m.diskCursor = msg.rates.Cursor
-
-			// Aggregate all disk rates
-			var totalReadRate, totalWriteRate float64
-			var totalReadBytes, totalWriteBytes uint64
-
-			for _, disk := range msg.rates.Disks {
-				totalReadRate += disk.ReadRate
-				totalWriteRate += disk.WriteRate
-				totalReadBytes += disk.ReadTotal
-				totalWriteBytes += disk.WriteTotal
-			}
-
-			sample := DiskSample{
-				timestamp:  time.Now(),
-				readBytes:  totalReadBytes,
-				writeBytes: totalWriteBytes,
-				readRate:   totalReadRate,
-				writeRate:  totalWriteRate,
-				device:     "total",
-			}
-
-			m.diskHistory = append(m.diskHistory, sample)
-			if len(m.diskHistory) > m.maxDiskHistory {
-				m.diskHistory = m.diskHistory[1:]
-			}
-		}
+		m.applyDiskData(msg)
+		return m, nil
 
 	case fetchTempMsg:
 		if msg.err == nil {
 			m.systemTemperatures = msg.temps
 		}
+		return m, nil
 
 	case processKillResultMsg:
 		m.killResultMsg = msg.message
 		m.killResultTime = time.Now()
 		m.fetchGeneration++
-		cmds = append(cmds, m.fetchData())
+		return m, m.fetchData()
 
 	case colorUpdateMsg:
 		m.refreshColorCache()
 		m.updateTableStyles()
-		cmds = append(cmds, m.listenForColorChanges())
+		return m, m.listenForColorChanges()
 
 	case keybindUpdateMsg:
 		if m.keybindManager != nil {
 			m.keybinds = m.keybindManager.Resolve()
 		}
-		cmds = append(cmds, m.listenForKeybindChanges())
+		return m, m.listenForKeybindChanges()
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, nil
 }
 
-const (
-	minTerminalWidth  = 60
-	minTerminalHeight = 20
-)
+func (m *ResponsiveTUIModel) scheduledFetches() []tea.Cmd {
+	cmds := []tea.Cmd{tick()}
+	now := time.Now()
+
+	if now.Sub(m.lastUpdate) >= time.Second {
+		cmds = append(cmds, m.fetchData())
+	}
+
+	if now.Sub(m.lastNetworkUpdate) >= 2*time.Second {
+		m.lastNetworkUpdate = now
+		cmds = append(cmds, m.fetchNetworkData())
+	}
+
+	if now.Sub(m.lastDiskUpdate) >= 2*time.Second {
+		m.lastDiskUpdate = now
+		cmds = append(cmds, m.fetchDiskData())
+	}
+
+	if now.Sub(m.lastTempUpdate) >= 10*time.Second {
+		m.lastTempUpdate = now
+		cmds = append(cmds, m.fetchTemperatureData())
+	}
+
+	return cmds
+}
+
+func (m *ResponsiveTUIModel) applyFetchData(msg fetchDataMsg) {
+	if msg.generation != m.fetchGeneration {
+		return
+	}
+
+	m.metrics = msg.metrics
+	m.err = msg.err
+	m.cpuCursor = msg.cpuCursor
+	m.procCursor = msg.procCursor
+	m.lastUpdate = time.Now()
+
+	if m.metrics != nil {
+		m.metrics.DiskMounts = m.diskMounts
+		if m.metrics.CPU != nil {
+			m.cpuHistory = append(m.cpuHistory, m.metrics.CPU.Usage)
+			if len(m.cpuHistory) > maxCPUHistory {
+				m.cpuHistory = m.cpuHistory[1:]
+			}
+		}
+	}
+
+	m.updateProcessTable()
+}
+
+func (m *ResponsiveTUIModel) applyNetworkData(msg fetchNetworkMsg) {
+	if msg.rates == nil || len(msg.rates.Interfaces) == 0 {
+		return
+	}
+	m.networkCursor = msg.rates.Cursor
+
+	best := m.selectBestNetworkInterface(msg.rates.Interfaces)
+	if best == nil {
+		return
+	}
+	m.selectedInterfaceName = best.Interface
+
+	m.networkHistory = append(m.networkHistory, NetworkSample{
+		rxBytes: best.RxTotal,
+		txBytes: best.TxTotal,
+		rxRate:  best.RxRate,
+		txRate:  best.TxRate,
+	})
+	if len(m.networkHistory) > maxNetHistory {
+		m.networkHistory = m.networkHistory[1:]
+	}
+}
+
+func (m *ResponsiveTUIModel) applyDiskData(msg fetchDiskMsg) {
+	if msg.rates == nil || len(msg.rates.Disks) == 0 {
+		return
+	}
+	m.diskCursor = msg.rates.Cursor
+
+	var sample DiskSample
+	for _, disk := range msg.rates.Disks {
+		sample.readRate += disk.ReadRate
+		sample.writeRate += disk.WriteRate
+	}
+
+	m.diskHistory = append(m.diskHistory, sample)
+	if len(m.diskHistory) > maxDiskHistory {
+		m.diskHistory = m.diskHistory[1:]
+	}
+}
+
+func (m *ResponsiveTUIModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	if m.killConfirmPID > 0 {
+		return m, m.handleKillConfirmKey(m.action(key))
+	}
+
+	if m.searchActive {
+		return m, m.handleSearchKey(msg, key)
+	}
+
+	return m.handleGlobalKey(msg, m.action(key))
+}
+
+func (m *ResponsiveTUIModel) handleKillConfirmKey(act models.KeyAction) tea.Cmd {
+	switch act {
+	case models.ActionCancel, models.ActionQuit:
+		m.killConfirmPID = 0
+		m.killConfirmSelection = 0
+	case models.ActionSelectLeft:
+		if m.killConfirmSelection > 0 {
+			m.killConfirmSelection--
+		}
+	case models.ActionSelectRight:
+		if m.killConfirmSelection < 1 {
+			m.killConfirmSelection++
+		}
+	case models.ActionConfirm:
+		pid := m.killConfirmPID
+		force := m.killConfirmSelection == 1
+		m.killConfirmPID = 0
+		m.killConfirmSelection = 0
+		return killProcess(pid, force)
+	}
+	return nil
+}
+
+func (m *ResponsiveTUIModel) handleSearchKey(msg tea.KeyMsg, key string) tea.Cmd {
+	switch {
+	case key == "esc" || key == "escape":
+		m.searchActive = false
+		m.searchInput = ""
+	case key == "enter":
+		m.searchActive = false
+		m.searchQuery = m.searchInput
+		m.searchInput = ""
+	case key == "up":
+		m.moveProcessCursor(-1)
+	case key == "down":
+		m.moveProcessCursor(1)
+	case key == "backspace":
+		if m.searchInput == "" {
+			m.searchActive = false
+			break
+		}
+		runes := []rune(m.searchInput)
+		m.searchInput = string(runes[:len(runes)-1])
+	case msg.Type == tea.KeyRunes, msg.Type == tea.KeySpace:
+		m.searchInput += string(msg.Runes)
+	}
+
+	m.updateProcessTable()
+	return nil
+}
+
+func (m *ResponsiveTUIModel) handleGlobalKey(msg tea.KeyMsg, act models.KeyAction) (tea.Model, tea.Cmd) {
+	if sortBy, ok := sortForAction(act); ok {
+		return m, m.applySort(sortBy)
+	}
+
+	switch act {
+	case models.ActionQuit:
+		return m, tea.Quit
+	case models.ActionRefresh:
+		m.fetchGeneration++
+		return m, m.fetchData()
+	case models.ActionDetails:
+		m.showDetails = !m.showDetails
+	case models.ActionSearch:
+		m.searchActive = true
+		m.searchInput = ""
+		m.updateProcessTable()
+	case models.ActionCancel:
+		if m.searchQuery == "" {
+			return m, nil
+		}
+		m.searchQuery = ""
+		m.updateProcessTable()
+	case models.ActionKill:
+		m.beginKillConfirm()
+	case models.ActionGroup:
+		m.mergeChildren = !m.mergeChildren
+		m.fetchGeneration++
+		return m, m.fetchData()
+	case models.ActionNavUp:
+		m.moveProcessCursor(-1)
+	case models.ActionNavDown:
+		m.moveProcessCursor(1)
+	default:
+		var cmd tea.Cmd
+		m.processTable, cmd = m.processTable.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func sortForAction(act models.KeyAction) (gops.ProcSortBy, bool) {
+	switch act {
+	case models.ActionSortCPU:
+		return gops.SortByCPU, true
+	case models.ActionSortMemory:
+		return gops.SortByMemory, true
+	case models.ActionSortName:
+		return gops.SortByName, true
+	case models.ActionSortPID:
+		return gops.SortByPID, true
+	default:
+		return "", false
+	}
+}
+
+func (m *ResponsiveTUIModel) applySort(sortBy gops.ProcSortBy) tea.Cmd {
+	if m.sortBy == sortBy {
+		return nil
+	}
+
+	m.sortBy = sortBy
+	m.fetchGeneration++
+	m.sortProcessesLocally()
+	m.updateProcessTable()
+	return m.fetchData()
+}
+
+func (m *ResponsiveTUIModel) beginKillConfirm() {
+	visible := m.visibleProcesses()
+	idx := m.processTable.Cursor()
+	if idx >= len(visible) {
+		return
+	}
+	m.killConfirmPID = visible[idx].PID
+	m.killConfirmSelection = 0
+}
 
 func (m *ResponsiveTUIModel) View() string {
 	if !m.ready {
@@ -368,27 +367,14 @@ func (m *ResponsiveTUIModel) renderTooSmall() string {
 func (m *ResponsiveTUIModel) renderLayout() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	headerHeight := lipgloss.Height(header)
-	footerHeight := lipgloss.Height(footer)
 
-	availableHeight := m.height - headerHeight - footerHeight
-	if availableHeight < 8 {
-		availableHeight = 8
-	}
+	availableHeight := max(m.height-lipgloss.Height(header)-lipgloss.Height(footer), 8)
 
-	mainContent := m.renderMainContentWithHeight(availableHeight)
-
-	var sections []string
-	sections = append(sections, header)
-	sections = append(sections, mainContent)
-	sections = append(sections, footer)
-
-	return strings.Join(sections, "\n")
+	return header + "\n" + m.renderMainContentWithHeight(availableHeight) + "\n" + footer
 }
 
 type panelSpec struct{ min, max, weight int }
 
-// shrink-aware allocator: shrinks when needed, grows by weight within limits
 func allocCapped(total int, specs []panelSpec, floor int, shrinkOrder []int) []int {
 	out := make([]int, len(specs))
 	sum := 0
@@ -397,134 +383,117 @@ func allocCapped(total int, specs []panelSpec, floor int, shrinkOrder []int) []i
 		sum += s.min
 	}
 
-	// If too big, shrink to fit (never below floor)
 	for sum > total {
 		shrunk := false
 		for _, i := range shrinkOrder {
-			if out[i] > floor {
-				out[i]--
-				sum--
-				shrunk = true
-				if sum == total {
-					break
-				}
+			if out[i] <= floor {
+				continue
 			}
-		}
-		if !shrunk {
-			break // nothing left to shrink
-		}
-	}
-
-	// If room left, grow toward max by weight
-	if sum < total {
-		rem := total - sum
-		for rem > 0 {
-			progressed := false
-			for i, s := range specs {
-				if out[i] < s.max && s.weight > 0 {
-					out[i]++
-					rem--
-					progressed = true
-					if rem == 0 {
-						break
-					}
-				}
-			}
-			if !progressed {
+			out[i]--
+			sum--
+			shrunk = true
+			if sum == total {
 				break
 			}
 		}
+		if !shrunk {
+			break
+		}
 	}
+
+	rem := total - sum
+	for rem > 0 {
+		progressed := false
+		for i, s := range specs {
+			if out[i] >= s.max || s.weight <= 0 {
+				continue
+			}
+			out[i]++
+			rem--
+			progressed = true
+			if rem == 0 {
+				break
+			}
+		}
+		if !progressed {
+			break
+		}
+	}
+
 	return out
 }
 
-func (m *ResponsiveTUIModel) minSystemLines(width int) int {
-	// distro, user@hostname, kernel, bios maker, bios version+date, CPU count, uptime - 7 lines
-	// accommodate logos up to 9 lines (like fedora) with vertical centering
-	return 9 // increased to accommodate 9-line logos
+func (m *ResponsiveTUIModel) minSystemLines() int {
+	lines := max(len(m.distroLogo), len(m.systemInfoLines()))
+	if lines < 7 {
+		lines = 7
+	}
+	return lines
 }
 
 func (m *ResponsiveTUIModel) minCPULines(width int) int {
-	// title + usage bar
-	lines := 2
+	lines := 2 // title + usage bar
 
-	// core rows - depends on hide/summarize options
+	if len(m.cpuHistory) >= 2 && width-4 >= 10 {
+		lines += cpuChartHeight
+	}
+
 	if m.metrics != nil && m.metrics.CPU != nil && !m.hideCPUCores {
 		cores := len(m.metrics.CPU.CoreUsage)
-		if cores > 0 {
-			if m.summarizeCores {
-				// Summarized mode: much fewer lines
-				groupSize := 8
-				if cores > 64 {
-					groupSize = 16
-				}
-				groups := (cores + groupSize - 1) / groupSize
-				lines += groups + 1 // +1 for summary line
-			} else {
-				// Original detailed mode: 3 cores per row
-				rows := (cores + 2) / 3
-				lines += rows
-			}
+		switch {
+		case cores == 0:
+		case m.summarizeCores:
+			groupSize := summarizedGroupSize(cores)
+			lines += (cores+groupSize-1)/groupSize + 1
+		default:
+			lines += (cores + 2) / 3
 		}
 	}
 
-	// system info line under cores if System present
 	if m.metrics != nil && m.metrics.System != nil {
-		lines += 1
+		lines++
 	}
 
 	return lines
 }
 
-func (m *ResponsiveTUIModel) minMemDiskLines(width int) int {
-	// MEMORY header + bars + numbers
-	lines := 3 // header + bar + size info
+func (m *ResponsiveTUIModel) minMemDiskLines() int {
+	lines := 4 // MEMORY header + bar + used + breakdown
 	if m.metrics != nil && m.metrics.Memory != nil && m.metrics.Memory.SwapTotal > 0 {
-		lines += 2 // swap bar + size info
+		lines += 2
 	}
-	// DISK header + at least 2 disks (2 lines each)
-	lines += 1 + 4 // blank + header + 2 disks
-	// disk I/O rates when history exists
-	if len(m.diskHistory) > 0 {
-		lines += 2 // blank + rates
+
+	lines += 2 + 4 // blank + DISK header + 2 mounts
+
+	if len(m.diskHistory) >= 2 {
+		lines += 3 // blank + read + write sparklines
 	}
-	// sensors block if present
+
 	if len(m.systemTemperatures) > 0 {
-		sensorsToShow := len(m.systemTemperatures)
-		if sensorsToShow > 6 {
-			sensorsToShow = 6
-		}
-		lines += 2 + sensorsToShow // blank + header + sensors
+		sensors := min(len(m.systemTemperatures), maxSensorsShown)
+		lines += 2 + sensors
 	}
+
 	return lines
 }
 
-func (m *ResponsiveTUIModel) minNetworkLines(width int) int {
-	// header + rates + chart + totals
-	// Give network more height to balance with right column
-	return 12 // increased further to match processes better
+func (m *ResponsiveTUIModel) minNetworkLines() int {
+	return 12
 }
 
 func (m *ResponsiveTUIModel) renderMainContentWithHeight(availableHeight int) string {
 	leftWidth := m.width * 40 / 100
 	spacer := 1
-	rightWidth := m.width - leftWidth - spacer - 4
-	if rightWidth < 10 {
-		rightWidth = 10
-	}
+	rightWidth := max(m.width-leftWidth-spacer-4, 10)
 
-	// Chrome calculation (full borders only - gaps are rendered but not budgeted)
 	leftPanels := 3
 	rightPanels := 2
 	if m.showDetails {
 		rightPanels = 3
 	}
 
-	leftChrome := leftPanels * 2 // full borders only
-	rightChrome := rightPanels * 2
-
-	leftInnerTotal := availableHeight - leftChrome
-	rightInnerTotal := availableHeight - rightChrome
+	leftInnerTotal := availableHeight - leftPanels*2
+	rightInnerTotal := availableHeight - rightPanels*2
 	if leftInnerTotal < 3 {
 		leftInnerTotal = 3
 	}
@@ -532,135 +501,68 @@ func (m *ResponsiveTUIModel) renderMainContentWithHeight(availableHeight int) st
 		rightInnerTotal = 3
 	}
 
-	// Left column: System (exact content), Mem/Disk (realistic), Network (tight)
-	sysMin := m.minSystemLines(leftWidth)
-	sysMax := sysMin // exact content only
-
-	memDiskMin := m.minMemDiskLines(leftWidth)
-	memDiskMax := 999 // gets the slack
-
-	netMin := m.minNetworkLines(leftWidth)
-	netMax := netMin + 8 // give network flex to fill space
+	sysMin := m.minSystemLines()
+	memDiskMin := m.minMemDiskLines()
+	netMin := m.minNetworkLines()
 
 	leftSpecs := []panelSpec{
-		{sysMin, sysMax, 0},         // System: no flex
-		{memDiskMin, memDiskMax, 3}, // Mem/Disk: medium weight
-		{netMin, netMax, 5},         // Network: highest weight to fill space
+		{sysMin, sysMin, 0},
+		{memDiskMin, 999, 3},
+		{netMin, netMin + 8, 5},
 	}
-	leftShrinkOrder := []int{2, 1, 0} // net→memdisk→system
-	leftInner := allocCapped(leftInnerTotal, leftSpecs, 3, leftShrinkOrder)
+	leftInner := allocCapped(leftInnerTotal, leftSpecs, 3, []int{2, 1, 0})
 	leftHeights := []int{leftInner[0] + 2, leftInner[1] + 2, leftInner[2] + 2}
 
-	// Right column: CPU (exact content), Processes (main flex)
 	cpuMin := m.minCPULines(rightWidth)
-	cpuMax := cpuMin // no empty space, content only
-
-	procMin := 6   // reduced to balance left/right columns
-	procMax := 999 // main flex sink
-	detMin := 5
-	detMax := 24
 
 	var rightHeights []int
 	if m.showDetails {
 		rightSpecs := []panelSpec{
-			{cpuMin, cpuMax, 0},   // CPU: no flex
-			{procMin, procMax, 3}, // Processes: main flex
-			{detMin, detMax, 1},   // Details: light flex
+			{cpuMin, cpuMin, 0},
+			{6, 999, 3},
+			{5, 24, 1},
 		}
-		rightShrinkOrder := []int{2, 1, 0} // details→processes→cpu
-		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, rightShrinkOrder)
+		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, []int{2, 1, 0})
 		rightHeights = []int{rightInner[0] + 2, rightInner[1] + 2, rightInner[2] + 2}
 	} else {
 		rightSpecs := []panelSpec{
-			{cpuMin, cpuMax, 0},   // CPU: no flex
-			{procMin, procMax, 5}, // processes: main flex sink
+			{cpuMin, cpuMin, 0},
+			{6, 999, 5},
 		}
-		rightShrinkOrder := []int{1, 0} // processes→cpu
-		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, rightShrinkOrder)
+		rightInner := allocCapped(rightInnerTotal, rightSpecs, 3, []int{1, 0})
 		rightHeights = []int{rightInner[0] + 2, rightInner[1] + 2}
 	}
 
-	// Render panels with exact allocated heights
-	systemPanel := m.renderSystemInfoPanel(leftWidth, leftHeights[0])
-	memDiskPanel := m.renderMemDiskPanel(leftWidth, leftHeights[1])
-	networkPanel := m.renderNetworkPanel(leftWidth, leftHeights[2])
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left,
+		m.renderSystemInfoPanel(leftWidth, leftHeights[0]),
+		m.renderMemDiskPanel(leftWidth, leftHeights[1]),
+		m.renderNetworkPanel(leftWidth, leftHeights[2]),
+	)
 
-	cpuPanel := m.renderCPUPanel(rightWidth, rightHeights[0])
-	var processColumn string
+	rightColumn := m.renderCPUPanel(rightWidth, rightHeights[0])
+	rightColumn = lipgloss.JoinVertical(lipgloss.Left, rightColumn, m.renderProcessPanel(rightWidth, rightHeights[1]))
 	if m.showDetails {
-		processPanel := m.renderProcessPanel(rightWidth, rightHeights[1])
-		detailsPanel := m.renderProcessDetailsPanel(rightWidth, rightHeights[2])
-
-		// Stack with borders only
-		processColumn = lipgloss.JoinVertical(lipgloss.Left, processPanel, detailsPanel)
-	} else {
-		// Processes get ALL the available space
-		processPanel := m.renderProcessPanel(rightWidth, rightHeights[1])
-		processColumn = processPanel
+		rightColumn = lipgloss.JoinVertical(lipgloss.Left, rightColumn, m.renderProcessDetailsPanel(rightWidth, rightHeights[2]))
 	}
 
-	leftColumn := lipgloss.JoinVertical(lipgloss.Left, systemPanel, memDiskPanel, networkPanel)
-	rightColumn := lipgloss.JoinVertical(lipgloss.Left, cpuPanel, processColumn)
-
-	// Join the two complete columns with spacer
 	spacerCol := lipgloss.NewStyle().Width(spacer).Render(" ")
-	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, spacerCol, rightColumn)
-
-	return mainContent
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, spacerCol, rightColumn)
 }
 
 func (m *ResponsiveTUIModel) renderHeader() string {
-	style := m.headerStyle()
-
-	// Just show current time in header
-	currentTime := time.Now().Format("15:04:05")
-	rightText := currentTime
-
 	title := fmt.Sprintf("dgop %s", Version)
-	// rightText already set above
-	spaces := m.width - len(title) - len(rightText) - 4
-	if spaces < 0 {
-		spaces = 0
-	}
-	headerText := fmt.Sprintf("%s%s%s", title, strings.Repeat(" ", spaces), rightText)
+	clock := time.Now().Format("15:04:05")
 
-	return style.Render(headerText)
+	spaces := max(m.width-len(title)-len(clock)-4, 0)
+
+	return m.headerStyle().Render(title + strings.Repeat(" ", spaces) + clock)
 }
 
 func (m *ResponsiveTUIModel) renderFooter() string {
 	style := m.footerStyle()
-	colors := m.getColors()
 
 	if m.killConfirmPID > 0 {
-		procName := ""
-		if m.metrics != nil {
-			for _, p := range m.metrics.Processes {
-				if p.PID == m.killConfirmPID {
-					procName = p.Command
-					break
-				}
-			}
-		}
-
-		options := []string{"Kill (SIGTERM)", "Force Kill (SIGKILL)"}
-		var parts []string
-		selected := lipgloss.NewStyle().
-			Background(lipgloss.Color(colors.UI.SelectionBackground)).
-			Foreground(lipgloss.Color(colors.UI.SelectionText)).
-			Padding(0, 1)
-		normal := lipgloss.NewStyle().Padding(0, 1)
-
-		for i, opt := range options {
-			switch i {
-			case m.killConfirmSelection:
-				parts = append(parts, selected.Render(opt))
-			default:
-				parts = append(parts, normal.Render(opt))
-			}
-		}
-
-		text := fmt.Sprintf("Kill PID %d (%s)?  %s  ESC cancel", m.killConfirmPID, procName, strings.Join(parts, " "))
-		return style.Render(text)
+		return style.Render(m.killConfirmFooter())
 	}
 
 	if m.searchActive {
@@ -671,6 +573,12 @@ func (m *ResponsiveTUIModel) renderFooter() string {
 		return style.Render(m.killResultMsg)
 	}
 	m.killResultMsg = ""
+
+	if m.err != nil {
+		colors := m.getColors()
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colors.Status.Error))
+		return style.Render(errStyle.Render(fmt.Sprintf("error: %v", m.err)))
+	}
 
 	groupStatus := ""
 	if m.mergeChildren {
@@ -684,441 +592,33 @@ func (m *ResponsiveTUIModel) renderFooter() string {
 	return style.Render(controls)
 }
 
-func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
-	style := m.panelStyle(width, height)
+func (m *ResponsiveTUIModel) killConfirmFooter() string {
+	colors := m.getColors()
 
-	var content strings.Builder
-
-	// Sort indicator
-	sortIndicator := ""
-	switch m.sortBy {
-	case gops.SortByCPU:
-		sortIndicator = " ↓CPU"
-	case gops.SortByMemory:
-		sortIndicator = " ↓MEM"
-	case gops.SortByName:
-		sortIndicator = " ↓NAME"
-	case gops.SortByPID:
-		sortIndicator = " ↓PID"
-	}
-
-	processCount := len(m.visibleProcesses())
-
-	groupIndicator := ""
-	if m.mergeChildren {
-		groupIndicator = " [grouped]"
-	}
-
-	searchIndicator := ""
-	if !m.searchActive && m.searchQuery != "" {
-		searchIndicator = fmt.Sprintf(" /%s", m.searchQuery)
-	}
-
-	title := fmt.Sprintf("PROCESSES (%d)%s%s%s", processCount, sortIndicator, groupIndicator, searchIndicator)
-	titleStyle := m.titleStyle()
-
-	content.WriteString(titleStyle.Render(title) + "\n")
-
-	// Update table dimensions and column widths for this panel
-	tableHeight := height - 3 // 2 borders + 1 title line
-	if tableHeight < 3 {
-		tableHeight = 3 // Never exceed container by forcing 8
-	}
-
-	// Update process table for this panel
-	m.updateProcessColumnWidthsForPanel(width - 4)
-	m.processTable.SetHeight(tableHeight)
-
-	content.WriteString(m.processTable.View())
-
-	return style.Render(content.String())
-}
-
-func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string {
-	style := m.panelStyle(width, height)
-
-	var content strings.Builder
-
-	title := "PROCESS DETAILS"
-	titleStyle := m.titleStyle()
-
-	content.WriteString(titleStyle.Render(title) + "\n")
-
-	visible := m.visibleProcesses()
-	if len(visible) > 0 {
-		selectedIdx := m.processTable.Cursor()
-		if selectedIdx < len(visible) {
-			proc := visible[selectedIdx]
-
-			fmt.Fprintf(&content, "PID: %d\n", proc.PID)
-			fmt.Fprintf(&content, "PPID: %d\n", proc.PPID)
-			fmt.Fprintf(&content, "USER: %s\n", proc.Username)
-			fmt.Fprintf(&content, "CPU: %.1f%%\n", proc.CPU)
-			memGB := float64(proc.MemoryKB) / 1024 / 1024
-			if memGB >= 1.0 {
-				fmt.Fprintf(&content, "Memory: %.1f%% (%.1f GB)\n", proc.MemoryPercent, memGB)
-			} else {
-				fmt.Fprintf(&content, "Memory: %.1f%% (%.0f MB)\n", proc.MemoryPercent, memGB*1024)
+	procName := ""
+	if m.metrics != nil {
+		for _, p := range m.metrics.Processes {
+			if p.PID == m.killConfirmPID {
+				procName = p.Command
+				break
 			}
-			fmt.Fprintf(&content, "Command: %s\n", proc.Command)
-
-			// Show full command with word wrapping
-			maxWidth := width - 6
-			if len(proc.FullCommand) > maxWidth {
-				content.WriteString("Full Command:\n")
-				words := strings.Fields(proc.FullCommand)
-				currentLine := ""
-				for _, word := range words {
-					if len(currentLine)+len(word)+1 > maxWidth {
-						if currentLine != "" {
-							content.WriteString(currentLine + "\n")
-							currentLine = word
-						} else {
-							content.WriteString(word[:maxWidth-3] + "...\n")
-						}
-					} else {
-						if currentLine != "" {
-							currentLine += " "
-						}
-						currentLine += word
-					}
-				}
-				if currentLine != "" {
-					content.WriteString(currentLine)
-				}
-			} else {
-				fmt.Fprintf(&content, "Full Command: %s", proc.FullCommand)
-			}
-		} else {
-			content.WriteString("No process selected")
-		}
-	} else {
-		content.WriteString("Loading process data...")
-	}
-
-	return style.Render(content.String())
-}
-
-func (m *ResponsiveTUIModel) renderNetworkPanel(width, height int) string {
-	style := m.panelStyle(width, height)
-
-	var content strings.Builder
-
-	interfaceName := "NETWORK"
-	if len(m.networkHistory) > 0 {
-		interfaceName = m.getSelectedInterfaceName()
-	} else if m.metrics != nil && len(m.metrics.Network) > 0 {
-		interfaceName = m.metrics.Network[0].Name
-	}
-
-	content.WriteString(m.titleStyle().Render(interfaceName) + "\n")
-
-	innerHeight := height - 2
-
-	if len(m.networkHistory) == 0 {
-		content.WriteString("Loading...")
-		// Pad to fill height even when loading
-		contentStr := content.String()
-		lines := strings.Split(contentStr, "\n")
-		for len(lines) < innerHeight {
-			lines = append(lines, "")
-		}
-		return style.Render(strings.Join(lines, "\n"))
-	}
-
-	// Get latest rates
-	latest := m.networkHistory[len(m.networkHistory)-1]
-
-	// Format rates in human readable format
-	rxRateStr := m.formatBytes(uint64(latest.rxRate))
-	txRateStr := m.formatBytes(uint64(latest.txRate))
-
-	fmt.Fprintf(&content, "↓%s/s ↑%s/s\n", rxRateStr, txRateStr)
-
-	// Build totals line first to know exact space needed
-	totalRx := m.formatBytes(latest.rxBytes)
-	totalTx := m.formatBytes(latest.txBytes)
-	bottomLine := fmt.Sprintf("RX: %s TX: %s", totalRx, totalTx)
-	if len(bottomLine) > width-4 {
-		bottomLine = m.truncate(bottomLine, width-4)
-	}
-
-	// Calculate exact chart height to fill space
-	used := lipgloss.Height(content.String())
-	remaining := innerHeight - used - 1 // -1 for the totals line
-	chartHeight := remaining
-	if chartHeight < 1 {
-		chartHeight = 1
-	}
-
-	// Render chart to fill exact space
-	if chartHeight > 0 {
-		content.WriteString(m.renderSplitNetworkGraph(m.networkHistory, width-2, chartHeight))
-	}
-
-	// Add totals at bottom
-	content.WriteString("\n" + bottomLine)
-
-	// Ensure content exactly fills inner height to prevent shrinking
-	contentStr := content.String()
-	contentHeight := lipgloss.Height(contentStr)
-
-	// Add padding to reach exactly innerHeight lines
-	if contentHeight < innerHeight {
-		padding := strings.Repeat("\n", innerHeight-contentHeight)
-		contentStr = contentStr + padding
-	} else if contentHeight > innerHeight {
-		// If too tall, truncate to fit
-		lines := strings.Split(contentStr, "\n")
-		contentStr = strings.Join(lines[:innerHeight], "\n")
-	}
-
-	return style.Render(contentStr)
-}
-
-func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
-	if m.lastTableWidth == totalWidth {
-		return
-	}
-	m.lastTableWidth = totalWidth
-
-	bordersPadding := 16
-	availableWidth := totalWidth - bordersPadding
-
-	pidWidth := 5
-	userWidth := 6
-	cpuWidth := 5
-	memWidth := 13
-
-	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
-	if availableWidth < fixedColumnsWidth+10 {
-		pidWidth = 5
-		userWidth = 6
-		cpuWidth = 5
-		memWidth = 11
-		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
-	}
-
-	minCommandWidth := 15
-	minFullCommandWidth := 20
-	remainingWidth := availableWidth - fixedColumnsWidth
-
-	var columns []table.Column
-	switch {
-	case remainingWidth >= minCommandWidth+minFullCommandWidth+2:
-		commandWidth := minCommandWidth
-		fullCommandWidth := remainingWidth - commandWidth
-		if fullCommandWidth > 60 {
-			fullCommandWidth = 60
-			commandWidth = remainingWidth - fullCommandWidth
-		}
-		columns = []table.Column{
-			{Title: "PID", Width: pidWidth},
-			{Title: "USER", Width: userWidth},
-			{Title: "CPU%", Width: cpuWidth},
-			{Title: "MEM%", Width: memWidth},
-			{Title: "COMMAND", Width: commandWidth},
-			{Title: "FULL COMMAND", Width: fullCommandWidth},
-		}
-	default:
-		commandWidth := remainingWidth
-		if commandWidth < 8 {
-			commandWidth = 8
-		}
-		if commandWidth > 80 {
-			commandWidth = 80
-		}
-		columns = []table.Column{
-			{Title: "PID", Width: pidWidth},
-			{Title: "USER", Width: userWidth},
-			{Title: "CPU%", Width: cpuWidth},
-			{Title: "MEM%", Width: memWidth},
-			{Title: "COMMAND", Width: commandWidth},
 		}
 	}
 
-	m.processTable.SetRows([]table.Row{})
-	m.processTable.SetColumns(columns)
-	m.processTable.UpdateViewport()
-	m.updateProcessTable()
-}
+	selected := lipgloss.NewStyle().
+		Background(lipgloss.Color(colors.UI.SelectionBackground)).
+		Foreground(lipgloss.Color(colors.UI.SelectionText)).
+		Padding(0, 1)
+	normal := lipgloss.NewStyle().Padding(0, 1)
 
-func (m *ResponsiveTUIModel) formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%dB", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f%c", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func (m *ResponsiveTUIModel) truncate(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 2 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-2] + ".."
-}
-
-func (m *ResponsiveTUIModel) renderSplitNetworkGraph(history []NetworkSample, width, height int) string {
-	if len(history) == 0 || width < 10 || height < 3 {
-		return strings.Repeat("─", width) + "\n"
-	}
-
-	var maxRxRate, maxTxRate float64
-	for _, sample := range history {
-		if sample.rxRate > maxRxRate {
-			maxRxRate = sample.rxRate
-		}
-		if sample.txRate > maxTxRate {
-			maxTxRate = sample.txRate
-		}
-	}
-
-	if maxRxRate == 0 && maxTxRate == 0 {
-		return strings.Repeat("─", width) + "\n"
-	}
-
-	if maxRxRate > 0 && maxRxRate < 1024 {
-		maxRxRate = 1024
-	}
-	if maxTxRate > 0 && maxTxRate < 1024 {
-		maxTxRate = 1024
-	}
-
-	centerLine := height / 2
-	upRows := centerLine
-	downRows := height - centerLine - 1
-
-	var result strings.Builder
-	result.Grow(width * height * 4)
-
-	samplesPerCol := 1
-	if len(history) > width {
-		samplesPerCol = (len(history) + width - 1) / width
-	}
-
-	downChar := m.cachedNetDownChar
-	upChar := m.cachedNetUpChar
-	if downChar == "" || upChar == "" {
-		m.getColors()
-		downChar = m.cachedNetDownChar
-		upChar = m.cachedNetUpChar
-	}
-
-	for row := 0; row < height; row++ {
-		if row == centerLine {
-			result.WriteString(strings.Repeat("─", width))
-			if row < height-1 {
-				result.WriteString("\n")
-			}
+	var parts []string
+	for i, opt := range []string{"Kill (SIGTERM)", "Force Kill (SIGKILL)"} {
+		if i == m.killConfirmSelection {
+			parts = append(parts, selected.Render(opt))
 			continue
 		}
-
-		for col := 0; col < width; col++ {
-			histIdx := col * samplesPerCol
-			if histIdx >= len(history) {
-				result.WriteString(" ")
-				continue
-			}
-
-			var avgRx, avgTx float64
-			sampleCount := 0
-			for i := 0; i < samplesPerCol && histIdx+i < len(history); i++ {
-				sample := history[histIdx+i]
-				avgRx += sample.rxRate
-				avgTx += sample.txRate
-				sampleCount++
-			}
-			if sampleCount > 0 {
-				avgRx /= float64(sampleCount)
-				avgTx /= float64(sampleCount)
-			}
-
-			switch {
-			case row < centerLine:
-				downloadHeight := int((avgRx / maxRxRate) * float64(upRows))
-				if downloadHeight >= (upRows - row) {
-					result.WriteString(downChar)
-				} else {
-					result.WriteString(" ")
-				}
-			default:
-				uploadHeight := int((avgTx / maxTxRate) * float64(downRows))
-				if uploadHeight >= (row - centerLine) {
-					result.WriteString(upChar)
-				} else {
-					result.WriteString(" ")
-				}
-			}
-		}
-		if row < height-1 {
-			result.WriteString("\n")
-		}
+		parts = append(parts, normal.Render(opt))
 	}
 
-	return result.String()
-}
-
-func (m *ResponsiveTUIModel) selectBestNetworkInterface(interfaces []*models.NetworkRateInfo) *models.NetworkRateInfo {
-	if len(interfaces) == 0 {
-		return nil
-	}
-
-	var candidates []*models.NetworkRateInfo
-
-	for _, iface := range interfaces {
-		if iface.Interface == "lo" ||
-			strings.HasPrefix(iface.Interface, "docker") ||
-			strings.HasPrefix(iface.Interface, "br-") ||
-			strings.HasPrefix(iface.Interface, "veth") {
-			continue
-		}
-		candidates = append(candidates, iface)
-	}
-
-	if len(candidates) == 0 {
-		for _, iface := range interfaces {
-			if iface.Interface != "lo" {
-				return iface
-			}
-		}
-		return interfaces[0]
-	}
-
-	var bestInterface *models.NetworkRateInfo
-	var maxActivity uint64
-
-	for _, iface := range candidates {
-		totalActivity := iface.RxTotal + iface.TxTotal
-		currentActivity := uint64(iface.RxRate + iface.TxRate)
-
-		score := totalActivity
-		if currentActivity > 0 {
-			score += currentActivity * 1000
-		}
-
-		if bestInterface == nil || score > maxActivity {
-			bestInterface = iface
-			maxActivity = score
-		}
-	}
-
-	return bestInterface
-}
-
-func (m *ResponsiveTUIModel) getSelectedInterfaceName() string {
-	if m.selectedInterfaceName != "" {
-		return strings.ToUpper(m.selectedInterfaceName)
-	}
-	return "NETWORK"
+	return fmt.Sprintf("Kill PID %d (%s)?  %s  ESC cancel", m.killConfirmPID, procName, strings.Join(parts, " "))
 }

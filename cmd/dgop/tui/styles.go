@@ -9,21 +9,8 @@ func (m *ResponsiveTUIModel) getColors() *models.ColorPalette {
 	if m.cachedColors != nil {
 		return m.cachedColors
 	}
-	if m.colorManager != nil {
-		m.cachedColors = m.colorManager.GetPalette()
-	} else {
-		m.cachedColors = models.DefaultColorPalette()
-	}
-	m.updateCachedNetChars()
+	m.refreshColorCache()
 	return m.cachedColors
-}
-
-func (m *ResponsiveTUIModel) updateCachedNetChars() {
-	if m.cachedColors == nil {
-		return
-	}
-	m.cachedNetDownChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkDownload)).Render("█")
-	m.cachedNetUpChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkUpload)).Render("▓")
 }
 
 func (m *ResponsiveTUIModel) refreshColorCache() {
@@ -32,7 +19,8 @@ func (m *ResponsiveTUIModel) refreshColorCache() {
 	} else {
 		m.cachedColors = models.DefaultColorPalette()
 	}
-	m.updateCachedNetChars()
+	m.cachedNetDownChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkDownload)).Render("█")
+	m.cachedNetUpChar = lipgloss.NewStyle().Foreground(lipgloss.Color(m.cachedColors.Charts.NetworkUpload)).Render("▓")
 }
 
 func (m *ResponsiveTUIModel) panelStyle(width, height int) lipgloss.Style {
@@ -75,29 +63,25 @@ func (m *ResponsiveTUIModel) getProgressBarColor(usage float64, colorType string
 	colors := m.getColors()
 
 	switch colorType {
-	case "memory":
-		if usage > 80 {
-			return colors.ProgressBars.MemoryHigh
-		} else if usage > 60 {
-			return colors.ProgressBars.MemoryMedium
-		}
-		return colors.ProgressBars.MemoryLow
-	case "disk":
-		if usage > 90 {
-			return colors.ProgressBars.DiskHigh
-		} else if usage > 70 {
-			return colors.ProgressBars.DiskMedium
-		}
-		return colors.ProgressBars.DiskLow
 	case "cpu":
-		if usage > 80 {
-			return colors.ProgressBars.CPUHigh
-		} else if usage > 60 {
-			return colors.ProgressBars.CPUMedium
-		}
-		return colors.ProgressBars.CPULow
+		return pickByThreshold(usage, 80, 60, colors.ProgressBars.CPUHigh, colors.ProgressBars.CPUMedium, colors.ProgressBars.CPULow)
+	case "memory":
+		return pickByThreshold(usage, 80, 60, colors.ProgressBars.MemoryHigh, colors.ProgressBars.MemoryMedium, colors.ProgressBars.MemoryLow)
+	case "disk":
+		return pickByThreshold(usage, 90, 70, colors.ProgressBars.DiskHigh, colors.ProgressBars.DiskMedium, colors.ProgressBars.DiskLow)
 	default:
 		return colors.ProgressBars.MemoryLow
+	}
+}
+
+func pickByThreshold(value, high, medium float64, highColor, mediumColor, lowColor string) string {
+	switch {
+	case value > high:
+		return highColor
+	case value > medium:
+		return mediumColor
+	default:
+		return lowColor
 	}
 }
 

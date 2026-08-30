@@ -11,21 +11,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	maxNetHistory  = 60
+	maxDiskHistory = 60
+	maxCPUHistory  = 300
+)
+
 type NetworkSample struct {
-	timestamp time.Time
-	rxBytes   uint64
-	txBytes   uint64
-	rxRate    float64
-	txRate    float64
+	rxBytes uint64
+	txBytes uint64
+	rxRate  float64
+	txRate  float64
 }
 
 type DiskSample struct {
-	timestamp  time.Time
-	readBytes  uint64
-	writeBytes uint64
-	readRate   float64
-	writeRate  float64
-	device     string
+	readRate  float64
+	writeRate float64
 }
 
 type tickMsg time.Time
@@ -66,16 +67,15 @@ type ResponsiveTUIModel struct {
 	diskMounts []*models.DiskMountInfo
 
 	networkHistory        []NetworkSample
-	maxNetHistory         int
 	networkCursor         string
 	lastNetworkUpdate     time.Time
 	selectedInterfaceName string
 
 	diskHistory    []DiskSample
-	maxDiskHistory int
 	diskCursor     string
 	lastDiskUpdate time.Time
 
+	cpuHistory []float64
 	cpuCursor  string
 	procCursor string
 
@@ -83,7 +83,6 @@ type ResponsiveTUIModel struct {
 	lastTempUpdate     time.Time
 
 	sortBy          gops.ProcSortBy
-	procLimit       int
 	ready           bool
 	showDetails     bool
 	selectedPID     int32
@@ -91,10 +90,6 @@ type ResponsiveTUIModel struct {
 
 	distroLogo  []string
 	distroColor string
-
-	logoTestMode     bool
-	currentLogoIndex int
-	lastLogoUpdate   time.Time
 
 	hideCPUCores   bool
 	summarizeCores bool
@@ -136,7 +131,6 @@ func (m *ResponsiveTUIModel) action(key string) models.KeyAction {
 	return m.keybinds[key]
 }
 
-// hint returns a representative key for an action, for display in help text.
 func (m *ResponsiveTUIModel) hint(action models.KeyAction) string {
 	if m.keybindManager != nil {
 		return m.keybindManager.PrimaryKey(action)

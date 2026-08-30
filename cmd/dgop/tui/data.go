@@ -45,8 +45,8 @@ func killProcess(pid int32, force bool) tea.Cmd {
 			sig = syscall.SIGKILL
 			sigName = "SIGKILL"
 		}
-		err := syscall.Kill(int(pid), sig)
-		if err != nil {
+
+		if err := syscall.Kill(int(pid), sig); err != nil {
 			return processKillResultMsg{message: fmt.Sprintf("Failed to kill PID %d: %v", pid, err)}
 		}
 		return processKillResultMsg{message: fmt.Sprintf("Sent %s to PID %d", sigName, pid)}
@@ -54,64 +54,55 @@ func killProcess(pid int32, force bool) tea.Cmd {
 }
 
 func (m *ResponsiveTUIModel) fetchData() tea.Cmd {
+	params := gops.MetaParams{
+		SortBy:        m.sortBy,
+		EnableCPU:     true,
+		MergeChildren: m.mergeChildren,
+		CPUCursor:     m.cpuCursor,
+		ProcCursor:    m.procCursor,
+	}
 	generation := m.fetchGeneration
-	cpuCursor := m.cpuCursor
-	procCursor := m.procCursor
-	sortBy := m.sortBy
-	procLimit := m.procLimit
-	mergeChildren := m.mergeChildren
-	return func() tea.Msg {
-		params := gops.MetaParams{
-			SortBy:        sortBy,
-			ProcLimit:     procLimit,
-			EnableCPU:     true,
-			MergeChildren: mergeChildren,
-			CPUCursor:     cpuCursor,
-			ProcCursor:    procCursor,
-		}
 
+	return func() tea.Msg {
 		modules := []string{"cpu", "memory", "system", "processes"}
 		metrics, err := m.gops.GetMeta(context.Background(), modules, params)
-
 		if err != nil {
 			return fetchDataMsg{err: err, generation: generation}
 		}
 
-		systemMetrics := &models.SystemMetrics{
-			CPU:        metrics.CPU,
-			Memory:     metrics.Memory,
-			System:     metrics.System,
-			Network:    metrics.Network,
-			Disk:       metrics.Disk,
-			DiskMounts: nil,
-			Processes:  metrics.Processes,
-		}
-
-		newCPUCursor := ""
+		cpuCursor := ""
 		if metrics.CPU != nil {
-			newCPUCursor = metrics.CPU.Cursor
+			cpuCursor = metrics.CPU.Cursor
 		}
 
 		return fetchDataMsg{
-			metrics:    systemMetrics,
-			err:        nil,
+			metrics: &models.SystemMetrics{
+				CPU:       metrics.CPU,
+				Memory:    metrics.Memory,
+				System:    metrics.System,
+				Network:   metrics.Network,
+				Disk:      metrics.Disk,
+				Processes: metrics.Processes,
+			},
 			generation: generation,
-			cpuCursor:  newCPUCursor,
+			cpuCursor:  cpuCursor,
 			procCursor: metrics.Cursor,
 		}
 	}
 }
 
 func (m *ResponsiveTUIModel) fetchNetworkData() tea.Cmd {
+	cursor := m.networkCursor
 	return func() tea.Msg {
-		rates, err := m.gops.GetNetworkRates(m.networkCursor)
+		rates, err := m.gops.GetNetworkRates(cursor)
 		return fetchNetworkMsg{rates: rates, err: err}
 	}
 }
 
 func (m *ResponsiveTUIModel) fetchDiskData() tea.Cmd {
+	cursor := m.diskCursor
 	return func() tea.Msg {
-		rates, err := m.gops.GetDiskRates(m.diskCursor)
+		rates, err := m.gops.GetDiskRates(cursor)
 		return fetchDiskMsg{rates: rates, err: err}
 	}
 }

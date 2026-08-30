@@ -67,7 +67,8 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 
 	columns := m.processTable.Columns()
 	numCols := len(columns)
-	var commandWidth, fullCommandWidth int
+	commandWidth := 30
+	fullCommandWidth := 0
 
 	switch {
 	case numCols == 6:
@@ -75,8 +76,6 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 		fullCommandWidth = columns[5].Width
 	case numCols > 4:
 		commandWidth = columns[4].Width
-	default:
-		commandWidth = 30
 	}
 
 	rows := make([]table.Row, 0, len(processes))
@@ -87,33 +86,15 @@ func (m *ResponsiveTUIModel) updateProcessTable() {
 			selectedIndex = i
 		}
 
-		memGB := float64(proc.MemoryKB) / 1048576
-		var memStr string
-		if memGB >= 1.0 {
-			memStr = fmt.Sprintf("%.1f%% %.1fG", proc.MemoryPercent, memGB)
-		} else {
-			memStr = fmt.Sprintf("%.1f%% %.0fM", proc.MemoryPercent, memGB*1024)
+		row := table.Row{
+			strconv.Itoa(int(proc.PID)),
+			truncate(proc.Username, 12),
+			fmt.Sprintf("%.1f", proc.CPU),
+			fmt.Sprintf("%.1f%% %s", proc.MemoryPercent, formatKB(proc.MemoryKB)),
+			truncate(proc.Command, commandWidth),
 		}
-
-		var row table.Row
-		switch numCols {
-		case 6:
-			row = table.Row{
-				strconv.Itoa(int(proc.PID)),
-				truncateString(proc.Username, 12),
-				fmt.Sprintf("%.1f", proc.CPU),
-				memStr,
-				truncateString(proc.Command, commandWidth),
-				truncateString(proc.FullCommand, fullCommandWidth),
-			}
-		default:
-			row = table.Row{
-				strconv.Itoa(int(proc.PID)),
-				truncateString(proc.Username, 12),
-				fmt.Sprintf("%.1f", proc.CPU),
-				memStr,
-				truncateString(proc.Command, commandWidth),
-			}
+		if numCols == 6 {
+			row = append(row, truncate(proc.FullCommand, fullCommandWidth))
 		}
 		rows = append(rows, row)
 	}
@@ -141,7 +122,6 @@ func (m *ResponsiveTUIModel) sortProcessesLocally() {
 	}
 
 	processes := m.metrics.Processes
-
 	switch m.sortBy {
 	case gops.SortByCPU:
 		sort.Slice(processes, func(i, j int) bool {
@@ -160,6 +140,137 @@ func (m *ResponsiveTUIModel) sortProcessesLocally() {
 			return processes[i].PID < processes[j].PID
 		})
 	}
+}
 
-	m.metrics.Processes = processes
+func (m *ResponsiveTUIModel) renderProcessPanel(width, height int) string {
+	style := m.panelStyle(width, height)
+
+	sortIndicator := ""
+	switch m.sortBy {
+	case gops.SortByCPU:
+		sortIndicator = " ↓CPU"
+	case gops.SortByMemory:
+		sortIndicator = " ↓MEM"
+	case gops.SortByName:
+		sortIndicator = " ↓NAME"
+	case gops.SortByPID:
+		sortIndicator = " ↓PID"
+	}
+
+	groupIndicator := ""
+	if m.mergeChildren {
+		groupIndicator = " [grouped]"
+	}
+
+	searchIndicator := ""
+	if !m.searchActive && m.searchQuery != "" {
+		searchIndicator = " /" + m.searchQuery
+	}
+
+	title := fmt.Sprintf("PROCESSES (%d)%s%s%s", len(m.visibleProcesses()), sortIndicator, groupIndicator, searchIndicator)
+
+	tableHeight := max(
+		// borders + title line
+		height-3, 3)
+
+	m.updateProcessColumnWidthsForPanel(width - 4)
+	m.processTable.SetHeight(tableHeight)
+
+	return style.Render(m.titleStyle().Render(title) + "\n" + m.processTable.View())
+}
+
+func (m *ResponsiveTUIModel) renderProcessDetailsPanel(width, height int) string {
+	style := m.panelStyle(width, height)
+	innerHeight := height - 2
+	title := m.titleStyle().Render("PROCESS DETAILS")
+
+	visible := m.visibleProcesses()
+	if len(visible) == 0 {
+		return style.Render(fitHeight(title+"\nLoading process data...", innerHeight))
+	}
+
+	idx := m.processTable.Cursor()
+	if idx >= len(visible) {
+		return style.Render(fitHeight(title+"\nNo process selected", innerHeight))
+	}
+
+	proc := visible[idx]
+	var content strings.Builder
+	content.WriteString(title)
+	content.WriteByte('\n')
+	fmt.Fprintf(&content, "PID: %d  PPID: %d  USER: %s\n", proc.PID, proc.PPID, proc.Username)
+	fmt.Fprintf(&content, "CPU: %.1f%%  Memory: %.1f%% (%s)\n", proc.CPU, proc.MemoryPercent, formatKB(proc.MemoryKB))
+
+	if proc.RSSKB > 0 || proc.PSSKB > 0 {
+		fmt.Fprintf(&content, "RSS: %s  PSS: %s\n", formatKB(proc.RSSKB), formatKB(proc.PSSKB))
+	}
+	if proc.ChildCount > 0 {
+		fmt.Fprintf(&content, "Children: %d\n", proc.ChildCount)
+	}
+	if proc.ExecutablePath != "" {
+		fmt.Fprintf(&content, "Exe: %s\n", truncate(proc.ExecutablePath, width-10))
+	}
+
+	fmt.Fprintf(&content, "Command: %s\n", proc.Command)
+	content.WriteString(wrapText("Full Command: "+proc.FullCommand, width-6))
+
+	return style.Render(fitHeight(content.String(), innerHeight))
+}
+
+func (m *ResponsiveTUIModel) updateProcessColumnWidthsForPanel(totalWidth int) {
+	if m.lastTableWidth == totalWidth {
+		return
+	}
+	m.lastTableWidth = totalWidth
+
+	bordersPadding := 16
+	availableWidth := totalWidth - bordersPadding
+
+	pidWidth := 5
+	userWidth := 6
+	cpuWidth := 5
+	memWidth := 13
+
+	fixedColumnsWidth := pidWidth + userWidth + cpuWidth + memWidth
+	if availableWidth < fixedColumnsWidth+10 {
+		memWidth = 11
+		fixedColumnsWidth = pidWidth + userWidth + cpuWidth + memWidth
+	}
+
+	minCommandWidth := 15
+	minFullCommandWidth := 20
+	remainingWidth := availableWidth - fixedColumnsWidth
+
+	var columns []table.Column
+	switch {
+	case remainingWidth >= minCommandWidth+minFullCommandWidth+2:
+		commandWidth := minCommandWidth
+		fullCommandWidth := remainingWidth - commandWidth
+		if fullCommandWidth > 60 {
+			fullCommandWidth = 60
+			commandWidth = remainingWidth - fullCommandWidth
+		}
+		columns = []table.Column{
+			{Title: "PID", Width: pidWidth},
+			{Title: "USER", Width: userWidth},
+			{Title: "CPU%", Width: cpuWidth},
+			{Title: "MEM%", Width: memWidth},
+			{Title: "COMMAND", Width: commandWidth},
+			{Title: "FULL COMMAND", Width: fullCommandWidth},
+		}
+	default:
+		commandWidth := min(max(remainingWidth, 8), 80)
+		columns = []table.Column{
+			{Title: "PID", Width: pidWidth},
+			{Title: "USER", Width: userWidth},
+			{Title: "CPU%", Width: cpuWidth},
+			{Title: "MEM%", Width: memWidth},
+			{Title: "COMMAND", Width: commandWidth},
+		}
+	}
+
+	m.processTable.SetRows([]table.Row{})
+	m.processTable.SetColumns(columns)
+	m.processTable.UpdateViewport()
+	m.updateProcessTable()
 }
