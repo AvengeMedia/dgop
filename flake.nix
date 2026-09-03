@@ -55,7 +55,7 @@
         {
           dgop = (pkgs.buildGoModule.override { go = goForPkgs pkgs; }) (finalAttrs: {
             pname = "dgop";
-            version = "0.1.11";
+            version = "1.6.0";
             src = ./.;
             vendorHash = "sha256-agVGh6togqHNCU7/3xDnmfF6bNlm2TAnXw5JhhUivgs=";
 
