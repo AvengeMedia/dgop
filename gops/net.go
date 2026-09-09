@@ -7,7 +7,7 @@ func (self *GopsUtil) GetNetworkInfo() ([]*models.NetworkInfo, error) {
 	res := make([]*models.NetworkInfo, 0)
 	if err == nil {
 		for _, n := range netIO {
-			// Filter to match bash script (wlan, wlo, wlp, eth, eno, enp, ens, lxc)
+			// Filter to match bash script (wlan, wlo, wlp, eth, eno, enp, ens, lxc, wld)
 			if matchesNetworkInterface(n.Name) {
 				res = append(res, &models.NetworkInfo{
 					Name: n.Name,
