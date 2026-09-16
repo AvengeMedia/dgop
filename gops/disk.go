@@ -2,6 +2,7 @@ package gops
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/AvengeMedia/dgop/models"
 )
@@ -38,7 +39,8 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 			continue
 		}
 
-		if _, dup := seen[p.Device]; dup {
+		identity := mountIdentity(p.Device, p.Mountpoint)
+		if _, dup := seen[identity]; dup {
 			continue
 		}
 
@@ -47,7 +49,7 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 			continue
 		}
 
-		seen[p.Device] = struct{}{}
+		seen[identity] = struct{}{}
 		metrics = append(metrics, &models.DiskMountInfo{
 			Device:  p.Device,
 			Mount:   p.Mountpoint,
@@ -60,6 +62,15 @@ func (self *GopsUtil) GetDiskMounts() ([]*models.DiskMountInfo, error) {
 	}
 
 	return metrics, nil
+}
+
+// Non-block sources (FUSE, overlay, nfs) name the filesystem, not the mount, so
+// independent mounts collide on Device alone.
+func mountIdentity(device, mountpoint string) string {
+	if strings.HasPrefix(device, "/") {
+		return device
+	}
+	return device + " " + mountpoint
 }
 
 func formatBytes(bytes uint64) string {

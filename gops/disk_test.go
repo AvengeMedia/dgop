@@ -114,3 +114,53 @@ func TestGetDiskMountsSkipsFailedUsage(t *testing.T) {
 	require.Len(t, mounts, 1)
 	assert.Equal(t, "/dev/sda2", mounts[0].Device)
 }
+
+func TestGetDiskMountsKeepsFuseMountsSharingFilesystemName(t *testing.T) {
+	mockDisk := mocks.NewMockDiskInfoProvider(t)
+
+	mockDisk.EXPECT().Partitions(true).Return([]disk.PartitionStat{
+		{Device: "fuse-overlayfs", Mountpoint: "/run/user/1000/psd/chromium", Fstype: "fuse.fuse-overlayfs", Opts: []string{"rw"}},
+		{Device: "fuse-overlayfs", Mountpoint: "/run/user/1000/psd/zen-default", Fstype: "fuse.fuse-overlayfs", Opts: []string{"rw"}},
+		{Device: "fuse-overlayfs", Mountpoint: "/run/user/1000/psd/zen-work", Fstype: "fuse.fuse-overlayfs", Opts: []string{"rw"}},
+	}, nil)
+
+	usage := &disk.UsageStat{
+		Total: 2 * 1024 * 1024 * 1024,
+		Used:  1 * 1024 * 1024 * 1024,
+		Free:  1 * 1024 * 1024 * 1024,
+	}
+	mockDisk.EXPECT().Usage("/run/user/1000/psd/chromium").Return(usage, nil)
+	mockDisk.EXPECT().Usage("/run/user/1000/psd/zen-default").Return(usage, nil)
+	mockDisk.EXPECT().Usage("/run/user/1000/psd/zen-work").Return(usage, nil)
+
+	g := &GopsUtil{diskProvider: mockDisk}
+	mounts, err := g.GetDiskMounts()
+	require.NoError(t, err)
+
+	require.Len(t, mounts, 3)
+	assert.Equal(t, "/run/user/1000/psd/chromium", mounts[0].Mount)
+	assert.Equal(t, "/run/user/1000/psd/zen-default", mounts[1].Mount)
+	assert.Equal(t, "/run/user/1000/psd/zen-work", mounts[2].Mount)
+}
+
+func TestGetDiskMountsDedupesRepeatedNonBlockMountpoint(t *testing.T) {
+	mockDisk := mocks.NewMockDiskInfoProvider(t)
+
+	mockDisk.EXPECT().Partitions(true).Return([]disk.PartitionStat{
+		{Device: "tank/data", Mountpoint: "/mnt/data", Fstype: "zfs", Opts: []string{"rw"}},
+		{Device: "tank/data", Mountpoint: "/mnt/data", Fstype: "zfs", Opts: []string{"rw"}},
+	}, nil)
+
+	mockDisk.EXPECT().Usage("/mnt/data").Return(&disk.UsageStat{
+		Total: 10 * 1024 * 1024 * 1024,
+		Used:  4 * 1024 * 1024 * 1024,
+		Free:  6 * 1024 * 1024 * 1024,
+	}, nil).Once()
+
+	g := &GopsUtil{diskProvider: mockDisk}
+	mounts, err := g.GetDiskMounts()
+	require.NoError(t, err)
+
+	require.Len(t, mounts, 1)
+	assert.Equal(t, "tank/data", mounts[0].Device)
+}
