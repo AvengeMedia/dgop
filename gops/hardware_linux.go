@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/AvengeMedia/dgop/models"
 )
@@ -72,7 +73,21 @@ func getDistroName() string {
 	return "Unknown"
 }
 
+var (
+	scanGPUEntriesOnce sync.Once
+	scannedGPUEntries  []gpuEntry
+	scanGPUEntriesErr  error
+)
+
+// Scanning parses pci.ids for every device, so it runs once per process.
 func detectGPUEntries() ([]gpuEntry, error) {
+	scanGPUEntriesOnce.Do(func() {
+		scannedGPUEntries, scanGPUEntriesErr = scanGPUEntries()
+	})
+	return scannedGPUEntries, scanGPUEntriesErr
+}
+
+func scanGPUEntries() ([]gpuEntry, error) {
 	devices, err := filepath.Glob("/sys/bus/pci/devices/*")
 	if err != nil {
 		return nil, err
