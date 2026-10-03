@@ -10,6 +10,22 @@ type CPUInfo struct {
 	Total       []float64   `json:"total"`
 	Cores       [][]float64 `json:"cores"`
 	Cursor      string      `json:"cursor,omitempty"`
+
+	CoreFrequencies []float64 `json:"coreFrequencies,omitempty" doc:"Per-logical-CPU clock in MHz; 0 for offline CPUs"`
+	MinFrequency    float64   `json:"minFrequency,omitempty" doc:"Lowest supported clock in MHz"`
+	MaxFrequency    float64   `json:"maxFrequency,omitempty" doc:"Highest supported clock in MHz"`
+	Governor        string    `json:"governor,omitempty"`
+	EPP             string    `json:"epp,omitempty" doc:"Energy performance preference"`
+	PhysicalCores   int       `json:"physicalCores,omitempty"`
+	Cache           *CPUCache `json:"cache,omitempty"`
+}
+
+// CPUCache holds total cache sizes in bytes, summed over all instances.
+type CPUCache struct {
+	L1d uint64 `json:"l1d"`
+	L1i uint64 `json:"l1i"`
+	L2  uint64 `json:"l2"`
+	L3  uint64 `json:"l3"`
 }
 
 type CPUCursorData struct {

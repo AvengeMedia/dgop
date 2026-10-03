@@ -84,11 +84,7 @@ func readCoretempInput(dir string) (float64, string, bool) {
 }
 
 func readMilliCelsius(path string) (float64, bool) {
-	tempBytes, err := os.ReadFile(path)
-	if err != nil {
-		return 0, false
-	}
-	temp, err := strconv.Atoi(strings.TrimSpace(string(tempBytes)))
+	temp, err := strconv.Atoi(readTrimmed(path))
 	if err != nil {
 		return 0, false
 	}

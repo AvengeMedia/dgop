@@ -23,3 +23,5 @@ func isVirtualMount(path string) bool {
 func matchesDiskDevice(name string) bool {
 	return strings.HasPrefix(name, "disk")
 }
+
+const diskBusySupported = false

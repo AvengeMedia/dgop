@@ -22,6 +22,9 @@ type CPUTracker struct {
 	freqLastRead time.Time
 	freqValue    float64
 
+	static  cpuStatic
+	dynamic cpuDynamic
+
 	mu sync.RWMutex
 }
 
@@ -44,12 +47,14 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 			cpuTracker.cpuModel = info[0].ModelName
 			cpuTracker.cpuFreq = info[0].Mhz
 		}
+		cpuTracker.static = readCPUStaticLive()
 		cpuTracker.modelCached = true
 	}
 
 	now := time.Now()
 	if now.Sub(cpuTracker.freqLastRead) > 2*time.Second {
 		cpuTracker.freqValue = getCurrentCPUFreq()
+		cpuTracker.dynamic = readCPUDynamicLive()
 		cpuTracker.freqLastRead = now
 	}
 	if cpuTracker.freqValue > 0 {
@@ -57,6 +62,14 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	} else {
 		cpuInfo.Frequency = cpuTracker.cpuFreq
 	}
+
+	cpuInfo.CoreFrequencies = cpuTracker.dynamic.coreMHz
+	cpuInfo.Governor = cpuTracker.dynamic.governor
+	cpuInfo.EPP = cpuTracker.dynamic.epp
+	cpuInfo.MinFrequency = cpuTracker.static.minMHz
+	cpuInfo.MaxFrequency = cpuTracker.static.maxMHz
+	cpuInfo.PhysicalCores = cpuTracker.static.physicalCores
+	cpuInfo.Cache = cpuTracker.static.cache
 
 	cpuInfo.Count = cpuTracker.cpuCount
 	cpuInfo.Model = cpuTracker.cpuModel

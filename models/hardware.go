@@ -27,6 +27,7 @@ type GPU struct {
 	DisplayName string  `json:"displayName"`
 	FullName    string  `json:"fullName"`
 	PciId       string  `json:"pciId"`
+	PciSlot     string  `json:"pciSlot,omitempty"`
 	RawLine     string  `json:"rawLine"`
 	Temperature float64 `json:"temperature"`
 	Hwmon       string  `json:"hwmon"`

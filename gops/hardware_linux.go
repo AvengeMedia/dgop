@@ -130,6 +130,7 @@ func scanGPUEntries() ([]gpuEntry, error) {
 			Driver:   driver,
 			Vendor:   vendor,
 			RawLine:  rawLine,
+			BDF:      bdf,
 		})
 	}
 

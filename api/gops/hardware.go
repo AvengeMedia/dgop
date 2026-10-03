@@ -56,3 +56,23 @@ func (self *HandlerGroup) GPUTemp(ctx context.Context, input *GPUTempInput) (*GP
 
 	return &GPUTempResponse{Body: gpuTempInfo}, nil
 }
+
+type GPUStatsInput struct {
+	Cursor    string   `query:"cursor" doc:"Base64 cursor for rate calculation"`
+	GPUPciIds []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"Only read these GPUs; others are listed without stats. Omit for all"`
+}
+
+type GPUStatsResponse struct {
+	Body *models.GPUStatsInfo
+}
+
+// GET /gpu/stats
+func (self *HandlerGroup) GPUStats(ctx context.Context, input *GPUStatsInput) (*GPUStatsResponse, error) {
+	gpuStats, err := self.srv.Gops.GetGPUStats(input.Cursor, input.GPUPciIds)
+	if err != nil {
+		log.Error("Error getting GPU stats")
+		return nil, huma.Error500InternalServerError("Unable to retrieve GPU stats")
+	}
+
+	return &GPUStatsResponse{Body: gpuStats}, nil
+}

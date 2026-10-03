@@ -5,6 +5,7 @@ package gops
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -57,6 +58,8 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		usedPercent = float64(used) / float64(total) * 100
 	}
 
+	zramOrig, zramCompr := readZramStats("/sys/block")
+
 	return &models.MemoryInfo{
 		Total:        total,
 		Used:         used,
@@ -72,7 +75,33 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		GPUReclaim:   gpuReclaim,
 		SwapTotal:    v.SwapTotal / 1024,
 		SwapFree:     v.SwapFree / 1024,
+		ZramOrig:     zramOrig,
+		ZramCompr:    zramCompr,
 	}, nil
+}
+
+// readZramStats sums orig_data_size and compr_data_size (fields 1 and 2 of
+// mm_stat, bytes) over all zram devices under blockDir, returning KB.
+func readZramStats(blockDir string) (orig, compr uint64) {
+	paths, _ := filepath.Glob(filepath.Join(blockDir, "zram*", "mm_stat"))
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) < 2 {
+			continue
+		}
+		o, err1 := strconv.ParseUint(fields[0], 10, 64)
+		c, err2 := strconv.ParseUint(fields[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		orig += o / 1024
+		compr += c / 1024
+	}
+	return orig, compr
 }
 
 func readGPUMemStats() (active uint64, reclaim uint64) {

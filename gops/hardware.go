@@ -52,21 +52,19 @@ func (self *GopsUtil) GetGPUInfo() (*models.GPUInfo, error) {
 }
 
 func (self *GopsUtil) GetGPUInfoWithTemp(pciIds []string) (*models.GPUInfo, error) {
-	gpus, err := detectGPUs()
+	gpus, err := detectGPUsFn()
 	if err != nil {
 		return nil, err
 	}
 
 	if len(pciIds) > 0 {
 		for i, gpu := range gpus {
-			for _, pciId := range pciIds {
-				if gpu.PciId == pciId {
-					if tempInfo, err := self.GetGPUTemp(pciId); err == nil {
-						gpus[i].Temperature = tempInfo.Temperature
-						gpus[i].Hwmon = tempInfo.Hwmon
-					}
-					break
-				}
+			if !gpuEnabled(pciIds, gpu.PciId, gpu.PciSlot) {
+				continue
+			}
+			if tempInfo, err := gpuTempFn(self, gpu.PciId); err == nil {
+				gpus[i].Temperature = tempInfo.Temperature
+				gpus[i].Hwmon = tempInfo.Hwmon
 			}
 		}
 	}
@@ -119,6 +117,7 @@ type gpuEntry struct {
 	Driver   string
 	Vendor   string
 	RawLine  string
+	BDF      string
 }
 
 func inferVendorFromId(vendorId, driver string) string {
@@ -151,6 +150,7 @@ func detectGPUs() ([]models.GPU, error) {
 			DisplayName: displayName,
 			FullName:    fullName,
 			PciId:       pciId,
+			PciSlot:     entry.BDF,
 			RawLine:     entry.RawLine,
 			Temperature: 0,
 			Hwmon:       "unknown",

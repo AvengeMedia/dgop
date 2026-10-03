@@ -1,9 +1,12 @@
 package gops
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInferVendorFromId(t *testing.T) {
@@ -170,4 +173,28 @@ func BenchmarkInferVendor(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		inferVendor("nvidia", "NVIDIA GeForce RTX 3080")
 	}
+}
+
+func TestGPUPciSlotOmittedWhenEmpty(t *testing.T) {
+	out, err := json.Marshal(models.GPU{Driver: "amdgpu", PciId: "1002:744c"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "pciSlot")
+	for _, key := range []string{"driver", "vendor", "displayName", "fullName", "pciId", "rawLine", "temperature", "hwmon"} {
+		assert.Contains(t, string(out), `"`+key+`"`)
+	}
+
+	out, err = json.Marshal(models.GPU{PciSlot: "0000:0c:00.0"})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `"pciSlot":"0000:0c:00.0"`)
+}
+
+func TestGPUStatsOptionalKeys(t *testing.T) {
+	out, err := json.Marshal(models.GPUStats{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu", Vendor: "AMD", Name: "AMD Radeon"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"pciSlot":"0000:0c:00.0","pciId":"1002:744c","driver":"amdgpu","vendor":"AMD","name":"AMD Radeon"}`, string(out))
+
+	zero := 0.0
+	out, err = json.Marshal(models.GPUStats{Usage: &zero})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `"usage":0`)
 }

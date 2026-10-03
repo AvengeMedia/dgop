@@ -25,6 +25,8 @@ var (
 	procCursor     string
 	netRateCursor  string
 	diskRateCursor string
+	gpuStatsCursor string
+	allInterfaces  bool
 	hideCPUCores   bool
 	summarizeCores bool
 )
@@ -72,7 +74,12 @@ func init() {
 
 	netRateCmd.Flags().StringVar(&netRateCursor, "cursor", "", "Cursor from previous network rate request")
 
+	netRateCmd.Flags().BoolVar(&allInterfaces, "all-interfaces", false, "Include every interface (VPN, virtual) instead of filtering by name")
+
 	diskRateCmd.Flags().StringVar(&diskRateCursor, "cursor", "", "Cursor from previous disk rate request")
+
+	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
+	gpuStatsCmd.Flags().StringVar(&gpuStatsCursor, "cursor", "", "Cursor from previous GPU stats request")
 
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	processesCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
@@ -82,11 +89,13 @@ func init() {
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid)")
 	metaCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
-	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", []string{}, "PCI IDs for GPU temperatures (e.g., 10de:2684,1002:164e)")
+	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read for gpu-temp and gpu-stats (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
 	metaCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	metaCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
 	metaCmd.Flags().StringVar(&netRateCursor, "net-rate-cursor", "", "Network rate cursor from previous request")
 	metaCmd.Flags().StringVar(&diskRateCursor, "disk-rate-cursor", "", "Disk rate cursor from previous request")
+	metaCmd.Flags().StringVar(&gpuStatsCursor, "gpu-stats-cursor", "", "GPU stats cursor from previous request")
+	metaCmd.Flags().BoolVar(&allInterfaces, "all-interfaces", false, "Include every network interface in net-rate")
 	metaCmd.Flags().BoolVar(&mergeChildren, "merge-children", true, "Merge child processes with same executable")
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
@@ -140,6 +149,9 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 	rootCmd.AddCommand(modulesCmd)
 	rootCmd.AddCommand(netRateCmd)
 	rootCmd.AddCommand(diskRateCmd)
+	rootCmd.AddCommand(gpuStatsCmd)
+	rootCmd.AddCommand(sensorsCmd)
+	rootCmd.AddCommand(memoryModulesCmd)
 	rootCmd.AddCommand(topCmd)
 	rootCmd.AddCommand(serverCmd)
 
@@ -198,6 +210,18 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 
 	modulesCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runModulesCommand(gopsUtil)
+	}
+
+	gpuStatsCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runGPUStatsCommand(gopsUtil)
+	}
+
+	sensorsCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runSensorsCommand(gopsUtil)
+	}
+
+	memoryModulesCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runMemoryModulesCommand(gopsUtil)
 	}
 
 	topCmd.RunE = func(cmd *cobra.Command, args []string) error {

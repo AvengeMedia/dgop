@@ -29,7 +29,11 @@ type MetaInfo struct {
 	System     *SystemInfo          `json:"system,omitempty"`
 	Hardware   *SystemHardware      `json:"hardware,omitempty"`
 	GPU        *GPUInfo             `json:"gpu,omitempty"`
-	Cursor     string               `json:"cursor,omitempty"`
+
+	GPUStats      *GPUStatsInfo      `json:"gpustats,omitempty"`
+	Sensors       *SensorsInfo       `json:"sensors,omitempty"`
+	MemoryModules *MemoryModulesInfo `json:"memorymodules,omitempty"`
+	Cursor        string             `json:"cursor,omitempty"`
 }
 
 type ModulesInfo struct {

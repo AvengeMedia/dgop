@@ -1,0 +1,98 @@
+//go:build linux
+
+package gops
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const nvidiaSMIFixture = `00000000:01:00.0, 37, 1024, 8192, 1815, 2100, 7000, 7001, 64, 120.55, 200.00, 45, 4, 4, 16, 16
+00000000:0C:00.0, 0, 2, 24576, 210, 2520, 405, 10501, 38, [N/A], 450.00, [Not Supported], 1, 4, 8, 16
+`
+
+func TestParseNvidiaSMI(t *testing.T) {
+	got := parseNvidiaSMI(nvidiaSMIFixture)
+	require.Len(t, got, 2)
+
+	a := got["0000:01:00.0"]
+	assert.Equal(t, "0000:01:00.0", a.PciSlot)
+	assert.Equal(t, 37.0, *a.Usage)
+	assert.Equal(t, uint64(1024<<20), *a.VRAMUsed)
+	assert.Equal(t, uint64(8192<<20), *a.VRAMTotal)
+	assert.Equal(t, 1815.0, *a.CoreClock)
+	assert.Equal(t, 2100.0, *a.CoreClockMax)
+	assert.Equal(t, 7000.0, *a.MemClock)
+	assert.Equal(t, 64.0, *a.Temperature)
+	assert.Equal(t, 120.55, *a.Power)
+	assert.Equal(t, 200.0, *a.PowerLimit)
+	assert.Equal(t, 45.0, *a.FanPercent)
+	assert.Equal(t, "16.0 GT/s PCIe", a.PcieLinkSpeed)
+	assert.Equal(t, "16.0 GT/s PCIe", a.PcieLinkSpeedMax)
+	assert.Equal(t, 16, a.PcieLinkWidth)
+
+	b := got["0000:0c:00.0"]
+	assert.Nil(t, b.Power)
+	assert.Nil(t, b.FanPercent)
+	assert.Equal(t, 450.0, *b.PowerLimit)
+	assert.Equal(t, 0.0, *b.Usage)
+	assert.Equal(t, "2.5 GT/s PCIe", b.PcieLinkSpeed)
+	assert.Equal(t, 8, b.PcieLinkWidth)
+}
+
+func TestParseNvidiaSMIMalformed(t *testing.T) {
+	assert.Empty(t, parseNvidiaSMI(""))
+	assert.Empty(t, parseNvidiaSMI("\n\n"))
+	assert.Empty(t, parseNvidiaSMI("00000000:01:00.0, 37, 1024\n"))
+	assert.Empty(t, parseNvidiaSMI("garbage, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15\n"))
+	assert.Len(t, parseNvidiaSMI("bad\n"+nvidiaSMIFixture), 2)
+}
+
+func TestQueryNvidiaSMIAbsent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	assert.Nil(t, queryNvidiaSMI([]string{"0000:01:00.0"}))
+}
+
+func TestNvidiaSMIID(t *testing.T) {
+	assert.Equal(t, "00000000:01:00.0", nvidiaSMIID("0000:01:00.0"))
+	assert.Equal(t, "00000000:0C:00.0", nvidiaSMIID("0000:0c:00.0"))
+	assert.Equal(t, "00000000:0C:00.0", nvidiaSMIID("00000000:0c:00.0"))
+	assert.Equal(t, "00000001:0C:00.0", nvidiaSMIID("0001:0c:00.0"))
+}
+
+func TestQueryNvidiaSMIPerDeviceExec(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"--id=00000000:01:00.0) echo '00000000:01:00.0, 37, 1024, 8192, 1815, 2100, 7000, 7001, 64, 120.55, 200.00, 45, 4, 4, 16, 16';;\n" +
+		"--id=00000000:0C:00.0) echo '00000000:0C:00.0, 0, 2, 24576, 210, 2520, 405, 10501, 38, 10, 450.00, 30, 1, 4, 8, 16';;\n" +
+		"*) exit 1;;\nesac\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "nvidia-smi"), []byte(script), 0o755))
+	t.Setenv("PATH", dir)
+
+	got := queryNvidiaSMI([]string{"0000:01:00.0", "0000:09:00.0", "0000:0c:00.0"})
+	require.Len(t, got, 2)
+	assert.Contains(t, got, "0000:01:00.0")
+	assert.Contains(t, got, "0000:0c:00.0")
+
+	assert.Nil(t, queryNvidiaSMI(nil))
+	assert.Nil(t, queryNvidiaSMI([]string{"0000:09:00.0"}))
+}
+
+func TestQueryNvidiaSMIFallsBackWithoutID(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in --id*) exit 1;; esac\n" +
+		"echo '00000000:01:00.0, 37, 1024, 8192, 1815, 2100, 7000, 7001, 64, 120.55, 200.00, 45, 4, 4, 16, 16'\n" +
+		"echo '00000000:0C:00.0, 0, 2, 24576, 210, 2520, 405, 10501, 38, 10, 450.00, 30, 1, 4, 8, 16'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "nvidia-smi"), []byte(script), 0o755))
+	t.Setenv("PATH", dir)
+
+	got := queryNvidiaSMI([]string{"0000:01:00.0"})
+	require.Len(t, got, 1)
+	assert.Contains(t, got, "0000:01:00.0")
+}

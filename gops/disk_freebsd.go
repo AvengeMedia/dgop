@@ -32,3 +32,5 @@ func matchesDiskDevice(name string) bool {
 	}
 	return false
 }
+
+const diskBusySupported = false
