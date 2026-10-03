@@ -83,6 +83,12 @@ func (self *procGPUReader) read(pid int32) procGPU {
 	if err != nil {
 		return procGPU{}
 	}
+	return self.fromScan(pid, scan)
+}
+
+// fromScan derives a process's readings from an fd scan taken with the
+// reader's DRM nodes; the scan may also carry socket inodes.
+func (self *procGPUReader) fromScan(pid int32, scan procFDScan) procGPU {
 	if scan.ExcludedGPU {
 		// Usage on a GPU we must not query was not measured.
 		return procGPU{Unmonitored: true}

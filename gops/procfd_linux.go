@@ -17,6 +17,8 @@ type procFDScan struct {
 	// ExcludedGPU is set for an fd on a drmNodes node mapped to false: a GPU
 	// whose fdinfo must not be read. Only the fd link is looked at.
 	ExcludedGPU bool
+	// SocketInodes is filled only when sockets are requested.
+	SocketInodes []uint32
 }
 
 // scanProcFDs returns an error only when the fd directory itself is unreadable,
@@ -24,6 +26,11 @@ type procFDScan struct {
 // Only fdinfo of /dev/dri nodes mapped to true in drmNodes is read: reading it
 // runs the driver, which can resume a runtime-suspended GPU.
 func scanProcFDs(procRoot string, pid int32, drmNodes map[string]bool) (procFDScan, error) {
+	return scanProcFDsOpt(procRoot, pid, drmNodes, false)
+}
+
+// scanProcFDsOpt additionally collects socket inodes when sockets is set.
+func scanProcFDsOpt(procRoot string, pid int32, drmNodes map[string]bool, sockets bool) (procFDScan, error) {
 	pidDir := filepath.Join(procRoot, strconv.Itoa(int(pid)))
 	entries, err := os.ReadDir(filepath.Join(pidDir, "fd"))
 	if err != nil {
@@ -36,6 +43,12 @@ func scanProcFDs(procRoot string, pid int32, drmNodes map[string]bool) (procFDSc
 		if err == nil && isNvidiaGPUDevice(target) {
 			scan.NvidiaGPU = true
 			continue
+		}
+		if sockets && err == nil {
+			if inode, ok := parseSocketLink(target); ok {
+				scan.SocketInodes = append(scan.SocketInodes, inode)
+				continue
+			}
 		}
 		node, isDRM := strings.CutPrefix(target, "/dev/dri/")
 		if err != nil || !isDRM {
@@ -54,6 +67,15 @@ func scanProcFDs(procRoot string, pid int32, drmNodes map[string]bool) (procFDSc
 		}
 	}
 	return scan, nil
+}
+
+func parseSocketLink(target string) (uint32, bool) {
+	s, ok := strings.CutPrefix(target, "socket:[")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimSuffix(s, "]"), 10, 32)
+	return uint32(n), err == nil
 }
 
 func isNvidiaGPUDevice(path string) bool {

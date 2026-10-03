@@ -19,6 +19,7 @@ var (
 	disableProcCPU bool
 	mergeChildren  bool
 	procGPU        bool
+	procNet        bool
 	procIO         bool
 	metaModules    []string
 	gpuPciId       string
@@ -66,7 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&disableProcCPU, "no-cpu", false, "Disable CPU calculation for faster process listing")
 
-	allCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk)")
+	allCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
 	allCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	allCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	allCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
@@ -83,7 +84,7 @@ func init() {
 	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
 	gpuStatsCmd.Flags().StringVar(&gpuStatsCursor, "cursor", "", "Cursor from previous GPU stats request")
 
-	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk)")
+	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
 	processesCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	processesCmd.Flags().StringVar(&procCursor, "cursor", "", "Cursor from previous process request")
 	processesCmd.Flags().BoolVar(&mergeChildren, "merge-children", true, "Merge child processes with same executable")
@@ -91,9 +92,10 @@ func init() {
 	processesCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "With --gpu, only read these GPUs (e.g., 10de:2684); empty reads none, omitted reads all")
 	processesCmd.Flags().BoolVar(&procGPU, "gpu", false, "Include per-process GPU usage and VRAM")
 	processesCmd.Flags().BoolVar(&procIO, "io", false, "Include per-process disk read/write rates")
+	processesCmd.Flags().BoolVar(&procNet, "net", false, "Include per-process internet connections and TCP rates")
 
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
-	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk)")
+	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
 	metaCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
 	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read for gpu-temp, gpu-stats and process-gpu (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
 	metaCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
@@ -269,6 +271,8 @@ func parseProcessSortBy(sortBy string, cpuDisabled bool) gops.ProcSortBy {
 		return gops.SortByVRAM
 	case "disk":
 		return gops.SortByDisk
+	case "network":
+		return gops.SortByNetwork
 	default:
 		// Default behavior: CPU if enabled, memory if CPU disabled
 		if cpuDisabled {

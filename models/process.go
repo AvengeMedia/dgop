@@ -25,6 +25,16 @@ type ProcessInfo struct {
 	GPUUnmonitored bool     `json:"gpuUnmonitored,omitempty" doc:"True when the process holds a GPU that is excluded or suspended, so gpu and vramKB are deliberately not measured."`
 	DiskRead       *float64 `json:"diskRead,omitempty" doc:"Disk bytes read per second since the cursor."`
 	DiskWrite      *float64 `json:"diskWrite,omitempty" doc:"Disk bytes written per second since the cursor."`
+
+	Connections *int            `json:"connections,omitempty" doc:"Open sockets with an internet (non-local) remote, per process; merged rows sum their members."`
+	Remotes     []NetConnection `json:"remotes,omitempty" doc:"Internet remotes, capped at 32."`
+	NetRx       *float64        `json:"netRx,omitempty" doc:"TCP bytes received per second from internet remotes since the cursor."`
+	NetTx       *float64        `json:"netTx,omitempty" doc:"TCP bytes sent and acknowledged per second to internet remotes since the cursor."`
+}
+
+type NetConnection struct {
+	Protocol string `json:"protocol" doc:"tcp or udp."`
+	Remote   string `json:"remote" doc:"Remote address as ip:port, IPv6 bracketed."`
 }
 
 type ProcessCursorData struct {

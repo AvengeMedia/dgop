@@ -17,7 +17,7 @@ func TestGetModulesListsNewModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []string{"gpu-stats", "sensors", "memory-modules", "process-gpu", "process-io"} {
+	for _, m := range []string{"gpu-stats", "sensors", "memory-modules", "process-gpu", "process-io", "process-net"} {
 		if !slices.Contains(mods.Available, m) {
 			t.Errorf("module %q not listed", m)
 		}
@@ -176,6 +176,16 @@ func TestGetMetaTogglingModifiersKeepsCPURates(t *testing.T) {
 			t.Errorf("poll %d %v: own CPU rate lost: %+v", i, mods, row)
 		}
 		cursor = next.Cursor
+	}
+}
+
+func TestMetaParamsProcessOptionsNet(t *testing.T) {
+	opts, modifier := MetaParams{}.processOptions([]string{"process-net"})
+	if !opts.Net || opts.IO || opts.GPU || !modifier {
+		t.Fatalf("opts=%+v modifier=%v", opts, modifier)
+	}
+	if opts, _ := (MetaParams{}).processOptions([]string{"processes"}); opts.Net {
+		t.Fatal("Net enabled without process-net")
 	}
 }
 

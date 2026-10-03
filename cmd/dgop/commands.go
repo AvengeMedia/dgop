@@ -219,7 +219,7 @@ func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 
 	result, err := gopsUtil.GetProcessesWithOptions(gops.ProcessOptions{
 		SortBy: sortBy, Limit: procLimit, EnableCPU: enableCPU, Cursor: procCursor,
-		MergeChildren: mergeChildren, GPU: procGPU, GPUPciIds: metaGPUPciIds, IO: procIO,
+		MergeChildren: mergeChildren, GPU: procGPU, GPUPciIds: metaGPUPciIds, IO: procIO, Net: procNet,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
@@ -513,10 +513,11 @@ func displayDiskInfo(disks []*models.DiskInfo, mounts []*models.DiskMountInfo) {
 func displayProcesses(processes []*models.ProcessInfo) {
 	fmt.Println(titleStyle.Render(fmt.Sprintf("PROCESSES (%d)", len(processes))))
 
-	var hasGPU, hasIO bool
+	var hasGPU, hasIO, hasNet bool
 	for _, p := range processes {
 		hasGPU = hasGPU || p.GPU != nil || p.VRAMKB != nil
 		hasIO = hasIO || p.DiskRead != nil || p.DiskWrite != nil
+		hasNet = hasNet || p.Connections != nil || p.NetRx != nil || p.NetTx != nil
 	}
 
 	extraHdr := ""
@@ -525,6 +526,9 @@ func displayProcesses(processes []*models.ProcessInfo) {
 	}
 	if hasIO {
 		extraHdr += fmt.Sprintf("%-10s %-10s ", "READ", "WRITE")
+	}
+	if hasNet {
+		extraHdr += fmt.Sprintf("%-8s %-10s %-10s ", "ONLINE", "DOWN", "UP")
 	}
 
 	header := fmt.Sprintf("%-8s %-8s %-20s %-8s %-8s %s%s",
@@ -543,6 +547,13 @@ func displayProcesses(processes []*models.ProcessInfo) {
 		}
 		if hasIO {
 			extra += fmt.Sprintf("%-10s %-10s ", optRate(proc.DiskRead), optRate(proc.DiskWrite))
+		}
+		if hasNet {
+			online := "—"
+			if proc.Connections != nil {
+				online = strconv.Itoa(*proc.Connections)
+			}
+			extra += fmt.Sprintf("%-8s %-10s %-10s ", online, optRate(proc.NetRx), optRate(proc.NetTx))
 		}
 		row := fmt.Sprintf("%-8d %-8d %-20s %-8.1f %-8.1f %s%s",
 			proc.PID,

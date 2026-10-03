@@ -10,6 +10,7 @@ import (
 	"math"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -23,6 +24,10 @@ import (
 const (
 	cpuBaselineInterval   = 200 * time.Millisecond
 	maxCursorDecodedBytes = 4 << 20
+	maxProcRemotes        = 32
+	// A socket first seen with more bytes than this rate over the interval
+	// predates the previous sample, so its counters are not new traffic.
+	maxNewSocketBytesPerSec = 100e9 / 8
 )
 
 // A fresh gzip writer allocates ~850KB of flate hash tables, which is wasteful
@@ -49,16 +54,26 @@ type processCursorWire struct {
 	IOWrite []uint64 `json:"iow,omitempty"`
 	// Every PID whose GPU usage was sampled, with its engine clients ([] for none).
 	GPU map[int32][]gpuCursorClient `json:"g,omitzero"`
+	// Every PID whose sockets were sampled, with its internet TCP sockets as
+	// [inode, received, acked] ([] for none).
+	Net map[int32][][3]uint64 `json:"n,omitzero"`
+	// NetAt is when the socket dump behind Net was taken (Unix ms), shared by
+	// every PID in it, so rates use the dump interval rather than per-PID clocks.
+	NetAt int64 `json:"nt,omitempty"`
 }
 
 // processSample is one process's cursor entry. ioOK and gpuOK say whether the
-// sample holds disk counters and GPU clients; an unsampled extra has no rate.
+// sample holds disk counters and GPU clients, netOK its TCP sockets; an
+// unsampled extra has no rate.
 type processSample struct {
 	models.ProcessCursorData
 	ioOK  bool
 	io    [2]uint64
 	gpuOK bool
 	gpu   []gpuCursorClient
+	netOK bool
+	net   [][3]uint64
+	netAt int64
 }
 
 func encodeProcessCursor(entries []processSample) string {
@@ -86,6 +101,13 @@ func encodeProcessCursor(entries []processSample) string {
 				wire.GPU = map[int32][]gpuCursorClient{}
 			}
 			wire.GPU[e.PID] = append([]gpuCursorClient{}, e.gpu...)
+		}
+		if e.netOK {
+			if wire.Net == nil {
+				wire.Net = map[int32][][3]uint64{}
+			}
+			wire.Net[e.PID] = append([][3]uint64{}, e.net...)
+			wire.NetAt = e.netAt
 		}
 	}
 
@@ -136,6 +158,9 @@ func decodeProcessCursor(cursor string) map[int32]*processSample {
 			},
 		}
 		entries[i].gpu, entries[i].gpuOK = wire.GPU[pid]
+		if entries[i].net, entries[i].netOK = wire.Net[pid]; entries[i].netOK {
+			entries[i].netAt = wire.NetAt
+		}
 		out[pid] = &entries[i]
 	}
 	if len(wire.IORead) == len(wire.IOPIDs) && len(wire.IOWrite) == len(wire.IOPIDs) {
@@ -170,7 +195,8 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 }
 
 // ProcessOptions selects the process list. GPU adds GPU usage and VRAM, IO
-// adds disk read/write rates; both cost extra reads per process.
+// adds disk read/write rates, Net adds internet connections and TCP rates;
+// each costs extra reads per process.
 type ProcessOptions struct {
 	SortBy        ProcSortBy
 	Limit         int
@@ -181,21 +207,23 @@ type ProcessOptions struct {
 	// GPUPciIds limits GPU reads to the named GPUs; nil means all.
 	GPUPciIds []string
 	IO        bool
+	Net       bool
 }
 
 // processExtras reads the optional per-process counters into a sample.
 type processExtras struct {
 	gpu *procGPUReader
+	net *procNetReader
 	io  bool
 }
 
 // sample recovers like readProcessTimes, since the baseline pass calls it on
 // the request goroutine.
-func (self processExtras) sample(p *process.Process, s *processSample) (g procGPU) {
+func (self processExtras) sample(p *process.Process, s *processSample) (g procGPU, n procNet) {
 	defer func() {
 		if recover() != nil {
-			g = procGPU{}
-			s.ioOK, s.gpuOK = false, false
+			g, n = procGPU{}, procNet{}
+			s.ioOK, s.gpuOK, s.netOK = false, false, false
 		}
 	}()
 	if self.io {
@@ -203,14 +231,24 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 		read, write, s.ioOK = processDiskBytes(p)
 		s.io = [2]uint64{read, write}
 	}
-	if self.gpu == nil {
-		return procGPU{}
+	switch {
+	case self.gpu != nil && self.net != nil:
+		g, n = readGPUAndNet(self.gpu, self.net, p.Pid)
+	case self.gpu != nil:
+		g = self.gpu.read(p.Pid)
+	case self.net != nil:
+		n = self.net.read(p.Pid)
 	}
-	g = self.gpu.read(p.Pid)
 	if g.Readable && g.UsageKnown {
 		s.gpuOK, s.gpu = true, g.cursorClients()
 	}
-	return g
+	if n.Known {
+		s.netOK, s.netAt = true, self.net.dumpedAt
+		for _, c := range n.TCP {
+			s.net = append(s.net, [3]uint64{uint64(c.Inode), c.RxBytes, c.TxBytes})
+		}
+	}
+	return g, n
 }
 
 func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.ProcessListResponse, error) {
@@ -228,6 +266,9 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	if opts.GPU {
 		extras.gpu = newProcGPUReader(opts.GPUPciIds)
 	}
+	if opts.Net {
+		extras.net = newProcNetReader()
+	}
 
 	if enableCPU && len(cursorMap) == 0 {
 		for _, p := range procs {
@@ -244,6 +285,10 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 			cursorMap[p.Pid] = s
 		}
 		time.Sleep(cpuBaselineInterval)
+		if opts.Net {
+			// Socket counters come from the dump, so the baseline needs its own.
+			extras.net = newProcNetReader()
+		}
 	}
 
 	type procResult struct {
@@ -289,7 +334,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 					memInfo, _ := p.MemoryInfo()
 					times, _ := p.Times()
 					sample := processSample{ProcessCursorData: models.ProcessCursorData{PID: p.Pid, Timestamp: time.Now().UnixMilli()}}
-					gpu := extras.sample(p, &sample)
+					gpu, netInfo := extras.sample(p, &sample)
 					sampledAt := sample.Timestamp
 					username, _ := p.Username()
 					exePath, _ := p.Exe()
@@ -360,6 +405,12 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						StartTime:         startTime,
 					}
 					setProcessExtras(info, prev, &sample, gpu, created)
+					if netInfo.Known {
+						info.Connections = new(netInfo.Count)
+						for _, r := range netInfo.Remotes {
+							info.Remotes = append(info.Remotes, models.NetConnection{Protocol: r.Protocol, Remote: r.Remote})
+						}
+					}
 
 					results <- procResult{
 						index:   idx,
@@ -424,6 +475,40 @@ func setProcessExtras(info *models.ProcessInfo, prev, cur *processSample, gpu pr
 		write := float64(cur.io[1]-prev.io[1]) / elapsed.Seconds()
 		info.DiskRead, info.DiskWrite = &read, &write
 	}
+	if cur.netOK && prev.netOK && prev.netAt > 0 && cur.netAt > prev.netAt {
+		netElapsed := time.Duration(cur.netAt-prev.netAt) * time.Millisecond
+		rx, tx := tcpSocketDeltas(prev.net, cur.net, netElapsed)
+		rx, tx = rx/netElapsed.Seconds(), tx/netElapsed.Seconds()
+		info.NetRx, info.NetTx = &rx, &tx
+	}
+}
+
+// tcpSocketDeltas sums per-socket byte deltas. A socket missing from prev
+// opened during the interval and counts from zero, less the SYN that
+// bytes_acked includes; counters going backwards count as 0.
+func tcpSocketDeltas(prev, cur [][3]uint64, elapsed time.Duration) (rx, tx float64) {
+	before := make(map[uint64][3]uint64, len(prev))
+	for _, s := range prev {
+		before[s[0]] = s
+	}
+	limit := maxNewSocketBytesPerSec * elapsed.Seconds()
+	for _, s := range cur {
+		p, seen := before[s[0]]
+		if !seen {
+			if float64(s[1]) <= limit && float64(s[2]) <= limit {
+				rx += float64(s[1])
+				tx += float64(s[2] - min(s[2], 1))
+			}
+			continue
+		}
+		if s[1] >= p[1] {
+			rx += float64(s[1] - p[1])
+		}
+		if s[2] >= p[2] {
+			tx += float64(s[2] - p[2])
+		}
+	}
+	return rx, tx
 }
 
 func sortProcesses(procList []*models.ProcessInfo, sortBy ProcSortBy) {
@@ -456,6 +541,14 @@ func sortProcesses(procList []*models.ProcessInfo, sortBy ProcSortBy) {
 		sort.Slice(procList, func(i, j int) bool {
 			return knownGreater(diskTotal(procList[i]), diskTotal(procList[j]))
 		})
+	case SortByNetwork:
+		sort.Slice(procList, func(i, j int) bool {
+			a, b := procList[i].Connections, procList[j].Connections
+			if (a == nil) != (b == nil) || (a != nil && *a != *b) {
+				return knownGreater(a, b)
+			}
+			return knownGreater(netTotal(procList[i]), netTotal(procList[j]))
+		})
 	default:
 		sort.Slice(procList, func(i, j int) bool {
 			return procList[i].CPU > procList[j].CPU
@@ -464,7 +557,7 @@ func sortProcesses(procList []*models.ProcessInfo, sortBy ProcSortBy) {
 }
 
 // knownGreater orders descending with unknown values last.
-func knownGreater[T float64 | uint64](a, b *T) bool {
+func knownGreater[T int | float64 | uint64](a, b *T) bool {
 	if a == nil || b == nil {
 		return a != nil && b == nil
 	}
@@ -478,6 +571,13 @@ func diskTotal(p *models.ProcessInfo) *float64 {
 	return new(*p.DiskRead + *p.DiskWrite)
 }
 
+func netTotal(p *models.ProcessInfo) *float64 {
+	if p.NetRx == nil || p.NetTx == nil {
+		return nil
+	}
+	return new(*p.NetRx + *p.NetTx)
+}
+
 type ProcSortBy string
 
 const (
@@ -488,6 +588,8 @@ const (
 	SortByGPU    ProcSortBy = "gpu"
 	SortByVRAM   ProcSortBy = "vram"
 	SortByDisk   ProcSortBy = "disk"
+	// SortByNetwork orders by internet connections, then TCP rx+tx.
+	SortByNetwork ProcSortBy = "network"
 )
 
 // Register enum in OpenAPI specification
@@ -504,6 +606,7 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 			string(SortByGPU),
 			string(SortByVRAM),
 			string(SortByDisk),
+			string(SortByNetwork),
 		}...)
 		r.Map()["ProcSortBy"] = schemaRef
 	}
@@ -580,6 +683,14 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 			}
 			root.DiskRead = addKnown(root.DiskRead, p.DiskRead)
 			root.DiskWrite = addKnown(root.DiskWrite, p.DiskWrite)
+			root.Connections = addKnown(root.Connections, p.Connections)
+			root.NetRx = addKnown(root.NetRx, p.NetRx)
+			root.NetTx = addKnown(root.NetTx, p.NetTx)
+			if len(p.Remotes) > 0 {
+				// Clipped so the append never writes into the cloned row's array.
+				root.Remotes = append(slices.Clip(root.Remotes), p.Remotes...)
+				root.Remotes = root.Remotes[:min(len(root.Remotes), maxProcRemotes)]
+			}
 			root.ChildCount++
 		}
 	}
@@ -593,7 +704,7 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 
 // addKnown sums two possibly unknown values into a new allocation, since
 // merged roots share pointers with the rows they were cloned from.
-func addKnown[T float64 | uint64](sum, v *T) *T {
+func addKnown[T int | float64 | uint64](sum, v *T) *T {
 	switch {
 	case v == nil:
 		return sum
