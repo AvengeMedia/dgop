@@ -34,19 +34,39 @@ var cursorWriters = sync.Pool{
 	},
 }
 
-type processCursorWire struct {
+type processCursorBase struct {
 	BaseMillis   int64   `json:"t"`
 	PIDs         []int32 `json:"pid"`
 	CPUMillis    []int64 `json:"cpu"`
 	OffsetMillis []int64 `json:"dt"`
 }
 
-func encodeProcessCursor(entries []models.ProcessCursorData) string {
-	wire := processCursorWire{
+type processCursorWire struct {
+	processCursorBase
+	// Disk counters, parallel to IOPIDs.
+	IOPIDs  []int32  `json:"iop,omitempty"`
+	IORead  []uint64 `json:"ior,omitempty"`
+	IOWrite []uint64 `json:"iow,omitempty"`
+	// Every PID whose GPU usage was sampled, with its engine clients ([] for none).
+	GPU map[int32][]gpuCursorClient `json:"g,omitzero"`
+}
+
+// processSample is one process's cursor entry. ioOK and gpuOK say whether the
+// sample holds disk counters and GPU clients; an unsampled extra has no rate.
+type processSample struct {
+	models.ProcessCursorData
+	ioOK  bool
+	io    [2]uint64
+	gpuOK bool
+	gpu   []gpuCursorClient
+}
+
+func encodeProcessCursor(entries []processSample) string {
+	wire := processCursorWire{processCursorBase: processCursorBase{
 		PIDs:         make([]int32, 0, len(entries)),
 		CPUMillis:    make([]int64, 0, len(entries)),
 		OffsetMillis: make([]int64, 0, len(entries)),
-	}
+	}}
 	for i, e := range entries {
 		if i == 0 || e.Timestamp < wire.BaseMillis {
 			wire.BaseMillis = e.Timestamp
@@ -56,6 +76,17 @@ func encodeProcessCursor(entries []models.ProcessCursorData) string {
 		wire.PIDs = append(wire.PIDs, e.PID)
 		wire.CPUMillis = append(wire.CPUMillis, int64(math.Round(e.Ticks*1000)))
 		wire.OffsetMillis = append(wire.OffsetMillis, e.Timestamp-wire.BaseMillis)
+		if e.ioOK {
+			wire.IOPIDs = append(wire.IOPIDs, e.PID)
+			wire.IORead = append(wire.IORead, e.io[0])
+			wire.IOWrite = append(wire.IOWrite, e.io[1])
+		}
+		if e.gpuOK {
+			if wire.GPU == nil {
+				wire.GPU = map[int32][]gpuCursorClient{}
+			}
+			wire.GPU[e.PID] = append([]gpuCursorClient{}, e.gpu...)
+		}
 	}
 
 	raw, _ := json.Marshal(wire)
@@ -68,8 +99,8 @@ func encodeProcessCursor(entries []models.ProcessCursorData) string {
 	return base64.RawURLEncoding.EncodeToString(buf.Bytes())
 }
 
-func decodeProcessCursor(cursor string) map[int32]*models.ProcessCursorData {
-	out := make(map[int32]*models.ProcessCursorData)
+func decodeProcessCursor(cursor string) map[int32]*processSample {
+	out := make(map[int32]*processSample)
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil || len(raw) == 0 {
 		return out
@@ -86,19 +117,33 @@ func decodeProcessCursor(cursor string) map[int32]*models.ProcessCursorData {
 
 	var wire processCursorWire
 	if json.Unmarshal(raw, &wire) != nil {
-		return out
+		// Malformed extras must not cost the CPU baseline.
+		wire = processCursorWire{}
+		if json.Unmarshal(raw, &wire.processCursorBase) != nil {
+			return out
+		}
 	}
 	if len(wire.CPUMillis) != len(wire.PIDs) || len(wire.OffsetMillis) != len(wire.PIDs) {
 		return out
 	}
-	entries := make([]models.ProcessCursorData, len(wire.PIDs))
+	entries := make([]processSample, len(wire.PIDs))
 	for i, pid := range wire.PIDs {
-		entries[i] = models.ProcessCursorData{
-			PID:       pid,
-			Ticks:     float64(wire.CPUMillis[i]) / 1000,
-			Timestamp: wire.BaseMillis + wire.OffsetMillis[i],
+		entries[i] = processSample{
+			ProcessCursorData: models.ProcessCursorData{
+				PID:       pid,
+				Ticks:     float64(wire.CPUMillis[i]) / 1000,
+				Timestamp: wire.BaseMillis + wire.OffsetMillis[i],
+			},
 		}
+		entries[i].gpu, entries[i].gpuOK = wire.GPU[pid]
 		out[pid] = &entries[i]
+	}
+	if len(wire.IORead) == len(wire.IOPIDs) && len(wire.IOWrite) == len(wire.IOPIDs) {
+		for i, pid := range wire.IOPIDs {
+			if e := out[pid]; e != nil {
+				e.ioOK, e.io = true, [2]uint64{wire.IORead[i], wire.IOWrite[i]}
+			}
+		}
 	}
 	return out
 }
@@ -121,6 +166,55 @@ func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool,
 }
 
 func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enableCPU bool, cursor string, mergeChildren bool) (*models.ProcessListResponse, error) {
+	return self.GetProcessesWithOptions(ProcessOptions{SortBy: sortBy, Limit: limit, EnableCPU: enableCPU, Cursor: cursor, MergeChildren: mergeChildren})
+}
+
+// ProcessOptions selects the process list. GPU adds GPU usage and VRAM, IO
+// adds disk read/write rates; both cost extra reads per process.
+type ProcessOptions struct {
+	SortBy        ProcSortBy
+	Limit         int
+	EnableCPU     bool
+	Cursor        string
+	MergeChildren bool
+	GPU           bool
+	// GPUPciIds limits GPU reads to the named GPUs; nil means all.
+	GPUPciIds []string
+	IO        bool
+}
+
+// processExtras reads the optional per-process counters into a sample.
+type processExtras struct {
+	gpu *procGPUReader
+	io  bool
+}
+
+// sample recovers like readProcessTimes, since the baseline pass calls it on
+// the request goroutine.
+func (self processExtras) sample(p *process.Process, s *processSample) (g procGPU) {
+	defer func() {
+		if recover() != nil {
+			g = procGPU{}
+			s.ioOK, s.gpuOK = false, false
+		}
+	}()
+	if self.io {
+		var read, write uint64
+		read, write, s.ioOK = processDiskBytes(p)
+		s.io = [2]uint64{read, write}
+	}
+	if self.gpu == nil {
+		return procGPU{}
+	}
+	g = self.gpu.read(p.Pid)
+	if g.Readable && g.UsageKnown {
+		s.gpuOK, s.gpu = true, g.cursorClients()
+	}
+	return g
+}
+
+func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.ProcessListResponse, error) {
+	sortBy, limit, enableCPU, mergeChildren := opts.SortBy, opts.Limit, opts.EnableCPU, opts.MergeChildren
 	procs, err := self.procProvider.Processes()
 	if err != nil {
 		return nil, err
@@ -128,7 +222,12 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 
 	totalMem, _ := self.memProvider.VirtualMemory()
 
-	cursorMap := decodeProcessCursor(cursor)
+	cursorMap := decodeProcessCursor(opts.Cursor)
+
+	extras := processExtras{io: opts.IO}
+	if opts.GPU {
+		extras.gpu = newProcGPUReader(opts.GPUPciIds)
+	}
 
 	if enableCPU && len(cursorMap) == 0 {
 		for _, p := range procs {
@@ -136,20 +235,22 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 			if times == nil {
 				continue
 			}
-			cursorMap[p.Pid] = &models.ProcessCursorData{
+			s := &processSample{ProcessCursorData: models.ProcessCursorData{
 				PID:       p.Pid,
 				Ticks:     times.User + times.System,
 				Timestamp: time.Now().UnixMilli(),
-			}
+			}}
+			extras.sample(p, s)
+			cursorMap[p.Pid] = s
 		}
 		time.Sleep(cpuBaselineInterval)
 	}
 
 	type procResult struct {
-		index     int
-		info      *models.ProcessInfo
-		sampledAt int64
-		sampled   bool
+		index   int
+		info    *models.ProcessInfo
+		sample  processSample
+		sampled bool
 	}
 
 	numCPU := float64(runtime.NumCPU())
@@ -187,19 +288,27 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 					ppid, _ := p.Ppid()
 					memInfo, _ := p.MemoryInfo()
 					times, _ := p.Times()
-					sampledAt := time.Now().UnixMilli()
+					sample := processSample{ProcessCursorData: models.ProcessCursorData{PID: p.Pid, Timestamp: time.Now().UnixMilli()}}
+					gpu := extras.sample(p, &sample)
+					sampledAt := sample.Timestamp
 					username, _ := p.Username()
 					exePath, _ := p.Exe()
+					var created, startTime int64
+					if c, err := p.CreateTime(); err == nil {
+						created, startTime = c, c/1000
+					}
 
 					currentCPUTime := float64(0)
 					if times != nil {
 						currentCPUTime = times.User + times.System
 					}
+					sample.Ticks = currentCPUTime
+					prev := cursorMap[p.Pid]
 
 					cpuPercent := 0.0
 					if enableCPU {
-						if cursorData, hasCursor := cursorMap[p.Pid]; hasCursor {
-							coreRate := calculateProcessCPUPercentageWithCursor(cursorData, currentCPUTime, sampledAt)
+						if prev != nil {
+							coreRate := calculateProcessCPUPercentageWithCursor(&prev.ProcessCursorData, currentCPUTime, sampledAt)
 							cpuPercent = coreRate / numCPU
 							if cpuPercent > 100 {
 								cpuPercent = 100
@@ -232,27 +341,31 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 						}
 					}
 
+					info := &models.ProcessInfo{
+						PID:               p.Pid,
+						PPID:              ppid,
+						CPU:               cpuPercent,
+						PTicks:            currentCPUTime,
+						MemoryPercent:     memPercent,
+						MemoryKB:          memKB,
+						MemoryCalculation: memCalc,
+						RSSKB:             rssKB,
+						RSSPercent:        rssPercent,
+						PSSKB:             pssKB,
+						PSSPercent:        pssPercent,
+						Username:          username,
+						Command:           name,
+						FullCommand:       cmdline,
+						ExecutablePath:    exePath,
+						StartTime:         startTime,
+					}
+					setProcessExtras(info, prev, &sample, gpu, created)
+
 					results <- procResult{
-						index:     idx,
-						sampledAt: sampledAt,
-						sampled:   times != nil,
-						info: &models.ProcessInfo{
-							PID:               p.Pid,
-							PPID:              ppid,
-							CPU:               cpuPercent,
-							PTicks:            currentCPUTime,
-							MemoryPercent:     memPercent,
-							MemoryKB:          memKB,
-							MemoryCalculation: memCalc,
-							RSSKB:             rssKB,
-							RSSPercent:        rssPercent,
-							PSSKB:             pssKB,
-							PSSPercent:        pssPercent,
-							Username:          username,
-							Command:           name,
-							FullCommand:       cmdline,
-							ExecutablePath:    exePath,
-						},
+						index:   idx,
+						sample:  sample,
+						sampled: times != nil,
+						info:    info,
 					}
 				}()
 			}
@@ -265,16 +378,12 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 	close(jobs)
 
 	procList := make([]*models.ProcessInfo, len(procs))
-	cursorList := make([]models.ProcessCursorData, 0, len(procs))
+	cursorList := make([]processSample, 0, len(procs))
 	for i := 0; i < len(procs); i++ {
 		r := <-results
 		procList[r.index] = r.info
 		if r.sampled {
-			cursorList = append(cursorList, models.ProcessCursorData{
-				PID:       r.info.PID,
-				Ticks:     r.info.PTicks,
-				Timestamp: r.sampledAt,
-			})
+			cursorList = append(cursorList, r.sample)
 		}
 	}
 
@@ -282,6 +391,42 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		procList = mergeProcessesByExecutable(procList)
 	}
 
+	sortProcesses(procList, sortBy)
+
+	if limit > 0 && len(procList) > limit {
+		procList = procList[:limit]
+	}
+
+	return &models.ProcessListResponse{
+		Processes: procList,
+		Cursor:    encodeProcessCursor(cursorList),
+	}, nil
+}
+
+// setProcessExtras fills the requested extras of info from the current and
+// previous samples. Anything without a previous sample stays unknown, as does
+// a previous sample taken before the process was created (a reused PID).
+func setProcessExtras(info *models.ProcessInfo, prev, cur *processSample, gpu procGPU, createdMillis int64) {
+	info.GPUUnmonitored = gpu.Unmonitored
+	if gpu.Readable {
+		info.VRAMKB = new(gpu.VRAMBytes / 1024)
+	}
+	if prev == nil || cur.Timestamp <= prev.Timestamp || createdMillis > prev.Timestamp {
+		return
+	}
+	elapsed := time.Duration(cur.Timestamp-prev.Timestamp) * time.Millisecond
+	if cur.gpuOK && prev.gpuOK && !gpu.Unmonitored {
+		usage := procGPUUsage(prev.gpu, gpu.Clients, elapsed)
+		info.GPU = &usage
+	}
+	if cur.ioOK && prev.ioOK && cur.io[0] >= prev.io[0] && cur.io[1] >= prev.io[1] {
+		read := float64(cur.io[0]-prev.io[0]) / elapsed.Seconds()
+		write := float64(cur.io[1]-prev.io[1]) / elapsed.Seconds()
+		info.DiskRead, info.DiskWrite = &read, &write
+	}
+}
+
+func sortProcesses(procList []*models.ProcessInfo, sortBy ProcSortBy) {
 	switch sortBy {
 	case SortByCPU:
 		sort.Slice(procList, func(i, j int) bool {
@@ -299,20 +444,38 @@ func (self *GopsUtil) GetProcessesWithCursor(sortBy ProcSortBy, limit int, enabl
 		sort.Slice(procList, func(i, j int) bool {
 			return procList[i].PID < procList[j].PID
 		})
+	case SortByGPU:
+		sort.Slice(procList, func(i, j int) bool {
+			return knownGreater(procList[i].GPU, procList[j].GPU)
+		})
+	case SortByVRAM:
+		sort.Slice(procList, func(i, j int) bool {
+			return knownGreater(procList[i].VRAMKB, procList[j].VRAMKB)
+		})
+	case SortByDisk:
+		sort.Slice(procList, func(i, j int) bool {
+			return knownGreater(diskTotal(procList[i]), diskTotal(procList[j]))
+		})
 	default:
 		sort.Slice(procList, func(i, j int) bool {
 			return procList[i].CPU > procList[j].CPU
 		})
 	}
+}
 
-	if limit > 0 && len(procList) > limit {
-		procList = procList[:limit]
+// knownGreater orders descending with unknown values last.
+func knownGreater[T float64 | uint64](a, b *T) bool {
+	if a == nil || b == nil {
+		return a != nil && b == nil
 	}
+	return *a > *b
+}
 
-	return &models.ProcessListResponse{
-		Processes: procList,
-		Cursor:    encodeProcessCursor(cursorList),
-	}, nil
+func diskTotal(p *models.ProcessInfo) *float64 {
+	if p.DiskRead == nil || p.DiskWrite == nil {
+		return nil
+	}
+	return new(*p.DiskRead + *p.DiskWrite)
 }
 
 type ProcSortBy string
@@ -322,6 +485,9 @@ const (
 	SortByMemory ProcSortBy = "memory"
 	SortByName   ProcSortBy = "name"
 	SortByPID    ProcSortBy = "pid"
+	SortByGPU    ProcSortBy = "gpu"
+	SortByVRAM   ProcSortBy = "vram"
+	SortByDisk   ProcSortBy = "disk"
 )
 
 // Register enum in OpenAPI specification
@@ -335,6 +501,9 @@ func (u ProcSortBy) Schema(r huma.Registry) *huma.Schema {
 			string(SortByMemory),
 			string(SortByName),
 			string(SortByPID),
+			string(SortByGPU),
+			string(SortByVRAM),
+			string(SortByDisk),
 		}...)
 		r.Map()["ProcSortBy"] = schemaRef
 	}
@@ -400,6 +569,17 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 			root.RSSPercent += p.RSSPercent
 			root.PSSKB += p.PSSKB
 			root.PSSPercent += p.PSSPercent
+			root.GPU = addKnown(root.GPU, p.GPU)
+			if root.GPU != nil && *root.GPU > 100 {
+				root.GPU = new(100.0)
+			}
+			root.GPUUnmonitored = root.GPUUnmonitored || p.GPUUnmonitored
+			root.VRAMKB = addKnown(root.VRAMKB, p.VRAMKB)
+			if root.GPUUnmonitored {
+				root.GPU, root.VRAMKB = nil, nil
+			}
+			root.DiskRead = addKnown(root.DiskRead, p.DiskRead)
+			root.DiskWrite = addKnown(root.DiskWrite, p.DiskWrite)
 			root.ChildCount++
 		}
 	}
@@ -409,4 +589,17 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 		result = append(result, p)
 	}
 	return result
+}
+
+// addKnown sums two possibly unknown values into a new allocation, since
+// merged roots share pointers with the rows they were cloned from.
+func addKnown[T float64 | uint64](sum, v *T) *T {
+	switch {
+	case v == nil:
+		return sum
+	case sum == nil:
+		return new(*v)
+	default:
+		return new(*sum + *v)
+	}
 }

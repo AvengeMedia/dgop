@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
+
+	"github.com/AvengeMedia/dgop/models"
 )
 
 func TestGetModulesListsNewModules(t *testing.T) {
@@ -13,7 +17,7 @@ func TestGetModulesListsNewModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []string{"gpu-stats", "sensors", "memory-modules"} {
+	for _, m := range []string{"gpu-stats", "sensors", "memory-modules", "process-gpu", "process-io"} {
 		if !slices.Contains(mods.Available, m) {
 			t.Errorf("module %q not listed", m)
 		}
@@ -74,5 +78,117 @@ func TestGetMetaKeysBackwardCompatible(t *testing.T) {
 				t.Errorf("%s.%s missing", mod, k)
 			}
 		}
+	}
+}
+
+func ownRow(procs []*models.ProcessInfo) *models.ProcessInfo {
+	for _, p := range procs {
+		if p.PID == int32(os.Getpid()) {
+			return p
+		}
+	}
+	return nil
+}
+
+func TestGetMetaProcessModifiers(t *testing.T) {
+	g := NewGopsUtil()
+	ctx := context.Background()
+	for _, mods := range [][]string{{"processes", "process-io"}, {"process-io"}, {"all", "process-io"}} {
+		first, err := g.GetMeta(ctx, mods, MetaParams{ProcLimit: 0, EnableCPU: true})
+		if err != nil || first.Cursor == "" {
+			t.Fatalf("%v: err=%v cursor=%q", mods, err, first.Cursor)
+		}
+		time.Sleep(100 * time.Millisecond)
+		second, err := g.GetMeta(ctx, mods, MetaParams{ProcLimit: 0, EnableCPU: true, ProcCursor: first.Cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if row := ownRow(second.Processes); row == nil || row.DiskRead == nil {
+			t.Errorf("%v: own PID has no diskRead", mods)
+		}
+	}
+}
+
+func TestGetMetaProcessesNoExtras(t *testing.T) {
+	g := NewGopsUtil()
+	first, _ := g.GetMeta(context.Background(), []string{"processes"}, MetaParams{ProcLimit: 0})
+	second, err := g.GetMeta(context.Background(), []string{"processes"}, MetaParams{ProcLimit: 0, ProcCursor: first.Cursor})
+	if err != nil || len(second.Processes) == 0 {
+		t.Fatal(err)
+	}
+	for _, p := range second.Processes {
+		if p.GPU != nil || p.VRAMKB != nil || p.DiskRead != nil || p.DiskWrite != nil {
+			t.Fatalf("unexpected extras on %d", p.PID)
+		}
+	}
+}
+
+func TestGetMetaAllProcessGPU(t *testing.T) {
+	g := NewGopsUtil()
+	ctx := context.Background()
+	params := MetaParams{ProcLimit: 0}
+	first, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, params)
+	if err != nil || len(first.Processes) == 0 {
+		t.Fatalf("err=%v", err)
+	}
+	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*")
+	if len(cards) == 0 {
+		t.Skip("no DRM cards")
+	}
+	time.Sleep(100 * time.Millisecond)
+	params.ProcCursor = first.Cursor
+	second, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range second.Processes {
+		if p.VRAMKB != nil {
+			return
+		}
+	}
+	t.Error("no process row has vramKB with DRM cards present")
+}
+
+func TestGetMetaModifierWithUnknownModule(t *testing.T) {
+	if _, err := NewGopsUtil().GetMeta(context.Background(), []string{"process-io", "nope"}, MetaParams{}); err == nil {
+		t.Fatal("expected error for unknown module alongside a modifier")
+	}
+}
+
+func TestGetMetaTogglingModifiersKeepsCPURates(t *testing.T) {
+	g := NewGopsUtil()
+	ctx := context.Background()
+	first, err := g.GetMeta(ctx, []string{"processes"}, MetaParams{EnableCPU: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := first.Cursor
+	for i, mods := range [][]string{{"processes", "process-io"}, {"processes"}, {"process-io"}} {
+		deadline := time.Now().Add(150 * time.Millisecond)
+		// Spin so this process accrues measurable CPU time between polls.
+		for time.Now().Before(deadline) {
+		}
+		next, err := g.GetMeta(ctx, mods, MetaParams{EnableCPU: true, ProcCursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if row := ownRow(next.Processes); row == nil || row.CPU <= 0 {
+			t.Errorf("poll %d %v: own CPU rate lost: %+v", i, mods, row)
+		}
+		cursor = next.Cursor
+	}
+}
+
+func TestMetaParamsProcessOptionsGPUPciIds(t *testing.T) {
+	if opts, _ := (MetaParams{}).processOptions(nil); opts.GPUPciIds != nil {
+		t.Errorf("nil: got %#v", opts.GPUPciIds)
+	}
+	opts, _ := MetaParams{GPUPciIds: []string{}}.processOptions(nil)
+	if opts.GPUPciIds == nil || len(opts.GPUPciIds) != 0 {
+		t.Errorf("empty: got %#v, want non-nil empty", opts.GPUPciIds)
+	}
+	opts, _ = MetaParams{GPUPciIds: []string{"10de:2684"}}.processOptions(nil)
+	if len(opts.GPUPciIds) != 1 || opts.GPUPciIds[0] != "10de:2684" {
+		t.Errorf("list: got %#v", opts.GPUPciIds)
 	}
 }

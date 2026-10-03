@@ -217,7 +217,10 @@ func runProcessesCommand(gopsUtil *gops.GopsUtil) error {
 	enableCPU := !disableProcCPU
 	sortBy := parseProcessSortBy(procSortBy, disableProcCPU)
 
-	result, err := gopsUtil.GetProcessesWithCursor(sortBy, procLimit, enableCPU, procCursor, mergeChildren)
+	result, err := gopsUtil.GetProcessesWithOptions(gops.ProcessOptions{
+		SortBy: sortBy, Limit: procLimit, EnableCPU: enableCPU, Cursor: procCursor,
+		MergeChildren: mergeChildren, GPU: procGPU, GPUPciIds: metaGPUPciIds, IO: procIO,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
 	}
@@ -510,22 +513,61 @@ func displayDiskInfo(disks []*models.DiskInfo, mounts []*models.DiskMountInfo) {
 func displayProcesses(processes []*models.ProcessInfo) {
 	fmt.Println(titleStyle.Render(fmt.Sprintf("PROCESSES (%d)", len(processes))))
 
-	// Header
-	header := fmt.Sprintf("%-8s %-8s %-20s %-8s %-8s %s",
-		"PID", "PPID", "COMMAND", "CPU%", "MEM%", "FULL COMMAND")
+	var hasGPU, hasIO bool
+	for _, p := range processes {
+		hasGPU = hasGPU || p.GPU != nil || p.VRAMKB != nil
+		hasIO = hasIO || p.DiskRead != nil || p.DiskWrite != nil
+	}
+
+	extraHdr := ""
+	if hasGPU {
+		extraHdr += fmt.Sprintf("%-8s %-10s ", "GPU%", "VRAM")
+	}
+	if hasIO {
+		extraHdr += fmt.Sprintf("%-10s %-10s ", "READ", "WRITE")
+	}
+
+	header := fmt.Sprintf("%-8s %-8s %-20s %-8s %-8s %s%s",
+		"PID", "PPID", "COMMAND", "CPU%", "MEM%", extraHdr, "FULL COMMAND")
 	fmt.Println(keyStyle.Render(header))
 	fmt.Println(strings.Repeat("─", 80))
 
 	for _, proc := range processes {
-		row := fmt.Sprintf("%-8d %-8d %-20s %-8.1f %-8.1f %s",
+		extra := ""
+		if hasGPU {
+			vram := "—"
+			if proc.VRAMKB != nil {
+				vram = formatBytes(*proc.VRAMKB * 1024)
+			}
+			extra += fmt.Sprintf("%-8s %-10s ", optFloat(proc.GPU, "%.1f"), vram)
+		}
+		if hasIO {
+			extra += fmt.Sprintf("%-10s %-10s ", optRate(proc.DiskRead), optRate(proc.DiskWrite))
+		}
+		row := fmt.Sprintf("%-8d %-8d %-20s %-8.1f %-8.1f %s%s",
 			proc.PID,
 			proc.PPID,
 			truncateString(proc.Command, 20),
 			proc.CPU,
 			proc.MemoryPercent,
+			extra,
 			truncateString(proc.FullCommand, 30))
 		fmt.Println(valueStyle.Render(row))
 	}
+}
+
+func optFloat(v *float64, format string) string {
+	if v == nil {
+		return "—"
+	}
+	return fmt.Sprintf(format, *v)
+}
+
+func optRate(v *float64) string {
+	if v == nil {
+		return "—"
+	}
+	return formatRate(*v)
 }
 
 // Helper functions

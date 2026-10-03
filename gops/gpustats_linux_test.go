@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -347,4 +348,37 @@ func TestCollectGPUStats_NvidiaQueriesAwakeOnly(t *testing.T) {
 	}
 	collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), nvidia)
 	assert.Equal(t, []string{"0000:02:00.0"}, got)
+}
+
+func TestCollectGPUStats_SuspendedDGPUFdinfoNotOpened(t *testing.T) {
+	pciRoot := t.TempDir()
+	writeHwmonFiles(t, filepath.Join(pciRoot, "0000:00:02.0"), map[string]string{
+		"power/runtime_status": "active\n",
+		"drm/renderD128/dev":   "226:128\n",
+	})
+	writeHwmonFiles(t, filepath.Join(pciRoot, "0000:0c:00.0"), map[string]string{
+		"power/runtime_status": "suspended\n",
+		"drm/renderD129/dev":   "226:129\n",
+	})
+	procRoot := t.TempDir()
+	writeDRMClient(t, procRoot, 100, 5, "renderD128", i915Client(1, 1_000_000_000, 0))
+	// A FIFO with no writer blocks any open for read.
+	writeDRMClient(t, procRoot, 100, 6, "renderD129", "")
+	fifo := filepath.Join(procRoot, "100", "fdinfo", "6")
+	require.NoError(t, os.Remove(fifo))
+	require.NoError(t, syscall.Mkfifo(fifo, 0o644))
+
+	gpus := []models.GPUStats{
+		{PciSlot: "0000:00:02.0", Driver: "i915", Vendor: "Intel"},
+		{PciSlot: "0000:0c:00.0", Driver: "amdgpu", Vendor: "AMD"},
+	}
+	done := make(chan string, 1)
+	go func() { done <- collectGPUStats(pciRoot, procRoot, gpus, "", time.Now(), noNvidia(t)) }()
+	select {
+	case cursor := <-done:
+		assert.NotEmpty(t, cursor)
+	case <-time.After(5 * time.Second):
+		t.Fatal("fdinfo of a suspended GPU node was opened")
+	}
+	assert.True(t, gpus[1].Suspended)
 }

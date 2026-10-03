@@ -24,7 +24,9 @@ type gpuStatsCursor struct {
 
 type gpuCursorClient struct {
 	PDev string `json:"p"`
-	ID   uint64 `json:"i"`
+	// Driver is set only for clients without a PDev, which it disambiguates.
+	Driver string `json:"d,omitempty"`
+	ID     uint64 `json:"i"`
 	// Engine name -> busy ns, cycles, total cycles.
 	Engines map[string][3]uint64 `json:"e"`
 }
@@ -42,7 +44,7 @@ func collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor st
 	for i := range gpus {
 		g := &gpus[i]
 		dev := filepath.Join(pciRoot, g.PciSlot)
-		if readTrimmed(filepath.Join(dev, "power", "runtime_status")) == "suspended" {
+		if gpuSuspended(pciRoot, g.PciSlot) {
 			g.Suspended = true
 			continue
 		}
@@ -73,6 +75,18 @@ func collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor st
 		return ""
 	}
 	return fillFdinfoUsage(pciRoot, procRoot, fdinfoGPUs, cursor, now)
+}
+
+func gpuSuspended(pciRoot, bdf string) bool {
+	return readTrimmed(filepath.Join(pciRoot, bdf, "power", "runtime_status")) == "suspended"
+}
+
+// awakeGPUNodes returns the /dev/dri node names of the given GPUs that are not
+// runtime-suspended. Only these nodes may have their fdinfo read.
+func awakeGPUNodes(pciRoot string, bdfs []string) map[string]bool {
+	return drmNodes(pciRoot, slices.DeleteFunc(slices.Clone(bdfs), func(bdf string) bool {
+		return gpuSuspended(pciRoot, bdf)
+	})...)
 }
 
 func readGPUSysfs(g *models.GPUStats, dev string) {
@@ -215,7 +229,7 @@ func firstSet[T any](values ...*T) *T {
 // fillFdinfoUsage scans every process's DRM fds, keeps the clients of the
 // given GPUs, and rates them against the previous sample in cursor.
 func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats, cursor string, now time.Time) string {
-	nodes := drmNodes(pciRoot, slices.Collect(maps.Keys(gpus))...)
+	nodes := awakeGPUNodes(pciRoot, slices.Collect(maps.Keys(gpus)))
 	cur := drmClientSet{}
 	pids, _ := listProcPIDs(procRoot)
 	for _, pid := range pids {
@@ -248,20 +262,7 @@ func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats,
 }
 
 func encodeGPUStatsCursor(clients drmClientSet, now time.Time) string {
-	data := gpuStatsCursor{Time: now.UnixNano(), Clients: make([]gpuCursorClient, 0, len(clients))}
-	for key, client := range clients {
-		c := gpuCursorClient{PDev: key.PDev, ID: key.ID, Engines: map[string][3]uint64{}}
-		for name, e := range client.Engines {
-			// An absent engine rates the same as one at zero.
-			if e.BusyNs|e.Cycles|e.TotalCycles != 0 {
-				c.Engines[name] = [3]uint64{e.BusyNs, e.Cycles, e.TotalCycles}
-			}
-		}
-		if len(c.Engines) > 0 {
-			data.Clients = append(data.Clients, c)
-		}
-	}
-	b, _ := json.Marshal(data)
+	b, _ := json.Marshal(gpuStatsCursor{Time: now.UnixNano(), Clients: cursorClients(clients)})
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
@@ -274,13 +275,44 @@ func decodeGPUStatsCursor(cursor string) (drmClientSet, time.Time, bool) {
 	if err := json.Unmarshal(b, &data); err != nil || data.Time <= 0 {
 		return nil, time.Time{}, false
 	}
+	return cursorClientSet(data.Clients), time.Unix(0, data.Time), true
+}
+
+// cursorClients returns the clients with at least one nonzero engine counter;
+// an absent engine rates the same as one at zero.
+func cursorClients(clients drmClientSet) []gpuCursorClient {
+	result := make([]gpuCursorClient, 0, len(clients))
+	for _, client := range clients {
+		if c := toCursorClient(client); len(c.Engines) > 0 {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
+func toCursorClient(client drmClient) gpuCursorClient {
+	c := gpuCursorClient{PDev: client.PDev, ID: client.ID, Engines: map[string][3]uint64{}}
+	if client.PDev == "" {
+		c.Driver = client.Driver
+	}
+	for name, e := range client.Engines {
+		if e.BusyNs|e.Cycles|e.TotalCycles != 0 {
+			c.Engines[name] = [3]uint64{e.BusyNs, e.Cycles, e.TotalCycles}
+		}
+	}
+	return c
+}
+
+// cursorClientSet restores a previous sample. Only the current sample's
+// HasBusy and Capacity are used for rating, so these are left at defaults.
+func cursorClientSet(clients []gpuCursorClient) drmClientSet {
 	set := drmClientSet{}
-	for _, c := range data.Clients {
-		client := drmClient{PDev: c.PDev, ID: c.ID, Engines: map[string]drmEngine{}}
+	for _, c := range clients {
+		client := drmClient{Driver: c.Driver, PDev: c.PDev, ID: c.ID, Engines: map[string]drmEngine{}}
 		for name, v := range c.Engines {
 			client.Engines[name] = drmEngine{BusyNs: v[0], HasBusy: true, Cycles: v[1], TotalCycles: v[2], Capacity: 1}
 		}
 		set[client.key()] = client
 	}
-	return set, time.Unix(0, data.Time), true
+	return set
 }

@@ -18,7 +18,7 @@ type MetaInput struct {
 	MergeChildren  bool            `query:"merge_children" default:"true"`
 
 	// Module-specific parameters
-	GPUPciIds            []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs of GPUs to read for gpu-temp and gpu-stats. Omit for all GPUs; empty reads none"`
+	GPUPciIds            []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs of GPUs to read for gpu-temp, gpu-stats and process-gpu. Omit for all GPUs; empty reads none"`
 	CPUCursor            string   `query:"cpu_cursor" doc:"CPU cursor from previous request"`
 	ProcCursor           string   `query:"proc_cursor" doc:"Process cursor from previous request"`
 	NetRateCursor        string   `query:"net_rate_cursor" doc:"Network rate cursor from previous request"`
@@ -108,6 +108,11 @@ func (in *MetaInput) Resolve(ctx huma.Context) []error {
 }
 
 func (in *GPUStatsInput) Resolve(ctx huma.Context) []error {
+	in.GPUPciIds = pciIdsFromQuery(ctx)
+	return nil
+}
+
+func (in *ProcessInput) Resolve(ctx huma.Context) []error {
 	in.GPUPciIds = pciIdsFromQuery(ctx)
 	return nil
 }

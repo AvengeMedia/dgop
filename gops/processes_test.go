@@ -218,10 +218,10 @@ func TestGetPssDirty(t *testing.T) {
 
 func TestProcessCursorRoundTrip(t *testing.T) {
 	base := int64(1_755_000_000_000)
-	entries := []models.ProcessCursorData{
-		{PID: 1, Ticks: 12.34, Timestamp: base},
-		{PID: 4242, Ticks: 98765.43, Timestamp: base + 57},
-		{PID: 999999, Ticks: 0, Timestamp: base - 12},
+	entries := []processSample{
+		{ProcessCursorData: models.ProcessCursorData{PID: 1, Ticks: 12.34, Timestamp: base}},
+		{ProcessCursorData: models.ProcessCursorData{PID: 4242, Ticks: 98765.43, Timestamp: base + 57}},
+		{ProcessCursorData: models.ProcessCursorData{PID: 999999, Ticks: 0, Timestamp: base - 12}},
 	}
 
 	decoded := decodeProcessCursor(encodeProcessCursor(entries))
@@ -236,11 +236,11 @@ func TestProcessCursorRoundTrip(t *testing.T) {
 }
 
 func TestProcessCursorFitsInAQueryParam(t *testing.T) {
-	entries := make([]models.ProcessCursorData, 0, 500)
+	entries := make([]processSample, 0, 500)
 	for i := range 500 {
-		entries = append(entries, models.ProcessCursorData{
+		entries = append(entries, processSample{ProcessCursorData: models.ProcessCursorData{
 			PID: int32(i * 7), Ticks: float64(i) * 13.37, Timestamp: 1_755_000_000_000 + int64(i%200),
-		})
+		}})
 	}
 
 	encoded := encodeProcessCursor(entries)
@@ -276,11 +276,11 @@ func TestProcessCursorRejectsBadInput(t *testing.T) {
 }
 
 func TestProcessCursorEncodesConcurrently(t *testing.T) {
-	entries := make([]models.ProcessCursorData, 0, 300)
+	entries := make([]processSample, 0, 300)
 	for i := range 300 {
-		entries = append(entries, models.ProcessCursorData{
+		entries = append(entries, processSample{ProcessCursorData: models.ProcessCursorData{
 			PID: int32(i), Ticks: float64(i), Timestamp: 1_755_000_000_000 + int64(i),
-		})
+		}})
 	}
 
 	encoded := make(chan string, 16)
@@ -296,9 +296,9 @@ func TestProcessCursorEncodesConcurrently(t *testing.T) {
 
 func TestProcessCursorCapsDecompression(t *testing.T) {
 	n := maxCursorDecodedBytes / 10
-	bomb := make([]models.ProcessCursorData, 0, n)
+	bomb := make([]processSample, 0, n)
 	for i := range n {
-		bomb = append(bomb, models.ProcessCursorData{PID: int32(i), Ticks: 1, Timestamp: 1})
+		bomb = append(bomb, processSample{ProcessCursorData: models.ProcessCursorData{PID: int32(i), Ticks: 1, Timestamp: 1}})
 	}
 
 	assert.Empty(t, decodeProcessCursor(encodeProcessCursor(bomb)),
