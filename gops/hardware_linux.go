@@ -5,7 +5,6 @@ package gops
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -130,6 +129,7 @@ func scanGPUEntries() ([]gpuEntry, error) {
 			Driver:   driver,
 			Vendor:   vendor,
 			RawLine:  rawLine,
+			BusId:    bdf,
 		})
 	}
 
@@ -197,99 +197,6 @@ func getGPUDriver(bdf string) string {
 		return filepath.Base(link)
 	}
 	return ""
-}
-
-func getNvidiaTemperature() (float64, string) {
-	cmd := exec.Command("nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	tempStr := strings.TrimSpace(string(output))
-	lines := strings.Split(tempStr, "\n")
-	if len(lines) > 0 && lines[0] != "" {
-		if temp, err := strconv.ParseFloat(lines[0], 64); err == nil {
-			return temp, "nvidia"
-		}
-	}
-
-	return 0, "unknown"
-}
-
-func getHwmonTemperature(pciId string) (float64, string) {
-	drmCards, err := filepath.Glob("/sys/class/drm/card*")
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	for _, card := range drmCards {
-		devicePath := filepath.Join(card, "device")
-
-		vendorFile := filepath.Join(devicePath, "vendor")
-		deviceFile := filepath.Join(devicePath, "device")
-
-		vendorBytes, err1 := os.ReadFile(vendorFile)
-		deviceBytes, err2 := os.ReadFile(deviceFile)
-
-		if err1 != nil || err2 != nil {
-			continue
-		}
-
-		vendorId := strings.TrimSpace(string(vendorBytes))
-		deviceId := strings.TrimSpace(string(deviceBytes))
-
-		vendorId = strings.TrimPrefix(vendorId, "0x")
-		deviceId = strings.TrimPrefix(deviceId, "0x")
-
-		cardPciId := fmt.Sprintf("%s:%s", vendorId, deviceId)
-
-		if cardPciId != pciId {
-			continue
-		}
-
-		driverPath := filepath.Join(devicePath, "driver")
-		if _, err := os.Stat(driverPath); os.IsNotExist(err) {
-			continue
-		}
-
-		hwmonGlob := filepath.Join(devicePath, "hwmon", "hwmon*")
-		hwmonDirs, err := filepath.Glob(hwmonGlob)
-		if err != nil {
-			continue
-		}
-
-		for _, hwmonDir := range hwmonDirs {
-			tempFile := filepath.Join(hwmonDir, "temp1_input")
-			if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-				continue
-			}
-
-			tempBytes, err := os.ReadFile(tempFile)
-			if err != nil {
-				continue
-			}
-
-			tempStr := strings.TrimSpace(string(tempBytes))
-			if tempInt, err := strconv.Atoi(tempStr); err == nil {
-				hwmonName := filepath.Base(hwmonDir)
-				return float64(tempInt) / 1000.0, hwmonName
-			}
-		}
-	}
-
-	thermalPath := "/sys/class/thermal"
-	thermalEntries, err := os.ReadDir(thermalPath)
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	maxTemp := getMaxACPITZTemperatureForGPU(thermalPath, thermalEntries, 20, 90)
-	if maxTemp > 0 {
-		return maxTemp, "acpitz"
-	}
-
-	return 0, "unknown"
 }
 
 func getMaxACPITZTemperatureForGPU(thermalPath string, thermalEntries []os.DirEntry, minTemp, maxTemp float64) float64 {

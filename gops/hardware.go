@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/host"
@@ -51,27 +52,43 @@ func (self *GopsUtil) GetGPUInfo() (*models.GPUInfo, error) {
 	return &models.GPUInfo{GPUs: gpus}, nil
 }
 
-func (self *GopsUtil) GetGPUInfoWithTemp(pciIds []string) (*models.GPUInfo, error) {
-	gpus, err := detectGPUs()
+func (self *GopsUtil) GetGPUInfoWithTemp(ids []string) (*models.GPUInfo, error) {
+	return self.GetGPUInfoWithStats(ids, "")
+}
+
+// GetGPUInfoWithStats samples live metrics only for the GPUs named in ids (PCI
+// ID or bus address), so cards nobody asked about are never woken. The cursor
+// from the previous call enables metrics derived from counter deltas.
+func (self *GopsUtil) GetGPUInfoWithStats(ids []string, cursor string) (*models.GPUInfo, error) {
+	entries, err := detectGPUEntries()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(pciIds) > 0 {
-		for i, gpu := range gpus {
-			for _, pciId := range pciIds {
-				if gpu.PciId == pciId {
-					if tempInfo, err := self.GetGPUTemp(pciId); err == nil {
-						gpus[i].Temperature = tempInfo.Temperature
-						gpus[i].Hwmon = tempInfo.Hwmon
-					}
-					break
-				}
-			}
-		}
+	gpus := gpusFromEntries(entries)
+	info := &models.GPUInfo{GPUs: gpus}
+	if len(ids) == 0 {
+		return info, nil
 	}
 
-	return &models.GPUInfo{GPUs: gpus}, nil
+	var targets []gpuEntry
+	var indexes []int
+	for i, gpu := range gpus {
+		if gpuRequested(gpu, ids) {
+			targets = append(targets, entries[i])
+			indexes = append(indexes, i)
+		}
+	}
+	if len(targets) == 0 {
+		return info, nil
+	}
+
+	samples, next := sampleGPUs(targets, decodeGPUCursor(cursor), time.Now())
+	for i, sample := range samples {
+		sample.applyTo(&gpus[indexes[i]])
+	}
+	info.Cursor = encodeGPUCursor(next)
+	return info, nil
 }
 
 func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
@@ -79,39 +96,24 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 		return nil, fmt.Errorf("pciId is required")
 	}
 
-	gpuEntries, err := detectGPUEntries()
+	entries, err := detectGPUEntries()
 	if err != nil {
 		return nil, err
 	}
 
-	var targetGPU *gpuEntry
-	for _, gpu := range gpuEntries {
-		_, gpuPciId := parseGPUInfo(gpu.RawLine)
-		if gpuPciId == pciId {
-			targetGPU = &gpu
-			break
+	for i, gpu := range gpusFromEntries(entries) {
+		if !gpuRequested(gpu, []string{pciId}) {
+			continue
 		}
+		samples, _ := sampleGPUs(entries[i:i+1], gpuCursor{}, time.Now())
+		return &models.GPUTempInfo{
+			Driver:      entries[i].Driver,
+			Hwmon:       samples[0].Hwmon,
+			Temperature: samples[0].Temperature,
+		}, nil
 	}
 
-	if targetGPU == nil {
-		return nil, fmt.Errorf("GPU with PCI ID %s not found", pciId)
-	}
-
-	var temperature float64
-	var hwmon string
-
-	switch targetGPU.Driver {
-	case "nvidia":
-		temperature, hwmon = getNvidiaTemperature()
-	default:
-		temperature, hwmon = getHwmonTemperature(pciId)
-	}
-
-	return &models.GPUTempInfo{
-		Driver:      targetGPU.Driver,
-		Hwmon:       hwmon,
-		Temperature: temperature,
-	}, nil
+	return nil, fmt.Errorf("GPU with PCI ID %s not found", pciId)
 }
 
 type gpuEntry struct {
@@ -119,6 +121,7 @@ type gpuEntry struct {
 	Driver   string
 	Vendor   string
 	RawLine  string
+	BusId    string
 }
 
 func inferVendorFromId(vendorId, driver string) string {
@@ -139,25 +142,25 @@ func detectGPUs() ([]models.GPU, error) {
 	if err != nil {
 		return nil, err
 	}
+	return gpusFromEntries(gpuEntries), nil
+}
 
-	var gpus []models.GPU
-	for _, entry := range gpuEntries {
+func gpusFromEntries(entries []gpuEntry) []models.GPU {
+	gpus := make([]models.GPU, 0, len(entries))
+	for _, entry := range entries {
 		displayName, pciId := parseGPUInfo(entry.RawLine)
-		fullName := buildFullName(entry.Vendor, displayName)
-
 		gpus = append(gpus, models.GPU{
 			Driver:      entry.Driver,
 			Vendor:      entry.Vendor,
 			DisplayName: displayName,
-			FullName:    fullName,
+			FullName:    buildFullName(entry.Vendor, displayName),
 			PciId:       pciId,
 			RawLine:     entry.RawLine,
-			Temperature: 0,
 			Hwmon:       "unknown",
+			BusId:       entry.BusId,
 		})
 	}
-
-	return gpus, nil
+	return gpus
 }
 
 func inferVendor(driver, line string) string {

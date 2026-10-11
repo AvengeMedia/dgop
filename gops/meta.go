@@ -38,6 +38,7 @@ type MetaParams struct {
 	EnableCPU      bool
 	MergeChildren  bool
 	GPUPciIds      []string
+	GPUCursor      string
 	CPUCursor      string
 	ProcCursor     string
 	NetRateCursor  string
@@ -93,7 +94,7 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 				meta.Hardware = hw
 			}
 		case "gpu", "gpu-temp":
-			if gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds); err == nil {
+			if gpu, err := self.GetGPUInfoWithStats(params.GPUPciIds, params.GPUCursor); err == nil {
 				meta.GPU = gpu
 			}
 		default:
@@ -287,7 +288,7 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams) (*m
 			return ctx.Err()
 		default:
 		}
-		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
+		gpu, err := self.GetGPUInfoWithStats(params.GPUPciIds, params.GPUCursor)
 		if err != nil {
 			log.Warn("failed to get GPU info", "error", err)
 			return nil
