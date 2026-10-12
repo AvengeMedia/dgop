@@ -84,7 +84,9 @@ func TestProcGPUUsage(t *testing.T) {
 	cur := drmClientSet{{PDev: "p", ID: 1}: {PDev: "p", ID: 1, Engines: map[string]drmEngine{
 		"gfx": {BusyNs: 1_250_000_000, HasBusy: true, Capacity: 1},
 	}}}
-	assert.InDelta(t, 25.0, procGPUUsage(prev, cur, time.Second), 0.001)
+	all, video := procGPUUsage(prev, cur, time.Second)
+	assert.InDelta(t, 25.0, all, 0.001)
+	assert.Zero(t, video)
 }
 
 func TestProcGPUUsage_Capacity(t *testing.T) {
@@ -96,7 +98,9 @@ func TestProcGPUUsage_Capacity(t *testing.T) {
 	prev[0].Engines["video"] = [3]uint64{1_000_000_000, 0, 0}
 
 	cur := drmClientSet{client.key(): client}
-	assert.InDelta(t, 50.0, procGPUUsage(prev, cur, time.Second), 0.001)
+	all, video := procGPUUsage(prev, cur, time.Second)
+	assert.InDelta(t, 50.0, all, 0.001)
+	assert.InDelta(t, 50.0, video, 0.001, "i915 video is a video engine")
 }
 
 func TestProcGPUUsage_Cycles(t *testing.T) {
@@ -105,7 +109,8 @@ func TestProcGPUUsage_Cycles(t *testing.T) {
 	client, ok := parseDRMFdinfo(text)
 	require.True(t, ok)
 	prev := []gpuCursorClient{{PDev: client.PDev, ID: 1, Engines: map[string][3]uint64{"rcs": {0, 200, 1600}}}}
-	assert.InDelta(t, 25.0, procGPUUsage(prev, drmClientSet{client.key(): client}, time.Second), 0.001)
+	all, _ := procGPUUsage(prev, drmClientSet{client.key(): client}, time.Second)
+	assert.InDelta(t, 25.0, all, 0.001)
 }
 
 func TestIsNvidiaGPUDevice(t *testing.T) {

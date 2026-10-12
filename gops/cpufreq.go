@@ -5,6 +5,8 @@ import "github.com/AvengeMedia/dgop/models"
 type cpuStatic struct {
 	minMHz, maxMHz float64
 	physicalCores  int
+	baseMHz        float64
+	sockets        int
 	cache          *models.CPUCache
 }
 

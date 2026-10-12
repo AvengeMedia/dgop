@@ -43,6 +43,7 @@ func TestReadCPUFreqFixture(t *testing.T) {
 		writeSys(t, root, c+"/cpufreq/cpuinfo_max_freq", "5000000")
 		writeSys(t, root, c+"/cpufreq/scaling_governor", "powersave")
 		writeSys(t, root, c+"/cpufreq/energy_performance_preference", "balance_performance")
+		writeSys(t, root, c+"/acpi_cppc/nominal_freq", "3701")
 	}
 	writeSys(t, root, "cpu1/cpufreq/scaling_cur_freq", "1500000")
 	shared := map[int]string{0: "0-1", 1: "0-1", 2: "2-3", 3: "2-3"}
@@ -60,6 +61,8 @@ func TestReadCPUFreqFixture(t *testing.T) {
 
 	s := readCPUStatic(root)
 	assert.Equal(t, 2, s.physicalCores)
+	assert.Equal(t, 1, s.sockets)
+	assert.Equal(t, 3701.0, s.baseMHz)
 	assert.Equal(t, 400.0, s.minMHz)
 	assert.Equal(t, 5000.0, s.maxMHz)
 	require.NotNil(t, s.cache)
@@ -100,4 +103,10 @@ func TestGetCPUInfoFrequenciesMatchCount(t *testing.T) {
 	info, err := NewGopsUtil().GetCPUInfo()
 	require.NoError(t, err)
 	assert.Len(t, info.CoreFrequencies, info.Count)
+}
+
+func TestReadCPUBaseFrequencyIntel(t *testing.T) {
+	root := t.TempDir()
+	writeSys(t, root, "cpu0/cpufreq/base_frequency", "2400000")
+	assert.Equal(t, 2400.0, readCPUStatic(root).baseMHz)
 }

@@ -3,6 +3,7 @@ package gops
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ type CPUTracker struct {
 	cpuFreq     float64
 	cpuCount    int
 	modelCached bool
+
+	virtualization string
 
 	tempPath     string
 	tempLastRead time.Time
@@ -46,6 +49,7 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 		if err == nil && len(info) > 0 {
 			cpuTracker.cpuModel = info[0].ModelName
 			cpuTracker.cpuFreq = info[0].Mhz
+			cpuTracker.virtualization = cpuVirtualization(info[0].Flags)
 		}
 		cpuTracker.static = readCPUStaticLive()
 		cpuTracker.modelCached = true
@@ -70,6 +74,9 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	cpuInfo.MaxFrequency = cpuTracker.static.maxMHz
 	cpuInfo.PhysicalCores = cpuTracker.static.physicalCores
 	cpuInfo.Cache = cpuTracker.static.cache
+	cpuInfo.BaseFrequency = cpuTracker.static.baseMHz
+	cpuInfo.Sockets = cpuTracker.static.sockets
+	cpuInfo.Virtualization = cpuTracker.virtualization
 
 	cpuInfo.Count = cpuTracker.cpuCount
 	cpuInfo.Model = cpuTracker.cpuModel
@@ -152,6 +159,16 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	cpuInfo.Cursor = base64.RawURLEncoding.EncodeToString(cursorBytes)
 
 	return &cpuInfo, nil
+}
+
+func cpuVirtualization(flags []string) string {
+	switch {
+	case slices.Contains(flags, "svm"):
+		return "AMD-V"
+	case slices.Contains(flags, "vmx"):
+		return "VT-x"
+	}
+	return ""
 }
 
 func calculateCPUPercentage(prev, curr []float64) float64 {

@@ -14,6 +14,7 @@ type SystemInfo struct {
 	LoadAvg   string `json:"loadavg"`
 	Processes int    `json:"processes"`
 	Threads   int    `json:"threads"`
+	OpenFiles int    `json:"openFileCount,omitempty" doc:"System-wide open file handles"`
 	BootTime  string `json:"boottime"`
 }
 

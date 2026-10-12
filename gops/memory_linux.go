@@ -77,7 +77,40 @@ func (self *GopsUtil) GetMemoryInfo() (*models.MemoryInfo, error) {
 		SwapFree:     v.SwapFree / 1024,
 		ZramOrig:     zramOrig,
 		ZramCompr:    zramCompr,
+		Committed:    v.CommittedAS / 1024,
+		CommitLimit:  v.CommitLimit / 1024,
+		SwapDevices:  readSwapDevices(),
 	}, nil
+}
+
+func readSwapDevices() []models.SwapDevice {
+	data, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		return nil
+	}
+	return parseProcSwaps(string(data))
+}
+
+// parseProcSwaps parses /proc/swaps; sizes there are already in KB.
+func parseProcSwaps(text string) []models.SwapDevice {
+	var devices []models.SwapDevice
+	for _, line := range strings.Split(text, "\n")[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		size, err1 := strconv.ParseUint(fields[2], 10, 64)
+		used, err2 := strconv.ParseUint(fields[3], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		kind := fields[1]
+		if strings.HasPrefix(fields[0], "/dev/zram") {
+			kind = "zram"
+		}
+		devices = append(devices, models.SwapDevice{Name: fields[0], Kind: kind, Size: size, Used: used})
+	}
+	return devices
 }
 
 // readZramStats sums orig_data_size and compr_data_size (fields 1 and 2 of

@@ -92,3 +92,18 @@ func TestProcessExtras_FirstPollNetRateFromBaselineDump(t *testing.T) {
 	require.NotNil(t, row.Connections)
 	assert.Equal(t, 1, *row.Connections)
 }
+
+func TestParseProcStat(t *testing.T) {
+	st, ok := parseProcStat("1234 (Web Content (x)) S 1 1234 1234 0 -1 4194560 100 0 0 0 5 3 0 0 20 5 27 0 100 0 0\n")
+	require.True(t, ok)
+	assert.Equal(t, procStat{Status: "S", Nice: 5, Threads: 27}, st)
+
+	st, ok = parseProcStat("7 (kworker/0:1) I 2 0 0 0 -1 69238880 0 0 0 0 0 0 0 0 0 -20 1 0 50\n")
+	require.True(t, ok)
+	assert.Equal(t, procStat{Status: "I", Nice: -20, Threads: 1}, st)
+
+	_, ok = parseProcStat("1 (init) S 0 1")
+	assert.False(t, ok)
+	_, ok = parseProcStat("")
+	assert.False(t, ok)
+}

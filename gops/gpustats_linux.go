@@ -93,6 +93,9 @@ func readGPUSysfs(g *models.GPUStats, dev string) {
 	g.Usage = readFloatPtr(filepath.Join(dev, "gpu_busy_percent"))
 	g.VRAMUsed = readUint(filepath.Join(dev, "mem_info_vram_used"))
 	g.VRAMTotal = readUint(filepath.Join(dev, "mem_info_vram_total"))
+	g.GTTUsed = readUint(filepath.Join(dev, "mem_info_gtt_used"))
+	g.GTTTotal = readUint(filepath.Join(dev, "mem_info_gtt_total"))
+	g.MemoryBusy = readFloatPtr(filepath.Join(dev, "mem_busy_percent"))
 
 	hwmons, _ := filepath.Glob(filepath.Join(dev, "hwmon", "hwmon*"))
 	var firstTemp *float64

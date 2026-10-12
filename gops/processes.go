@@ -404,6 +404,9 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						ExecutablePath:    exePath,
 						StartTime:         startTime,
 					}
+					if st, ok := readProcStat(p.Pid); ok {
+						info.Status, info.Threads, info.Nice = st.Status, st.Threads, &st.Nice
+					}
 					setProcessExtras(info, prev, &sample, gpu, created)
 					if netInfo.Known {
 						info.Connections = new(netInfo.Count)
@@ -461,14 +464,15 @@ func setProcessExtras(info *models.ProcessInfo, prev, cur *processSample, gpu pr
 	info.GPUUnmonitored = gpu.Unmonitored
 	if gpu.Readable {
 		info.VRAMKB = new(gpu.VRAMBytes / 1024)
+		info.GPUGttKB = new(gpu.GTTBytes / 1024)
 	}
 	if prev == nil || cur.Timestamp <= prev.Timestamp || createdMillis > prev.Timestamp {
 		return
 	}
 	elapsed := time.Duration(cur.Timestamp-prev.Timestamp) * time.Millisecond
 	if cur.gpuOK && prev.gpuOK && !gpu.Unmonitored {
-		usage := procGPUUsage(prev.gpu, gpu.Clients, elapsed)
-		info.GPU = &usage
+		usage, video := procGPUUsage(prev.gpu, gpu.Clients, elapsed)
+		info.GPU, info.GPUVideo = &usage, &video
 	}
 	if cur.ioOK && prev.ioOK && cur.io[0] >= prev.io[0] && cur.io[1] >= prev.io[1] {
 		read := float64(cur.io[0]-prev.io[0]) / elapsed.Seconds()
@@ -677,9 +681,14 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 				root.GPU = new(100.0)
 			}
 			root.GPUUnmonitored = root.GPUUnmonitored || p.GPUUnmonitored
+			root.GPUVideo = addKnown(root.GPUVideo, p.GPUVideo)
+			if root.GPUVideo != nil && *root.GPUVideo > 100 {
+				root.GPUVideo = new(100.0)
+			}
 			root.VRAMKB = addKnown(root.VRAMKB, p.VRAMKB)
+			root.GPUGttKB = addKnown(root.GPUGttKB, p.GPUGttKB)
 			if root.GPUUnmonitored {
-				root.GPU, root.VRAMKB = nil, nil
+				root.GPU, root.GPUVideo, root.VRAMKB, root.GPUGttKB = nil, nil, nil, nil
 			}
 			root.DiskRead = addKnown(root.DiskRead, p.DiskRead)
 			root.DiskWrite = addKnown(root.DiskWrite, p.DiskWrite)
@@ -691,6 +700,7 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 				root.Remotes = append(slices.Clip(root.Remotes), p.Remotes...)
 				root.Remotes = root.Remotes[:min(len(root.Remotes), maxProcRemotes)]
 			}
+			root.Threads += p.Threads
 			root.ChildCount++
 		}
 	}

@@ -38,6 +38,9 @@ func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 	info.Hostname = hostInfo.Hostname
 	info.Arch = hostInfo.KernelArch
 	info.Distro = getDistroName()
+	if comm, err := readFile("/proc/1/comm"); err == nil {
+		info.Init = strings.TrimSpace(comm)
+	}
 
 	return info, nil
 }

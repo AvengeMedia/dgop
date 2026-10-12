@@ -83,6 +83,7 @@ func readCPUStatic(root string) cpuStatic {
 	dirs, _ := cpuDirs(root)
 	var s cpuStatic
 	cores := map[[2]int64]struct{}{}
+	packages := map[int64]struct{}{}
 	seen := map[string]struct{}{}
 	cache := models.CPUCache{}
 	var haveCache bool
@@ -97,11 +98,19 @@ func readCPUStatic(root string) cpuStatic {
 		if khz, ok := readSysInt(filepath.Join(freq, "cpuinfo_max_freq")); ok {
 			s.maxMHz = max(s.maxMHz, float64(khz)/1000)
 		}
+		if mhz, ok := readSysInt(filepath.Join(dir, "acpi_cppc", "nominal_freq")); ok {
+			s.baseMHz = max(s.baseMHz, float64(mhz))
+		} else if khz, ok := readSysInt(filepath.Join(freq, "base_frequency")); ok {
+			s.baseMHz = max(s.baseMHz, float64(khz)/1000)
+		}
 
 		pkg, ok1 := readSysInt(filepath.Join(dir, "topology", "physical_package_id"))
 		core, ok2 := readSysInt(filepath.Join(dir, "topology", "core_id"))
 		if ok1 && ok2 {
 			cores[[2]int64{pkg, core}] = struct{}{}
+		}
+		if ok1 {
+			packages[pkg] = struct{}{}
 		}
 
 		idx, _ := filepath.Glob(filepath.Join(dir, "cache", "index*"))
@@ -136,6 +145,7 @@ func readCPUStatic(root string) cpuStatic {
 	}
 
 	s.physicalCores = len(cores)
+	s.sockets = len(packages)
 	if haveCache {
 		s.cache = &cache
 	}

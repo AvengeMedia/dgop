@@ -4,15 +4,25 @@ package gops
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/AvengeMedia/dgop/models"
 )
 
-const nvidiaSMIFields = "pci.bus_id,utilization.gpu,memory.used,memory.total,clocks.gr,clocks.max.gr,clocks.mem,clocks.max.mem,temperature.gpu,power.draw,power.limit,fan.speed,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max"
+const (
+	nvidiaSMIFields       = "pci.bus_id,utilization.gpu,memory.used,memory.total,clocks.gr,clocks.max.gr,clocks.mem,clocks.max.mem,temperature.gpu,power.draw,power.limit,fan.speed,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max"
+	nvidiaSMIVideoFields  = ",utilization.encoder,utilization.decoder"
+	nvidiaSMIInvalidField = "is not a valid field"
+)
+
+// nvidiaSMINoVideo is set once nvidia-smi rejects the encoder/decoder fields,
+// which older drivers don't know.
+var nvidiaSMINoVideo atomic.Bool
 
 var pcieGenSpeeds = map[int]string{
 	1: "2.5 GT/s PCIe",
@@ -74,13 +84,24 @@ func queryNvidiaSMIAll(path string, bdfs []string) map[string]models.GPUStats {
 }
 
 func runNvidiaSMI(path, id string) ([]byte, error) {
+	fields := nvidiaSMIFields
+	if !nvidiaSMINoVideo.Load() {
+		fields += nvidiaSMIVideoFields
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	args := []string{"--query-gpu=" + nvidiaSMIFields, "--format=csv,noheader,nounits"}
+	args := []string{"--query-gpu=" + fields, "--format=csv,noheader,nounits"}
 	if id != "" {
 		args = append([]string{"--id=" + id}, args...)
 	}
-	return exec.CommandContext(ctx, path, args...).Output()
+	out, err := exec.CommandContext(ctx, path, args...).Output()
+	var exitErr *exec.ExitError
+	if err != nil && fields != nvidiaSMIFields && (strings.Contains(string(out), nvidiaSMIInvalidField) ||
+		errors.As(err, &exitErr) && strings.Contains(string(exitErr.Stderr), nvidiaSMIInvalidField)) {
+		nvidiaSMINoVideo.Store(true)
+		return runNvidiaSMI(path, id)
+	}
+	return out, err
 }
 
 // nvidiaSMIID turns a sysfs BDF (0000:01:00.0) into the form nvidia-smi prints
@@ -97,7 +118,7 @@ func parseNvidiaSMI(text string) map[string]models.GPUStats {
 	result := make(map[string]models.GPUStats)
 	for _, line := range strings.Split(text, "\n") {
 		cols := strings.Split(line, ",")
-		if len(cols) != 16 {
+		if len(cols) != 16 && len(cols) != 18 {
 			continue
 		}
 		for i := range cols {
@@ -124,6 +145,11 @@ func parseNvidiaSMI(text string) map[string]models.GPUStats {
 			PcieLinkSpeedMax: pcieGenSpeeds[nvidiaInt(cols[13])],
 			PcieLinkWidth:    nvidiaInt(cols[14]),
 			PcieLinkWidthMax: nvidiaInt(cols[15]),
+		}
+		if len(cols) == 18 {
+			s := result[bdf]
+			s.EncoderUsage, s.DecoderUsage = nvidiaFloat(cols[16]), nvidiaFloat(cols[17])
+			result[bdf] = s
 		}
 	}
 	return result

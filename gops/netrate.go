@@ -74,6 +74,10 @@ func (self *GopsUtil) GetNetworkRatesWithOptions(cursorStr string, allInterfaces
 		}
 	}
 
+	for _, info := range interfaces {
+		fillLinkInfo(info)
+	}
+
 	// Create new cursor
 	newCursor := NetworkRateCursor{
 		Timestamp: currentTime,

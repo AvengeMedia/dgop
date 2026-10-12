@@ -32,6 +32,9 @@ func amdgpuFixture(t *testing.T, pciRoot string) string {
 		"gpu_busy_percent":     "37\n",
 		"mem_info_vram_used":   "2147483648\n",
 		"mem_info_vram_total":  "25753026560\n",
+		"mem_info_gtt_used":    "104857600\n",
+		"mem_info_gtt_total":   "16777216000\n",
+		"mem_busy_percent":     "8\n",
 		"pp_dpm_sclk":          "S: 0Mhz\n1: 500Mhz *\n2: 2526Mhz \n",
 		"pp_dpm_mclk":          "0: 96Mhz \n1: 456Mhz \n2: 772Mhz \n3: 1249Mhz *\n",
 		"current_link_speed":   "16.0 GT/s PCIe\n",
@@ -81,6 +84,12 @@ func TestCollectGPUStats_Amdgpu(t *testing.T) {
 	assert.Equal(t, uint64(2147483648), *g.VRAMUsed)
 	require.NotNil(t, g.VRAMTotal)
 	assert.Equal(t, uint64(25753026560), *g.VRAMTotal)
+	require.NotNil(t, g.GTTUsed)
+	assert.Equal(t, uint64(104857600), *g.GTTUsed)
+	require.NotNil(t, g.GTTTotal)
+	assert.Equal(t, uint64(16777216000), *g.GTTTotal)
+	require.NotNil(t, g.MemoryBusy)
+	assert.Equal(t, 8.0, *g.MemoryBusy)
 	require.NotNil(t, g.CoreClock)
 	assert.Equal(t, 1800.0, *g.CoreClock)
 	require.NotNil(t, g.CoreClockMax)

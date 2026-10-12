@@ -17,6 +17,9 @@ type CPUInfo struct {
 	Governor        string    `json:"governor,omitempty"`
 	EPP             string    `json:"epp,omitempty" doc:"Energy performance preference"`
 	PhysicalCores   int       `json:"physicalCores,omitempty"`
+	BaseFrequency   float64   `json:"baseFrequency,omitempty" doc:"Nominal (base) clock in MHz"`
+	Sockets         int       `json:"sockets,omitempty"`
+	Virtualization  string    `json:"virtualization,omitempty" doc:"AMD-V or VT-x when the CPU flag is present"`
 	Cache           *CPUCache `json:"cache,omitempty"`
 }
 

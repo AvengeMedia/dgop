@@ -18,6 +18,7 @@ type procGPU struct {
 	Unmonitored bool
 	UsageKnown  bool
 	VRAMBytes   uint64
+	GTTBytes    uint64
 	Clients     drmClientSet
 }
 
@@ -29,4 +30,6 @@ func newProcGPUReader(_ []string) *procGPUReader { return &procGPUReader{} }
 
 func (self *procGPUReader) read(_ int32) procGPU { return procGPU{} }
 
-func procGPUUsage(_ []gpuCursorClient, _ drmClientSet, _ time.Duration) float64 { return 0 }
+func procGPUUsage(_ []gpuCursorClient, _ drmClientSet, _ time.Duration) (all, video float64) {
+	return 0, 0
+}

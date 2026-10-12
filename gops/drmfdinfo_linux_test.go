@@ -68,6 +68,7 @@ func TestParseDRMFdinfoAmdgpu(t *testing.T) {
 	assert.Equal(t, "0000:0c:00.0", client.PDev)
 	assert.Equal(t, uint64(49), client.ID)
 	assert.Equal(t, uint64(12*1024), client.VRAMBytes)
+	assert.Equal(t, uint64(2048*1024), client.GTTBytes)
 	assert.Empty(t, client.Engines, "An idle client has no engine lines")
 
 	busy, ok := parseDRMFdinfo(amdgpuIdleFdinfo + "drm-engine-gfx:\t21199820945 ns\ndrm-engine-dec:\t5655790 ns\n")
@@ -80,6 +81,10 @@ func TestParseDRMFdinfoLegacyVRAM(t *testing.T) {
 	client, ok := parseDRMFdinfo("drm-driver:\tamdgpu\ndrm-client-id:\t1\ndrm-memory-vram:\t3 MiB\n")
 	require.True(t, ok)
 	assert.Equal(t, uint64(3<<20), client.VRAMBytes)
+
+	legacy, ok := parseDRMFdinfo("drm-driver:\tamdgpu\ndrm-client-id:\t1\ndrm-memory-gtt:\t5 MiB\n")
+	require.True(t, ok)
+	assert.Equal(t, uint64(5<<20), legacy.GTTBytes)
 	assert.Empty(t, client.PDev)
 }
 
@@ -188,6 +193,12 @@ func TestMaxEngineUtilization(t *testing.T) {
 	assert.Equal(t, 0.0, maxEngineUtilization(nil))
 	assert.Equal(t, 70.0, maxEngineUtilization(map[string]float64{"gfx": 70, "dec": 20}))
 	assert.Equal(t, 100.0, maxEngineUtilization(map[string]float64{"gfx": 130}))
+}
+
+func TestMaxVideoEngineUtilization(t *testing.T) {
+	assert.Equal(t, 0.0, maxVideoEngineUtilization(map[string]float64{"gfx": 70, "compute": 40}))
+	assert.Equal(t, 35.0, maxVideoEngineUtilization(map[string]float64{"gfx": 70, "dec": 20, "enc_1": 35, "jpeg": 5}))
+	assert.Equal(t, 12.0, maxVideoEngineUtilization(map[string]float64{"rcs": 90, "vecs": 12}))
 }
 
 func TestDRMDriverReportsEngines(t *testing.T) {

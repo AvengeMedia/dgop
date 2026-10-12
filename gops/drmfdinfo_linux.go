@@ -3,6 +3,7 @@
 package gops
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type drmClient struct {
 	ID        uint64
 	Engines   map[string]drmEngine
 	VRAMBytes uint64
+	GTTBytes  uint64
 }
 
 type drmClientKey struct {
@@ -62,8 +64,8 @@ func drmDriverReportsEngines(driver string) bool {
 func parseDRMFdinfo(text string) (drmClient, bool) {
 	client := drmClient{Engines: map[string]drmEngine{}}
 	hasID := false
-	var vram, legacyVRAM uint64
-	hasVRAM := false
+	var vram, legacyVRAM, gtt, legacyGTT uint64
+	hasVRAM, hasGTT := false, false
 
 	engine := func(name string) drmEngine {
 		e := client.Engines[name]
@@ -130,6 +132,10 @@ func parseDRMFdinfo(text string) (drmClient, bool) {
 			hasVRAM = true
 		case key == "drm-memory-vram":
 			legacyVRAM = n
+		case key == "drm-resident-gtt":
+			gtt, hasGTT = n, true
+		case key == "drm-memory-gtt":
+			legacyGTT = n
 		}
 	}
 
@@ -140,6 +146,11 @@ func parseDRMFdinfo(text string) (drmClient, bool) {
 		client.VRAMBytes = vram
 	} else {
 		client.VRAMBytes = legacyVRAM
+	}
+	if hasGTT {
+		client.GTTBytes = gtt
+	} else {
+		client.GTTBytes = legacyGTT
 	}
 	return client, true
 }
@@ -202,6 +213,20 @@ func drmEngineUtilization(prev, cur drmClientSet, elapsed time.Duration) map[str
 		}
 	}
 	return result
+}
+
+// videoEnginePrefixes name the encode/decode engines: amdgpu enc, dec, jpeg
+// and vcn; i915 video and video-enhance; xe vcs and vecs.
+var videoEnginePrefixes = []string{"enc", "dec", "jpeg", "vcn", "video", "vcs", "vecs"}
+
+func maxVideoEngineUtilization(engines map[string]float64) float64 {
+	var best float64
+	for name, v := range engines {
+		if slices.ContainsFunc(videoEnginePrefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
+			best = max(best, v)
+		}
+	}
+	return min(best, 100)
 }
 
 func maxEngineUtilization(engines map[string]float64) float64 {

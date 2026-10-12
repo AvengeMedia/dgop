@@ -14,6 +14,7 @@ type SystemHardware struct {
 	Arch     string   `json:"arch"`
 	CPU      CPUBasic `json:"cpu"`
 	BIOS     BIOSInfo `json:"bios"`
+	Init     string   `json:"initSystem,omitempty" doc:"Name of PID 1, e.g. systemd"`
 }
 
 type CPUBasic struct {

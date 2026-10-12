@@ -20,6 +20,7 @@ type procGPU struct {
 	Unmonitored bool
 	UsageKnown  bool
 	VRAMBytes   uint64
+	GTTBytes    uint64
 	// Clients that report engines, for rating.
 	Clients drmClientSet
 }
@@ -97,6 +98,7 @@ func (self *procGPUReader) fromScan(pid int32, scan procFDScan) procGPU {
 	res := procGPU{Readable: true, VRAMBytes: vram}
 	for key, client := range scan.DRM {
 		res.VRAMBytes += client.VRAMBytes
+		res.GTTBytes += client.GTTBytes
 		if !drmDriverReportsEngines(client.Driver) {
 			continue
 		}
@@ -112,8 +114,9 @@ func (self *procGPUReader) fromScan(pid int32, scan procFDScan) procGPU {
 	return res
 }
 
-// procGPUUsage is the busy percent (max over engines) of one process's
-// clients since the previous sample.
-func procGPUUsage(prev []gpuCursorClient, cur drmClientSet, elapsed time.Duration) float64 {
-	return maxEngineUtilization(drmEngineUtilization(cursorClientSet(prev), cur, elapsed))
+// procGPUUsage is the busy percent of one process's clients since the
+// previous sample: max over all engines, and max over the video engines.
+func procGPUUsage(prev []gpuCursorClient, cur drmClientSet, elapsed time.Duration) (all, video float64) {
+	engines := drmEngineUtilization(cursorClientSet(prev), cur, elapsed)
+	return maxEngineUtilization(engines), maxVideoEngineUtilization(engines)
 }
