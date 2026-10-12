@@ -1,0 +1,30 @@
+name: Port audit
+
+# On-demand report of master commits not yet ported to a release branch.
+# Updates the "Port status: <branch>" tracking issue and the step summary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Release branch to audit (default: newest stable-*)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/port-audit.sh ${{ inputs.target }} --issue
