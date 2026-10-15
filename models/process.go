@@ -25,7 +25,7 @@ type ProcessInfo struct {
 	GPU            *float64 `json:"gpu,omitempty" doc:"Percentage of the busiest GPU engine used since the cursor, in the range 0-100. Merged rows sum each member's busiest engine, capped at 100."`
 	VRAMKB         *uint64  `json:"vramKB,omitempty" doc:"GPU memory in KB."`
 	GPUVideo       *float64 `json:"gpuVideo,omitempty" doc:"Percentage of the busiest video engine (encode, decode, JPEG) used since the cursor. Merged rows sum each member's busiest video engine, capped at 100."`
-	GPUGttKB       *uint64  `json:"gpuGtt,omitempty" doc:"System memory mapped for the GPU (GTT), in KB."`
+	GPUGttKB       *uint64  `json:"gpuGttKB,omitempty" doc:"System memory mapped for the GPU (GTT), in KB."`
 	GPUUnmonitored bool     `json:"gpuUnmonitored,omitempty" doc:"True when the process holds a GPU that is excluded, or an NVIDIA GPU that is excluded or suspended, so gpu and vramKB are deliberately not measured."`
 	DiskRead       *float64 `json:"diskRead,omitempty" doc:"Disk bytes read per second since the cursor."`
 	DiskWrite      *float64 `json:"diskWrite,omitempty" doc:"Disk bytes written per second since the cursor."`
@@ -33,9 +33,9 @@ type ProcessInfo struct {
 	Connections      *int            `json:"connections,omitempty" doc:"Open sockets with an internet remote; merged rows sum their members."`
 	LocalConnections *int            `json:"localConnections,omitempty" doc:"Open sockets with a LAN, VPN or link-local remote (private, CGNAT or link-local address); loopback is never counted. Merged rows sum their members."`
 	Remotes          []NetConnection `json:"remotes,omitempty" doc:"Internet and local remotes, capped at 32."`
-	NetRx            *float64        `json:"netRx,omitempty" doc:"TCP payload bytes received per second from internet and local remotes since the cursor. Absent when unknown, including for a process in another network namespace with its own interfaces (a container) and one whose only such sockets are UDP, which has no byte counters."`
-	NetTx            *float64        `json:"netTx,omitempty" doc:"TCP payload bytes sent and acknowledged per second to internet and local remotes since the cursor; absent like netRx."`
-	NetPartial       bool            `json:"netPartial,omitempty" doc:"True when the process also has UDP sockets with an internet or local remote (e.g. QUIC), whose traffic netRx and netTx leave out, so they are a lower bound."`
+	NetRx            *float64        `json:"netRx,omitempty" doc:"TCP payload bytes per second received from internet and local remotes since the cursor. Absent when unknown: unreadable fds, a container's own network namespace, or only UDP sockets, which have no byte counters."`
+	NetTx            *float64        `json:"netTx,omitempty" doc:"TCP payload bytes per second sent and acknowledged, like netRx."`
+	NetPartial       bool            `json:"netPartial,omitempty" doc:"True when UDP sockets (e.g. QUIC) to internet or local remotes are open too; netRx and netTx leave them out, so they are a lower bound."`
 }
 
 type NetConnection struct {
@@ -53,8 +53,8 @@ type ProcessCursorData struct {
 type ProcessListResponse struct {
 	Processes    []*ProcessInfo `json:"processes"`
 	Cursor       string         `json:"cursor,omitempty"`
-	ProcessNetRx *float64       `json:"processNetRx,omitempty" doc:"Sum of netRx over every process with a known rate, before merging and the limit: the TCP payload of processes dgop can read in its network namespace. An interface rate minus this is traffic not attributed to a process."`
-	ProcessNetTx *float64       `json:"processNetTx,omitempty" doc:"Sum of netTx, like processNetRx."`
+	ProcessNetRx *float64       `json:"processNetRx,omitempty" doc:"Sum of every known netRx, before merging and the limit. An interface rate minus this is traffic not attributed to a readable process."`
+	ProcessNetTx *float64       `json:"processNetTx,omitempty" doc:"Sum of every known netTx, like processNetRx."`
 }
 
 // ProcessDetail holds per-process data that is too costly to poll for every row; it is read on demand for one PID.

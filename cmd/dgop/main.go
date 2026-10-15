@@ -82,7 +82,7 @@ func init() {
 
 	diskRateCmd.Flags().StringVar(&diskRateCursor, "cursor", "", "Cursor from previous disk rate request")
 
-	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read (e.g., 10de:2684,1002:164e); empty reads none; omitted reads all, except gpu-temp, which reads none")
+	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "Only read these GPUs (e.g., 10de:2684,1002:164e); others are listed without stats. Omit to read all")
 	gpuStatsCmd.Flags().StringVar(&gpuStatsCursor, "cursor", "", "Cursor from previous GPU stats request")
 
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
@@ -98,7 +98,7 @@ func init() {
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
 	metaCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
-	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read for gpu-temp, gpu-stats and process-gpu (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
+	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read for gpu-temp, gpu-stats and process-gpu (e.g., 10de:2684,1002:164e); empty reads none. Omitted, gpu-stats and process-gpu read all and gpu-temp reads none")
 	metaCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	metaCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
 	metaCmd.Flags().StringVar(&netRateCursor, "net-rate-cursor", "", "Network rate cursor from previous request")

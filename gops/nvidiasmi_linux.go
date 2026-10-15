@@ -101,8 +101,8 @@ func parseNvidiaSMI(text string) map[string]models.GPUStats {
 		result[bdf] = models.GPUStats{
 			PciSlot:          bdf,
 			Usage:            nvidiaFloat(cols[1]),
-			VRAMUsed:         nvidiaBytes(cols[2]),
-			VRAMTotal:        nvidiaBytes(cols[3]),
+			VRAMUsedKB:       nvidiaMiBToKB(cols[2]),
+			VRAMTotalKB:      nvidiaMiBToKB(cols[3]),
 			CoreClock:        nvidiaFloat(cols[4]),
 			CoreClockMax:     nvidiaFloat(cols[5]),
 			MemClock:         nvidiaFloat(cols[6]),
@@ -153,12 +153,12 @@ func nvidiaInt(s string) int {
 	return v
 }
 
-func nvidiaBytes(s string) *uint64 {
+func nvidiaMiBToKB(s string) *uint64 {
 	v, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
 		return nil
 	}
-	v <<= 20
+	v <<= 10
 	return &v
 }
 

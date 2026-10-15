@@ -22,8 +22,8 @@ func TestParseNvidiaSMI(t *testing.T) {
 	a := got["0000:01:00.0"]
 	assert.Equal(t, "0000:01:00.0", a.PciSlot)
 	assert.Equal(t, 37.0, *a.Usage)
-	assert.Equal(t, uint64(1024<<20), *a.VRAMUsed)
-	assert.Equal(t, uint64(8192<<20), *a.VRAMTotal)
+	assert.Equal(t, uint64(1024<<10), *a.VRAMUsedKB)
+	assert.Equal(t, uint64(8192<<10), *a.VRAMTotalKB)
 	assert.Equal(t, 1815.0, *a.CoreClock)
 	assert.Equal(t, 2100.0, *a.CoreClockMax)
 	assert.Equal(t, 7000.0, *a.MemClock)

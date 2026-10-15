@@ -47,6 +47,14 @@ func readUint(path string) *uint64 {
 	return &v
 }
 
+func readKB(path string) *uint64 {
+	v := readUint(path)
+	if v != nil {
+		*v /= 1024
+	}
+	return v
+}
+
 func readFloat(path string) *float64 {
 	v, err := strconv.ParseFloat(readTrimmed(path), 64)
 	if err != nil {

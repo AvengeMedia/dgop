@@ -150,7 +150,7 @@ func TestProcessExtras_OffLeavesRowsAndCursorUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	var row map[string]any
 	require.NoError(t, json.Unmarshal(raw, &row))
-	for _, key := range []string{"gpu", "gpuVideo", "vramKB", "gpuGtt", "diskRead", "diskWrite", "connections", "remotes", "netRx", "netTx"} {
+	for _, key := range []string{"gpu", "gpuVideo", "vramKB", "gpuGttKB", "diskRead", "diskWrite", "connections", "remotes", "netRx", "netTx"} {
 		assert.NotContains(t, row, key)
 	}
 

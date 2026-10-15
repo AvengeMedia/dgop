@@ -99,7 +99,7 @@ func parseMemoryModules(text string) *models.MemoryModulesInfo {
 		configured, _ := strconv.ParseUint(d["CONFIGURED_SPEED_MTS"], 10, 32)
 		info.Modules = append(info.Modules, models.MemoryModule{
 			Locator:         dmiValue(d["LOCATOR"]),
-			Size:            size,
+			Size:            size / 1024,
 			Type:            dmiValue(d["TYPE"]),
 			Speed:           uint32(speed),
 			ConfiguredSpeed: uint32(configured),

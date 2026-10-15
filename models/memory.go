@@ -32,7 +32,7 @@ type SwapDevice struct {
 
 type MemoryModule struct {
 	Locator         string `json:"locator"`
-	Size            uint64 `json:"size" doc:"Bytes"`
+	Size            uint64 `json:"size" doc:"KB"`
 	Type            string `json:"type,omitempty"`
 	Speed           uint32 `json:"speed,omitempty" doc:"Rated speed in MT/s"`
 	ConfiguredSpeed uint32 `json:"configuredSpeed,omitempty" doc:"Configured speed in MT/s"`

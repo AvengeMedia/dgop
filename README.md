@@ -90,6 +90,18 @@ dgop gpu
 # Get temperature for specific GPU
 dgop gpu-temp --pci-id 10de:2684
 
+# Live GPU usage, VRAM, clocks, power and fans
+dgop gpu-stats
+
+# Temperature, fan and power sensors
+dgop sensors
+
+# Installed memory modules
+dgop memory-modules
+
+# Lifetime I/O, swap, open files and systemd unit of one process
+dgop process --pid 1234
+
 # List available modules
 dgop modules
 ```
@@ -110,6 +122,9 @@ dgop meta --modules gpu --gpu-pci-ids 10de:2684
 
 # Multiple GPU temperatures
 dgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
+
+# Live GPU stats and sensors
+dgop meta --modules gpu-stats,sensors
 
 # Everything (same as 'dgop all')
 dgop meta --modules all
@@ -136,8 +151,14 @@ dgop processes --limit 10
 # Skip CPU calculation for faster results
 dgop processes --no-cpu
 
+# Add per-process GPU and VRAM, disk I/O, or connections and TCP rates
+dgop processes --gpu --io --net
+
 # Combine options
 dgop meta --modules processes --sort memory --limit 20 --no-cpu
+
+# Per-process extras in meta
+dgop meta --modules processes,process-gpu,process-io,process-net --sort disk
 ```
 
 ## API Server
@@ -155,10 +176,16 @@ Then hit these endpoints:
 - **GET** `/gops/network` - Network interfaces
 - **GET** `/gops/disk` - Disk usage
 - **GET** `/gops/processes?sort_by=memory&limit=10` - Top 10 processes by memory
+- **GET** `/gops/processes?gpu=true&io=true&net=true` - Processes with GPU, disk I/O and network
+- **GET** `/gops/process/1234` - Details of one process
 - **GET** `/gops/system` - System load and uptime
 - **GET** `/gops/hardware` - Hardware info
 - **GET** `/gops/gpu` - GPU information
 - **GET** `/gops/gpu/temp?pciId=10de:2684` - GPU temperature
+- **GET** `/gops/gpu/stats` - Live GPU stats
+- **GET** `/gops/sensors` - Temperature, fan and power sensors
+- **GET** `/gops/memory/modules` - Installed memory modules
+- **GET** `/gops/net-rate?all_interfaces=true` - Network rates of every interface
 - **GET** `/gops/modules` - List available modules
 - **GET** `/gops/meta?modules=cpu,memory&gpu_pci_ids=10de:2684` - Dynamic modules
 
@@ -233,6 +260,9 @@ dgop net-rate --json
 sleep 3
 dgop net-rate --json --cursor "eyJ0aW1lc3RhbXAiOiIyMDI1LTA4LTExVDE2OjE1OjM1..."
 # Returns: {"interfaces":[{"interface":"wlp99s0","rxrate":67771,"txrate":16994}]}
+
+# Include VPN and virtual interfaces
+dgop net-rate --json --all-interfaces
 ```
 
 ### Disk I/O Rate Monitoring

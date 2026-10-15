@@ -44,11 +44,11 @@ func TestParseMemoryModules(t *testing.T) {
 	assert.Equal(t, 4, info.Slots)
 	require.Len(t, info.Modules, 2)
 	assert.Equal(t, models.MemoryModule{
-		Locator: "DIMM_A2", Size: 16 << 30, Type: "DDR4", Speed: 2197, ConfiguredSpeed: 2197,
+		Locator: "DIMM_A2", Size: 16 << 20, Type: "DDR4", Speed: 2197, ConfiguredSpeed: 2197,
 		Manufacturer: "G Skill Intl", PartNumber: "F4-4000C16-16GTZR", FormFactor: "DIMM",
 	}, info.Modules[0])
 	assert.Equal(t, models.MemoryModule{
-		Locator: "DIMM_B2", Size: 16 << 30, Type: "DDR4", Speed: 2197, ConfiguredSpeed: 2133, FormFactor: "DIMM",
+		Locator: "DIMM_B2", Size: 16 << 20, Type: "DDR4", Speed: 2197, ConfiguredSpeed: 2133, FormFactor: "DIMM",
 	}, info.Modules[1])
 }
 

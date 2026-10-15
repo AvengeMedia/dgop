@@ -941,10 +941,10 @@ func displayGPUStats(info *models.GPUStatsInfo) {
 		if g.Usage != nil {
 			add("Usage:", *g.Usage, "%.1f%%")
 		}
-		if g.VRAMUsed != nil && g.VRAMTotal != nil {
-			rows = append(rows, []string{"VRAM:", fmt.Sprintf("%s / %s", formatBytes(*g.VRAMUsed), formatBytes(*g.VRAMTotal))})
-		} else if g.VRAMUsed != nil {
-			rows = append(rows, []string{"VRAM:", formatBytes(*g.VRAMUsed)})
+		if g.VRAMUsedKB != nil && g.VRAMTotalKB != nil {
+			rows = append(rows, []string{"VRAM:", fmt.Sprintf("%s / %s", formatBytes(*g.VRAMUsedKB*1024), formatBytes(*g.VRAMTotalKB*1024))})
+		} else if g.VRAMUsedKB != nil {
+			rows = append(rows, []string{"VRAM:", formatBytes(*g.VRAMUsedKB * 1024)})
 		}
 		if g.CoreClock != nil {
 			rows = append(rows, []string{"Core Clock:", mhzOfMax(*g.CoreClock, g.CoreClockMax)})
@@ -1051,7 +1051,7 @@ func displayMemoryModules(info *models.MemoryModulesInfo) {
 		fmt.Println()
 		fmt.Println(keyStyle.Render(fmt.Sprintf("Module: %s", m.Locator)))
 
-		rows := [][]string{{"Size:", formatBytes(m.Size)}}
+		rows := [][]string{{"Size:", formatBytes(m.Size * 1024)}}
 		if m.Type != "" {
 			rows = append(rows, []string{"Type:", m.Type})
 		}
