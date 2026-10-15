@@ -24,7 +24,7 @@ func (self *HandlerGroup) ProcessDetail(ctx context.Context, input *ProcessDetai
 		return nil, huma.Error404NotFound(err.Error())
 	}
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, huma.Error500InternalServerError("Unable to retrieve process detail")
 	}
 	return &ProcessDetailResponse{Body: detail}, nil
 }

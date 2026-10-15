@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/AvengeMedia/dgop/models"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // GetProcessDetail reads the on-demand fields of one process. Fields that are
@@ -23,9 +24,8 @@ func (self *GopsUtil) GetProcessDetail(pid int32) (*models.ProcessDetail, error)
 		return nil, err
 	}
 	d := &models.ProcessDetail{PID: pid}
-	if data, err := os.ReadFile(dir + "/io"); err == nil {
-		d.ReadTotal = procField(string(data), "read_bytes:")
-		d.WriteTotal = procField(string(data), "write_bytes:")
+	if read, write, ok := newProcReader().diskBytes(&process.Process{Pid: pid}); ok {
+		d.ReadTotal, d.WriteTotal = &read, &write
 	}
 	if data, err := os.ReadFile(dir + "/status"); err == nil {
 		d.SwapKB = procField(string(data), "VmSwap:")

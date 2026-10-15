@@ -120,7 +120,7 @@ func TestParseProcStat(t *testing.T) {
 func TestReadProcStatSelf(t *testing.T) {
 	p, err := process.NewProcess(int32(os.Getpid()))
 	require.NoError(t, err)
-	st, ok := readProcStat(p)
+	st, ok := newProcReader().stat(p)
 	require.True(t, ok)
 	created, err := p.CreateTime()
 	require.NoError(t, err)

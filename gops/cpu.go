@@ -47,8 +47,14 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 
 	now := time.Now()
 	if now.Sub(cpuTracker.freqLastRead) > 2*time.Second {
-		cpuTracker.freqValue = getCurrentCPUFreq()
 		cpuTracker.dynamic = readCPUDynamicLive()
+		// The first online CPU's clock, as in /proc/cpuinfo, which on x86
+		// interrupts every CPU to read.
+		if i := slices.IndexFunc(cpuTracker.dynamic.coreMHz, func(f float64) bool { return f > 0 }); i >= 0 {
+			cpuTracker.freqValue = cpuTracker.dynamic.coreMHz[i]
+		} else {
+			cpuTracker.freqValue = getCurrentCPUFreq()
+		}
 		cpuTracker.freqLastRead = now
 	}
 	if cpuTracker.freqValue > 0 {

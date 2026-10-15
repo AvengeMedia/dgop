@@ -51,7 +51,7 @@ func TestProcGPUReader_TriState(t *testing.T) {
 	writeDRMClient(t, procRoot, 8, 4, "renderD128", amdgpuEngineClient)
 	writeFDLink(t, procRoot, 8, 5, "/dev/nvidia0")
 
-	r := &procGPUReader{gpuNodeSet: gpuNodeSet{nodes: nodes, nvidia: true},
+	r := &procGPUReader{gpuNodeSet: gpuNodeSet{nodes: nodes, nvidia: []string{"0000:01:00.0"}},
 		nvidiaVRAM: map[int32]uint64{4: 100, 3: 5, 6: 0}}
 	read := func(pid int32) procGPU { return readGPU(r, procRoot, pid) }
 
@@ -146,16 +146,18 @@ func TestBuildProcGPUReader_AllowList(t *testing.T) {
 		{BusId: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
 	}
 	smi := 0
-	query := func() map[int32]uint64 { smi++; return map[int32]uint64{} }
+	var queried []string
+	query := func(ids []string) map[int32]uint64 { smi++; queried = ids; return map[int32]uint64{} }
 
 	r := buildProcGPUReader(pciRoot, detected, nil, query)
 	assert.Equal(t, map[string]gpuNodeState{"renderD128": gpuNodeRead, "renderD129": gpuNodeRead}, r.nodes)
 	assert.Equal(t, 1, smi)
+	assert.Equal(t, []string{"0000:01:00.0"}, queried)
 
 	smi = 0
 	r = buildProcGPUReader(pciRoot, detected, []string{"1002:744c"}, query)
 	assert.Equal(t, map[string]gpuNodeState{"renderD128": gpuNodeRead, "renderD129": gpuNodeExcluded}, r.nodes)
-	assert.False(t, r.nvidia)
+	assert.Empty(t, r.nvidia)
 	assert.Equal(t, 0, smi, "nvidia-smi must not run when no NVIDIA GPU is enabled")
 
 	r = buildProcGPUReader(pciRoot, detected, []string{}, query)
@@ -164,7 +166,7 @@ func TestBuildProcGPUReader_AllowList(t *testing.T) {
 
 	r = buildProcGPUReader(pciRoot, detected, []string{"10de:2786"}, query)
 	assert.Equal(t, map[string]gpuNodeState{"renderD128": gpuNodeExcluded, "renderD129": gpuNodeRead}, r.nodes)
-	assert.True(t, r.nvidia)
+	assert.Equal(t, []string{"0000:01:00.0"}, r.nvidia)
 	assert.Equal(t, 1, smi)
 }
 
@@ -185,7 +187,7 @@ func TestProcGPUReader_ExcludedGPUIsUnknown(t *testing.T) {
 	writeFDLink(t, procRoot, 4, 3, "/dev/dri/card1")
 
 	read := func(ids []string, pid int32) procGPU {
-		return readGPU(buildProcGPUReader(pciRoot, detected, ids, func() map[int32]uint64 { return nil }), procRoot, pid)
+		return readGPU(buildProcGPUReader(pciRoot, detected, ids, func([]string) map[int32]uint64 { return nil }), procRoot, pid)
 	}
 	dGPU := []string{"1002:744c"}
 
@@ -214,7 +216,7 @@ func TestProcGPUReader_ExcludedWinsOverPartialSum(t *testing.T) {
 	procRoot := t.TempDir()
 	writeDRMClient(t, procRoot, 1, 4, "renderD128", amdgpuEngineClient)
 	writeFDLink(t, procRoot, 1, 5, "/dev/dri/renderD129")
-	r := buildProcGPUReader(pciRoot, detected, []string{"1002:744c"}, func() map[int32]uint64 { return nil })
+	r := buildProcGPUReader(pciRoot, detected, []string{"1002:744c"}, func([]string) map[int32]uint64 { return nil })
 	assert.Equal(t, procGPU{Unmonitored: true}, readGPU(r, procRoot, 1))
 }
 
@@ -231,7 +233,7 @@ func TestProcGPUReader_SuspendedGPUIsIdle(t *testing.T) {
 	require.NoError(t, os.Remove(fdinfo))
 	require.NoError(t, os.Mkdir(fdinfo, 0o755))
 	detected := []models.GPU{{BusId: slot, PciId: "1002:744c", Driver: "amdgpu"}}
-	r := buildProcGPUReader(pciRoot, detected, nil, func() map[int32]uint64 { return nil })
+	r := buildProcGPUReader(pciRoot, detected, nil, func([]string) map[int32]uint64 { return nil })
 	assert.Equal(t, procGPU{Readable: true, UsageKnown: true}, readGPU(r, procRoot, 1), "a runtime-suspended GPU is idle: 0, not unknown")
 }
 
@@ -275,4 +277,40 @@ func itoa(n int) string { return strconv.Itoa(n) }
 func i915Client(id int, renderNs, videoNs int64) string {
 	return "drm-driver:\ti915\ndrm-client-id:\t" + itoa(id) + "\ndrm-pdev:\t0000:00:02.0\n" +
 		"drm-engine-render:\t" + strconv.FormatInt(renderNs, 10) + " ns\ndrm-engine-video:\t" + strconv.FormatInt(videoNs, 10) + " ns\n"
+}
+
+func TestBuildProcGPUReader_NvidiaQueriesOnlyActiveCards(t *testing.T) {
+	pciRoot := t.TempDir()
+	for _, slot := range []string{"0000:01:00.0", "0000:02:00.0", "0000:03:00.0"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(pciRoot, slot, "power"), 0o755))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(pciRoot, "0000:02:00.0", "power", "runtime_status"), []byte("suspended\n"), 0o644))
+	detected := []models.GPU{
+		{BusId: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
+		{BusId: "0000:02:00.0", PciId: "10de:2786", Driver: "nvidia"},
+		{BusId: "0000:03:00.0", PciId: "10de:1234", Driver: "nvidia"},
+	}
+	var queried []string
+	buildProcGPUReader(pciRoot, detected, []string{"10de:2786"}, func(ids []string) map[int32]uint64 {
+		queried = ids
+		return map[int32]uint64{}
+	})
+	assert.Equal(t, []string{"0000:01:00.0"}, queried, "suspended and excluded NVIDIA GPUs are not queried")
+}
+
+func TestProcGPUReader_NvidiaQueryFailedIsUnknown(t *testing.T) {
+	pciRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(pciRoot, "0000:01:00.0"), 0o755))
+	detected := []models.GPU{{BusId: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"}}
+	procRoot := t.TempDir()
+	writeFDLink(t, procRoot, 1, 3, "/dev/nvidia0")
+	require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "2", "fd"), 0o755))
+
+	r := buildProcGPUReader(pciRoot, detected, nil, func([]string) map[int32]uint64 { return nil })
+	assert.Equal(t, procGPU{}, readGPU(r, procRoot, 1), "VRAM is unknown, not 0, when nvidia-smi failed")
+	assert.Equal(t, procGPU{Readable: true, UsageKnown: true}, readGPU(r, procRoot, 2))
+
+	var info models.ProcessInfo
+	setProcessExtras(&info, nil, &processSample{}, readGPU(r, procRoot, 1))
+	assert.Nil(t, info.VRAMKB)
 }

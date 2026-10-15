@@ -132,12 +132,13 @@ func TestMetaE2E_PerformanceRail(t *testing.T) {
 	var withBusy int
 	for _, d := range asList(t, sub(t, second, "diskrate")["disks"]) {
 		row := asMap(t, d)
-		if row["busy"] != nil && row["responseTime"] != nil {
+		// responseTime stays absent on a disk that completed no I/O.
+		if row["busy"] != nil {
 			withBusy++
 		}
 	}
 	if withBusy == 0 {
-		t.Error("no disk row gained busy/responseTime from the disk_rate_cursor")
+		t.Error("no disk row gained busy from the disk_rate_cursor")
 	}
 	if gpuCursor != "" {
 		// The cursor came from a GPU with counter-derived metrics: it must round-trip.

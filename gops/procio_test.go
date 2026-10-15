@@ -17,14 +17,14 @@ func TestProcessDiskBytes_OwnProcessKnown(t *testing.T) {
 	p, err := process.NewProcess(int32(os.Getpid()))
 	require.NoError(t, err)
 
-	_, _, ok := processDiskBytes(p)
+	_, _, ok := newProcReader().diskBytes(p)
 	assert.True(t, ok)
 }
 
 func TestProcessDiskBytes_NonexistentPIDUnknown(t *testing.T) {
 	p := &process.Process{Pid: 1 << 30}
 
-	r, w, ok := processDiskBytes(p)
+	r, w, ok := newProcReader().diskBytes(p)
 	assert.False(t, ok)
 	assert.Zero(t, r)
 	assert.Zero(t, w)
@@ -38,6 +38,6 @@ func TestProcessDiskBytes_UnreadableIsUnknownNotZero(t *testing.T) {
 		t.Skip("/proc/1/io is readable")
 	}
 
-	_, _, ok := processDiskBytes(&process.Process{Pid: 1})
+	_, _, ok := newProcReader().diskBytes(&process.Process{Pid: 1})
 	assert.False(t, ok)
 }

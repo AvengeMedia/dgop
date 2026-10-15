@@ -16,21 +16,21 @@ import (
 	"github.com/AvengeMedia/dgop/models"
 )
 
-const dmiUdevData = "/run/udev/data/+dmi:id"
+var dmiUdevData = "/run/udev/data/+dmi:id"
 
 // GetMemoryModules reads the DMI memory devices that systemd's udev rules
 // export without root as MEMORY_DEVICE_<n>_* properties.
-// The result is read once per GopsUtil, since modules don't change at runtime;
-// a failed read is retried on the next call.
+// The result, failure included, is read once per GopsUtil, since modules
+// don't change at runtime.
 func (self *GopsUtil) GetMemoryModules() (*models.MemoryModulesInfo, error) {
 	self.memModules.Lock()
 	defer self.memModules.Unlock()
-	if self.memModules.info == nil {
-		info, err := readMemoryModules(dmiUdevData)
-		if err != nil {
-			return nil, err
-		}
-		self.memModules.info = info
+	if !self.memModules.read {
+		self.memModules.info, self.memModules.err = readMemoryModules(dmiUdevData)
+		self.memModules.read = true
+	}
+	if self.memModules.err != nil {
+		return nil, self.memModules.err
 	}
 	info := *self.memModules.info
 	info.Modules = slices.Clone(info.Modules)

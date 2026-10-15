@@ -58,7 +58,7 @@ type processCursorWire struct {
 	NetAt    int64       `json:"na,omitempty"`
 }
 
-// processSample is one process's cursor entry. ioOK and gpuOK say whether the
+// processSample is one process's cursor entry. ioOK and gpuOK say whether io and gpu were sampled.
 type processSample struct {
 	models.ProcessCursorData
 	start uint64

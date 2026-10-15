@@ -52,7 +52,7 @@ func cursorJSON(t *testing.T, cursor string) map[string]json.RawMessage {
 
 func TestProcessExtras_DiskRatesFromCursor(t *testing.T) {
 	self := ownProcess(t)
-	read, write, ok := processDiskBytes(self)
+	read, write, ok := newProcReader().diskBytes(self)
 	if !ok {
 		t.Skip("own process disk counters unreadable on this platform")
 	}
@@ -94,7 +94,7 @@ func TestProcessExtras_DiskRatesAbsentWithoutPreviousSample(t *testing.T) {
 
 func TestProcessExtras_BaselinePassGivesFirstResponseRates(t *testing.T) {
 	self := ownProcess(t)
-	if _, _, ok := processDiskBytes(self); !ok {
+	if _, _, ok := newProcReader().diskBytes(self); !ok {
 		t.Skip("own process disk counters unreadable on this platform")
 	}
 
@@ -109,7 +109,7 @@ func TestProcessExtras_BaselinePassGivesFirstResponseRates(t *testing.T) {
 
 func TestProcessExtras_BaselinePassWithoutCPU(t *testing.T) {
 	self := ownProcess(t)
-	if _, _, ok := processDiskBytes(self); !ok {
+	if _, _, ok := newProcReader().diskBytes(self); !ok {
 		t.Skip("own process disk counters unreadable on this platform")
 	}
 	res, err := newProcessTestUtil(t, self).GetProcessesWithOptions(ProcessOptions{IO: true})
@@ -220,10 +220,10 @@ func TestSetProcessExtras_DiskRates(t *testing.T) {
 
 func TestProcessExtras_ReusedPIDIgnoresPreviousSample(t *testing.T) {
 	self := ownProcess(t)
-	if _, _, ok := processDiskBytes(self); !ok {
+	if _, _, ok := newProcReader().diskBytes(self); !ok {
 		t.Skip("own process disk counters unreadable on this platform")
 	}
-	st, ok := readProcStat(self)
+	st, ok := newProcReader().stat(self)
 	require.True(t, ok)
 	cursor := func(start uint64) string {
 		return encodeProcessCursor([]processSample{{

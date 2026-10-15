@@ -121,7 +121,7 @@ dgop meta --modules gpu --gpu-pci-ids 10de:2684
 dgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
 
 # Live GPU usage, VRAM, clocks, power and fans, picked by bus address
-dgop meta --modules gpu,sensors --gpu-pci-ids 0000:03:00.0
+dgop meta --modules gpu --gpu-pci-ids 0000:03:00.0
 
 # Everything (same as 'dgop all')
 dgop meta --modules all

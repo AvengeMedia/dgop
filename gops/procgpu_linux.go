@@ -10,7 +10,7 @@ import (
 
 type procGPUReader struct {
 	gpuNodeSet
-	// VRAM bytes per process listed by nvidia-smi.
+	// VRAM bytes per process listed by nvidia-smi; nil when the query failed.
 	nvidiaVRAM map[int32]uint64
 }
 
@@ -22,17 +22,20 @@ func (self *GopsUtil) newProcGPUReader(pciIds []string) *procGPUReader {
 	return buildProcGPUReader(pciDevicesRoot, gpusFromEntries(entries), pciIds, queryNvidiaPIDs)
 }
 
-func buildProcGPUReader(pciRoot string, detected []models.GPU, pciIds []string, nvidiaPIDs func() map[int32]uint64) *procGPUReader {
+func buildProcGPUReader(pciRoot string, detected []models.GPU, pciIds []string, nvidiaPIDs func(busIds []string) map[int32]uint64) *procGPUReader {
 	r := &procGPUReader{gpuNodeSet: gpuNodes(pciRoot, detected, pciIds)}
-	if r.nvidia {
-		r.nvidiaVRAM = nvidiaPIDs()
+	if len(r.nvidia) > 0 {
+		r.nvidiaVRAM = nvidiaPIDs(r.nvidia)
 	}
 	return r
 }
 
 func (self *procGPUReader) fromScan(pid int32, scan procFDScan) procGPU {
-	if scan.ExcludedGPU || scan.NvidiaGPU && !self.nvidia {
+	if scan.ExcludedGPU || scan.NvidiaGPU && len(self.nvidia) == 0 {
 		return procGPU{Unmonitored: true}
+	}
+	if scan.NvidiaGPU && self.nvidiaVRAM == nil {
+		return procGPU{}
 	}
 	vram, listed := self.nvidiaVRAM[pid]
 	res := procGPU{Readable: true, VRAMBytes: vram}

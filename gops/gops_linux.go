@@ -18,7 +18,9 @@ type platformSources struct {
 
 	memModules struct {
 		sync.Mutex
+		read bool
 		info *models.MemoryModulesInfo
+		err  error
 	}
 }
 

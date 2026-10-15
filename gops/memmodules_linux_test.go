@@ -96,6 +96,7 @@ func TestReadMemoryModulesFailsWithoutAnySource(t *testing.T) {
 
 func TestGetMemoryModules_ReadOnce(t *testing.T) {
 	g := NewGopsUtil()
+	g.memModules.read = true
 	g.memModules.info = &models.MemoryModulesInfo{Slots: 4, Modules: []models.MemoryModule{{Locator: "DIMM_A1"}}}
 
 	first, err := g.GetMemoryModules()
@@ -106,4 +107,20 @@ func TestGetMemoryModules_ReadOnce(t *testing.T) {
 	second, err := g.GetMemoryModules()
 	require.NoError(t, err)
 	assert.Equal(t, "DIMM_A1", second.Modules[0].Locator, "callers get their own copy")
+}
+
+func TestGetMemoryModules_FailureIsCached(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	path := filepath.Join(t.TempDir(), "dmi")
+	old := dmiUdevData
+	dmiUdevData = path
+	t.Cleanup(func() { dmiUdevData = old })
+
+	g := NewGopsUtil()
+	_, err := g.GetMemoryModules()
+	require.Error(t, err)
+
+	require.NoError(t, os.WriteFile(path, []byte(dmiFixture), 0o644))
+	_, err = g.GetMemoryModules()
+	assert.Error(t, err, "a failed read is not retried")
 }

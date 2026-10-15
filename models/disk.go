@@ -26,7 +26,7 @@ type DiskRateInfo struct {
 	WriteCount uint64  `json:"writecount"`
 
 	Busy         *float64 `json:"busy,omitempty" doc:"Percent of wall time with I/O in flight"`
-	ResponseTime *float64 `json:"responseTime,omitempty" doc:"Mean time per completed I/O in milliseconds"`
+	ResponseTime *float64 `json:"responseTime,omitempty" doc:"Mean time per completed I/O in milliseconds; absent when no I/O completed"`
 }
 
 type DiskRateResponse struct {

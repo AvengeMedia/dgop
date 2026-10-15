@@ -93,7 +93,8 @@ func (self *GopsUtil) GetDiskRates(cursorStr string) (*models.DiskRateResponse, 
 }
 
 // diskBusyAndResponse derives busy % and mean response time (ms) between two
-// samples. Either is nil when its counters went backwards.
+// samples. Either is nil when its counters went backwards; response is also
+// nil when no I/O completed.
 func diskBusyAndResponse(prev, cur disk.IOCountersStat, elapsedSec float64) (busy, response *float64) {
 	if cur.IoTime >= prev.IoTime && elapsedSec > 0 {
 		b := float64(cur.IoTime-prev.IoTime) / (elapsedSec * 1000) * 100
@@ -102,11 +103,9 @@ func diskBusyAndResponse(prev, cur disk.IOCountersStat, elapsedSec float64) (bus
 	}
 	if cur.ReadCount >= prev.ReadCount && cur.WriteCount >= prev.WriteCount &&
 		cur.ReadTime >= prev.ReadTime && cur.WriteTime >= prev.WriteTime {
-		var r float64
 		if ops := (cur.ReadCount - prev.ReadCount) + (cur.WriteCount - prev.WriteCount); ops > 0 {
-			r = float64((cur.ReadTime-prev.ReadTime)+(cur.WriteTime-prev.WriteTime)) / float64(ops)
+			response = new(float64((cur.ReadTime-prev.ReadTime)+(cur.WriteTime-prev.WriteTime)) / float64(ops))
 		}
-		response = &r
 	}
 	return busy, response
 }

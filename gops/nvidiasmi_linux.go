@@ -9,19 +9,24 @@ import (
 	"strings"
 )
 
-// queryNvidiaPIDs returns VRAM bytes per PID from `nvidia-smi -q -d PIDS`,
-// which unlike --query-compute-apps also lists graphics processes. It
-// returns nil when nvidia-smi is missing or fails.
-func queryNvidiaPIDs() map[int32]uint64 {
+// queryNvidiaPIDs returns VRAM bytes per PID on the GPUs at busIds from
+// `nvidia-smi -q -d PIDS`, which unlike --query-compute-apps also lists
+// graphics processes. It returns nil when nvidia-smi is missing or fails.
+func queryNvidiaPIDs(busIds []string) map[int32]uint64 {
 	path, err := exec.LookPath("nvidia-smi")
 	if err != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), nvidiaSmiTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "-q", "-d", "PIDS").Output()
-	if err != nil {
-		return nil
+	// -q documents --id for a single GPU only.
+	var out []byte
+	for _, id := range busIds {
+		ctx, cancel := context.WithTimeout(context.Background(), nvidiaSmiTimeout)
+		b, err := exec.CommandContext(ctx, path, "-q", "-d", "PIDS", "--id="+id).Output()
+		cancel()
+		if err != nil {
+			return nil
+		}
+		out = append(out, b...)
 	}
 	return parseNvidiaPIDs(string(out))
 }

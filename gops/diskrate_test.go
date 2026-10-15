@@ -241,9 +241,8 @@ func TestDiskBusyAndResponse(t *testing.T) {
 
 	busy, resp = diskBusyAndResponse(prev, prev, 1)
 	require.NotNil(t, busy)
-	require.NotNil(t, resp)
 	assert.Zero(t, *busy)
-	assert.Zero(t, *resp)
+	assert.Nil(t, resp, "no completed I/O leaves the response time unknown, not 0")
 
 	cur = prev
 	cur.IoTime += 5000

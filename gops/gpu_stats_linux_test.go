@@ -399,3 +399,28 @@ func TestSampleNvidiaRetriesWithoutVideoFields(t *testing.T) {
 	assert.Len(t, calls, 3, "the rejection is remembered")
 	assert.Len(t, calls[2], len(nvidiaSmiFields))
 }
+
+func TestSampleAMDGPUPCIeLinkFromSMU(t *testing.T) {
+	s := testSampler(t, nil)
+	writeSysfs(t, s.pciDevices, map[string]string{
+		"0000:03:00.0/power/runtime_status": "active",
+		"0000:03:00.0/current_link_speed":   "16.0 GT/s PCIe",
+		"0000:03:00.0/current_link_width":   "16",
+		"0000:03:00.0/max_link_speed":       "16.0 GT/s PCIe",
+		"0000:03:00.0/max_link_width":       "16",
+		"0000:03:00.0/pp_dpm_pcie":          "0: 2.5GT/s, x1 78Mhz \n1: 5.0GT/s, x4 156Mhz *\n2: 8.0GT/s, x8 623Mhz \n",
+		"0000:04:00.0/power/runtime_status": "active",
+		"0000:04:00.0/current_link_speed":   "8.0 GT/s PCIe",
+		"0000:04:00.0/current_link_width":   "4",
+		"0000:04:00.0/pp_dpm_pcie":          "0: 2.5GT/s, x1 78Mhz \n",
+	})
+
+	samples, _ := s.sample([]gpuEntry{{Driver: "amdgpu", BusId: "0000:03:00.0"}, {Driver: "amdgpu", BusId: "0000:04:00.0"}}, gpuCursor{}, time.Now())
+
+	assert.Equal(t, "5.0 GT/s PCIe", samples[0].PcieLinkSpeed, "the slot's link, not the card's internal one")
+	assert.Equal(t, 4, samples[0].PcieLinkWidth)
+	assert.Equal(t, "8.0 GT/s PCIe", samples[0].PcieLinkSpeedMax)
+	assert.Equal(t, 8, samples[0].PcieLinkWidthMax)
+	assert.Equal(t, "8.0 GT/s PCIe", samples[1].PcieLinkSpeed, "no current level falls back to sysfs")
+	assert.Equal(t, 4, samples[1].PcieLinkWidth)
+}

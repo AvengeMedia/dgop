@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,10 +107,11 @@ func (s gpuSampler) sample(entries []gpuEntry, prev gpuCursor, now time.Time) ([
 		}
 
 		s.readGPUHwmon(dev, entry.BusId, sample, prev, next)
+		readPCIeLink(dev, sample)
 		if entry.Driver == "amdgpu" {
 			readAMDGPUClocks(dev, sample)
+			readAMDGPUPCIe(dev, sample)
 		}
-		readPCIeLink(dev, sample)
 		if sample.Temperature == 0 {
 			if temp := s.acpiTemperature(); temp > 0 {
 				sample.Temperature, sample.Hwmon = temp, "acpitz"
@@ -175,6 +177,37 @@ func readPCIeLink(dev string, sample *gpuSample) {
 	sample.PcieLinkSpeedMax = readLinkSpeed(filepath.Join(dev, "max_link_speed"))
 	sample.PcieLinkWidth, _ = strconv.Atoi(readTrimmed(filepath.Join(dev, "current_link_width")))
 	sample.PcieLinkWidthMax, _ = strconv.Atoi(readTrimmed(filepath.Join(dev, "max_link_width")))
+}
+
+// readAMDGPUPCIe takes the link from pp_dpm_pcie ("2: 16.0GT/s, x16 623Mhz *").
+// A dGPU's own PCI function sits behind the card's internal switch, so its
+// sysfs link is that internal one, while the SMU reports the slot's link and
+// caps its levels to what the slot supports.
+func readAMDGPUPCIe(dev string, sample *gpuSample) {
+	var curSpeed, maxSpeed float64
+	var curWidth, maxWidth int
+	for line := range strings.SplitSeq(readTrimmed(filepath.Join(dev, "pp_dpm_pcie")), "\n") {
+		_, rest, _ := strings.Cut(line, ":")
+		fields := strings.Fields(rest)
+		if len(fields) < 2 {
+			continue
+		}
+		speed, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSuffix(fields[0], ","), "GT/s"), 64)
+		width, werr := strconv.Atoi(strings.TrimPrefix(fields[1], "x"))
+		if err != nil || werr != nil {
+			continue
+		}
+		maxSpeed, maxWidth = max(maxSpeed, speed), max(maxWidth, width)
+		if fields[len(fields)-1] == "*" {
+			curSpeed, curWidth = speed, width
+		}
+	}
+	if curSpeed == 0 {
+		return
+	}
+	sample.PcieLinkSpeed = fmt.Sprintf("%.1f GT/s PCIe", curSpeed)
+	sample.PcieLinkSpeedMax = fmt.Sprintf("%.1f GT/s PCIe", maxSpeed)
+	sample.PcieLinkWidth, sample.PcieLinkWidthMax = curWidth, maxWidth
 }
 
 func readLinkSpeed(path string) string {

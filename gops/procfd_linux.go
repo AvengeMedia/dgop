@@ -25,8 +25,9 @@ const (
 )
 
 type gpuNodeSet struct {
-	nodes  map[string]gpuNodeState
-	nvidia bool // an enabled NVIDIA GPU is awake
+	nodes map[string]gpuNodeState
+	// Bus ids of the enabled, awake NVIDIA GPUs.
+	nvidia []string
 }
 
 // gpuNodes reads sysfs only. Only gpuNodeRead nodes may have their fdinfo
@@ -41,7 +42,9 @@ func gpuNodes(pciRoot string, gpus []models.GPU, pciIds []string) gpuNodeSet {
 		case isRuntimeSuspended(filepath.Join(pciRoot, g.BusId)):
 			state = gpuNodeSuspended
 		}
-		set.nvidia = set.nvidia || g.Driver == "nvidia" && state == gpuNodeRead
+		if g.Driver == "nvidia" && state == gpuNodeRead && g.BusId != "" {
+			set.nvidia = append(set.nvidia, g.BusId)
+		}
 		entries, _ := os.ReadDir(filepath.Join(pciRoot, g.BusId, "drm"))
 		for _, e := range entries {
 			set.nodes[e.Name()] = state

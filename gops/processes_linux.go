@@ -173,6 +173,8 @@ func joinCmdline(data []byte) string {
 	return sb.String()
 }
 
+// diskBytes returns cumulative disk bytes read and written by p. ok is false
+// when /proc/<pid>/io is unreadable or the process exited.
 func (self *procReader) diskBytes(p *process.Process) (read, write uint64, ok bool) {
 	data, err := self.read(p.Pid, "io")
 	if err != nil {
@@ -194,17 +196,6 @@ func (self *procReader) diskBytes(p *process.Process) (read, write uint64, ok bo
 		}
 	}
 	return read, write, gotRead && gotWrite
-}
-
-func readProcStat(p *process.Process) (procStat, bool) {
-	return newProcReader().stat(p)
-}
-
-// processDiskBytes returns cumulative disk bytes read and written by p.
-// ok is false when /proc/<pid>/io is unreadable or the process exited, so
-// callers must not treat that as zero.
-func processDiskBytes(p *process.Process) (read, write uint64, ok bool) {
-	return newProcReader().diskBytes(p)
 }
 
 // listProcesses skips gopsutil's NewProcess, which reads stat and /proc/stat
