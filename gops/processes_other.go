@@ -27,3 +27,44 @@ func readProcStat(p *process.Process) (st procStat, ok bool) {
 	}
 	return st, true
 }
+
+// processDiskBytes returns cumulative disk bytes read and written by p.
+// ok is false when the counters are unavailable (exited process, FreeBSD),
+// so callers must not treat that as zero.
+func processDiskBytes(p *process.Process) (read, write uint64, ok bool) {
+	if !processIOSupported {
+		return 0, 0, false
+	}
+	io, err := p.IOCounters()
+	if err != nil || io == nil {
+		return 0, 0, false
+	}
+	return io.DiskReadBytes, io.DiskWriteBytes, true
+}
+
+func listProcesses() ([]*process.Process, error) {
+	return process.Processes()
+}
+
+type procReader struct{}
+
+func newProcReader() *procReader { return &procReader{} }
+
+func (*procReader) stat(p *process.Process) (procStat, bool) { return readProcStat(p) }
+
+func (*procReader) diskBytes(p *process.Process) (read, write uint64, ok bool) {
+	return processDiskBytes(p)
+}
+
+func (*procReader) basics(p *process.Process) (b procBasics) {
+	b.Name, _ = p.Name()
+	b.Cmdline, _ = p.Cmdline()
+	b.Exe, _ = p.Exe()
+	b.Username, _ = p.Username()
+	if m, _ := p.MemoryInfo(); m != nil {
+		b.RSS = m.RSS
+	}
+	return b
+}
+
+func refreshUsernames() {}

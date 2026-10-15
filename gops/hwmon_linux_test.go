@@ -139,16 +139,16 @@ func TestReadHwmonChip_I2CNeverBlocksCaller(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 	g := NewGopsUtil()
-	g.i2cRead = func(string) []hwmonReading {
+	g.slowChipRead = func(string) []hwmonReading {
 		calls.Add(1)
 		<-release
 		return []hwmonReading{{Kind: sensorTemperature, Label: "temp1", Value: 33}}
 	}
-	g.i2cWait = 20 * time.Millisecond
+	g.slowChipWait = 20 * time.Millisecond
 	t.Cleanup(func() {
-		i2cMu.Lock()
-		delete(i2cCache, hw)
-		i2cMu.Unlock()
+		hwmonMu.Lock()
+		delete(hwmonCache, hw)
+		hwmonMu.Unlock()
 	})
 
 	start := time.Now()
@@ -229,12 +229,76 @@ func TestReadHwmonChip_SuspendedIsSkipped(t *testing.T) {
 
 func TestReadHwmonChips_EvictsStaleI2CCache(t *testing.T) {
 	root := t.TempDir()
-	i2cMu.Lock()
-	i2cCache[filepath.Join(root, "gone")] = &i2cState{}
-	i2cMu.Unlock()
+	hwmonMu.Lock()
+	hwmonCache[filepath.Join(root, "gone")] = &hwmonState{}
+	hwmonMu.Unlock()
 	writeHwmonFiles(t, filepath.Join(root, "hwmon0"), map[string]string{"name": "x"})
 	NewGopsUtil().readHwmonChips(root)
-	i2cMu.Lock()
-	defer i2cMu.Unlock()
-	assert.NotContains(t, i2cCache, filepath.Join(root, "gone"))
+	hwmonMu.Lock()
+	defer hwmonMu.Unlock()
+	assert.NotContains(t, hwmonCache, filepath.Join(root, "gone"))
+}
+
+func TestReadHwmonChip_StaticFilesCachedPerChip(t *testing.T) {
+	root := t.TempDir()
+	hw := filepath.Join(root, "hwmon0")
+	writeHwmonFiles(t, hw, map[string]string{
+		"name": "k10temp", "temp1_input": "40000", "temp1_label": "Tctl", "temp1_crit": "95000",
+		"power1_input": "1000000", "power1_cap": "50000000",
+	})
+	t.Cleanup(func() {
+		hwmonMu.Lock()
+		delete(hwmonCache, hw)
+		hwmonMu.Unlock()
+	})
+	g := NewGopsUtil()
+	g.readHwmonChip(hw)
+
+	writeHwmonFiles(t, hw, map[string]string{"temp1_input": "41000", "temp1_label": "renamed", "temp1_crit": "1000", "power1_cap": "60000000"})
+	chip, _ := g.readHwmonChip(hw)
+	require.Len(t, chip.Readings, 2)
+	assert.InDelta(t, 60, *chip.Readings[0].Max, 1e-9, "power caps change at runtime and are re-read")
+	temp := chip.Readings[1]
+	assert.InDelta(t, 41, temp.Value, 1e-9)
+	assert.Equal(t, "Tctl", temp.Label, "labels and limits are read once")
+	assert.InDelta(t, 95, *temp.Critical, 1e-9)
+
+	writeHwmonFiles(t, hw, map[string]string{"name": "nct6798"})
+	chip, _ = g.readHwmonChip(hw)
+	assert.Equal(t, "renamed", chip.Readings[1].Label, "another chip in the directory starts over")
+}
+
+func TestReadHwmonChip_SlowChipReturnsLastReadings(t *testing.T) {
+	root := t.TempDir()
+	hw := filepath.Join(root, "hwmon0")
+	writeHwmonFiles(t, hw, map[string]string{"name": "nvme", "temp1_input": "40000"})
+	t.Cleanup(func() {
+		hwmonMu.Lock()
+		delete(hwmonCache, hw)
+		hwmonMu.Unlock()
+	})
+	g := NewGopsUtil()
+	g.readHwmonChip(hw)
+	hwmonMu.Lock()
+	st := hwmonCache[hw]
+	st.async, st.haveRead, st.readings = true, true, []hwmonReading{{Kind: sensorTemperature, Label: "temp1", Value: 40}}
+	hwmonMu.Unlock()
+
+	release := make(chan struct{})
+	g.slowChipRead = func(string) []hwmonReading {
+		<-release
+		return []hwmonReading{{Kind: sensorTemperature, Label: "temp1", Value: 50}}
+	}
+	g.slowChipWait = time.Hour
+
+	start := time.Now()
+	chip, _ := g.readHwmonChip(hw)
+	assert.Less(t, time.Since(start), time.Second, "a chip with readings never waits")
+	assert.InDelta(t, 40, chip.Readings[0].Value, 1e-9)
+
+	close(release)
+	require.Eventually(t, func() bool {
+		c, _ := g.readHwmonChip(hw)
+		return c.Readings[0].Value == 50
+	}, 2*time.Second, 10*time.Millisecond)
 }

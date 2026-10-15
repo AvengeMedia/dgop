@@ -3,15 +3,20 @@
 package gops
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/process"
+	"golang.org/x/sys/unix"
 )
 
 func getPssDirty(pid int32) (uint64, error) {
@@ -48,8 +53,48 @@ var bootMillis = sync.OnceValue(func() int64 {
 	return int64(t) * 1000
 })
 
-func readProcStat(p *process.Process) (procStat, bool) {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", p.Pid))
+// procReader reads /proc/<pid> files into one reused buffer, so it belongs
+// to one goroutine.
+type procReader struct {
+	root string
+	buf  []byte
+}
+
+func newProcReader() *procReader {
+	return &procReader{root: "/proc", buf: make([]byte, 4096)}
+}
+
+func (self *procReader) path(pid int32, name string) string {
+	return self.root + "/" + strconv.Itoa(int(pid)) + "/" + name
+}
+
+// read returns the file's contents, valid until the next read. A short read
+// is the end: seq_file and cmdline reads fill the buffer while data remains.
+func (self *procReader) read(pid int32, name string) ([]byte, error) {
+	fd, err := unix.Open(self.path(pid, name), unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer unix.Close(fd)
+	n := 0
+	for {
+		m, err := unix.Read(fd, self.buf[n:])
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		n += m
+		if n < len(self.buf) {
+			return self.buf[:n], nil
+		}
+		self.buf = append(self.buf, make([]byte, len(self.buf))...)
+	}
+}
+
+func (self *procReader) stat(p *process.Process) (procStat, bool) {
+	data, err := self.read(p.Pid, "stat")
 	if err != nil {
 		return procStat{}, false
 	}
@@ -60,6 +105,171 @@ func readProcStat(p *process.Process) (procStat, bool) {
 	return st, ok
 }
 
+// basics reads status, cmdline and the exe link, naming the process as
+// gopsutil does: comm, extended from argv[0] when comm is truncated.
+func (self *procReader) basics(p *process.Process) (b procBasics) {
+	uid, uidOK := uint32(0), false
+	if data, err := self.read(p.Pid, "status"); err == nil {
+		b.Name, uid, uidOK, b.RSS = parseProcStatus(data)
+	}
+	if data, err := self.read(p.Pid, "cmdline"); err == nil {
+		b.Cmdline = joinCmdline(data)
+		if len(b.Name) >= 15 {
+			argv0, _, _ := bytes.Cut(data, []byte{0})
+			if ext := filepath.Base(string(argv0)); strings.HasPrefix(ext, b.Name) {
+				b.Name = ext
+			}
+		}
+	}
+	if n, err := unix.Readlink(self.path(p.Pid, "exe"), self.buf); err == nil {
+		b.Exe = string(self.buf[:n])
+	}
+	if uidOK {
+		b.Username = usernames.lookup(uid)
+	}
+	return b
+}
+
+// The kernel escapes these two in status but not in comm.
+var commUnescaper = strings.NewReplacer(`\n`, "\n", `\\`, `\`)
+
+func parseProcStatus(data []byte) (name string, uid uint32, uidOK bool, rss uint64) {
+	for line := range bytes.Lines(data) {
+		key, val, ok := bytes.Cut(line, []byte{':'})
+		if !ok {
+			continue
+		}
+		switch string(key) {
+		case "Name":
+			name = string(bytes.Trim(val, " \t\n"))
+			if strings.IndexByte(name, '\\') >= 0 {
+				name = commUnescaper.Replace(name)
+			}
+		case "Uid":
+			f, _, _ := bytes.Cut(bytes.TrimLeft(val, " \t"), []byte{'\t'})
+			if v, err := strconv.ParseUint(string(f), 10, 32); err == nil {
+				uid, uidOK = uint32(v), true
+			}
+		case "VmRSS":
+			f := bytes.TrimSuffix(bytes.TrimSpace(val), []byte(" kB"))
+			if v, err := strconv.ParseUint(string(bytes.TrimSpace(f)), 10, 64); err == nil {
+				rss = v * 1024
+			}
+			return name, uid, uidOK, rss
+		}
+	}
+	return name, uid, uidOK, rss
+}
+
+func joinCmdline(data []byte) string {
+	var sb strings.Builder
+	sb.Grow(len(data))
+	for f := range bytes.FieldsFuncSeq(data, func(r rune) bool { return r == 0 }) {
+		if sb.Len() > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.Write(f)
+	}
+	return sb.String()
+}
+
+func (self *procReader) diskBytes(p *process.Process) (read, write uint64, ok bool) {
+	data, err := self.read(p.Pid, "io")
+	if err != nil {
+		return 0, 0, false
+	}
+	var gotRead, gotWrite bool
+	for line := range bytes.Lines(data) {
+		key, val, found := bytes.Cut(line, []byte(": "))
+		if !found {
+			continue
+		}
+		v, err := strconv.ParseUint(string(bytes.TrimSpace(val)), 10, 64)
+		switch {
+		case err != nil:
+		case string(key) == "read_bytes":
+			read, gotRead = v, true
+		case string(key) == "write_bytes":
+			write, gotWrite = v, true
+		}
+	}
+	return read, write, gotRead && gotWrite
+}
+
+func readProcStat(p *process.Process) (procStat, bool) {
+	return newProcReader().stat(p)
+}
+
+// processDiskBytes returns cumulative disk bytes read and written by p.
+// ok is false when /proc/<pid>/io is unreadable or the process exited, so
+// callers must not treat that as zero.
+func processDiskBytes(p *process.Process) (read, write uint64, ok bool) {
+	return newProcReader().diskBytes(p)
+}
+
+// listProcesses skips gopsutil's NewProcess, which reads stat and /proc/stat
+// for every PID only to fill a creation time this package never uses.
+func listProcesses() ([]*process.Process, error) {
+	pids, err := listProcPIDs("/proc")
+	if err != nil {
+		return nil, err
+	}
+	all := make([]process.Process, len(pids))
+	procs := make([]*process.Process, len(pids))
+	for i, pid := range pids {
+		all[i].Pid = pid
+		procs[i] = &all[i]
+	}
+	return procs, nil
+}
+
+// uidNames caches os/user lookups, which parse /etc/passwd on every call
+// without cgo. The cache is dropped when /etc/passwd changes.
+type uidNames struct {
+	mu       sync.Mutex
+	path     string
+	mtime    time.Time
+	size     int64
+	names    map[uint32]string
+	lookupID func(uid string) (*user.User, error)
+}
+
+var usernames = &uidNames{path: "/etc/passwd", lookupID: user.LookupId}
+
+func refreshUsernames() { usernames.revalidate() }
+
+func (self *uidNames) revalidate() {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	fi, err := os.Stat(self.path)
+	if err != nil {
+		self.names = nil
+		return
+	}
+	if !fi.ModTime().Equal(self.mtime) || fi.Size() != self.size {
+		self.mtime, self.size, self.names = fi.ModTime(), fi.Size(), nil
+	}
+}
+
+func (self *uidNames) lookup(uid uint32) string {
+	self.mu.Lock()
+	name, ok := self.names[uid]
+	self.mu.Unlock()
+	if ok {
+		return name
+	}
+	if u, err := self.lookupID(strconv.FormatUint(uint64(uid), 10)); err == nil {
+		name = u.Username
+	}
+	self.mu.Lock()
+	if self.names == nil {
+		self.names = map[uint32]string{}
+	}
+	self.names[uid] = name
+	self.mu.Unlock()
+	return name
+}
+
 // parseProcStat counts fields from the last ')', since the command name may
 // contain spaces and parentheses.
 func parseProcStat(text string) (procStat, bool) {
@@ -67,8 +277,15 @@ func parseProcStat(text string) (procStat, bool) {
 	if i < 0 {
 		return procStat{}, false
 	}
-	f := strings.Fields(text[i+1:])
-	if len(f) < 20 {
+	var f [20]string
+	n := 0
+	for field := range strings.FieldsSeq(text[i+1:]) {
+		f[n] = field
+		if n++; n == len(f) {
+			break
+		}
+	}
+	if n < len(f) {
 		return procStat{}, false
 	}
 	ppid, err1 := strconv.ParseInt(f[1], 10, 32)

@@ -3,17 +3,35 @@
 package gops
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
+// readTrimmed reads a small file, such as a sysfs attribute, in three
+// syscalls; os.ReadFile also stats it and registers it with the poller.
 func readTrimmed(path string) string {
-	b, err := os.ReadFile(path)
+	var buf [4096]byte
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(b))
+	n, err := unix.Read(fd, buf[:])
+	unix.Close(fd)
+	if err != nil {
+		return ""
+	}
+	if n == len(buf) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	return string(bytes.TrimSpace(buf[:n]))
 }
 
 func readInt(path string) (int64, bool) {

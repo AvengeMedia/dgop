@@ -2,15 +2,24 @@
 
 package gops
 
-import "time"
+import (
+	"sync"
+	"time"
 
-// platformSources holds the Linux-only data sources tests replace.
+	"github.com/AvengeMedia/dgop/models"
+)
+
 type platformSources struct {
-	sockDump func() ([]sockDiagEntry, error)
-	i2cRead  func(dir string) []hwmonReading
-	i2cWait  time.Duration
+	sockDump     func() ([]sockDiagEntry, error)
+	slowChipRead func(dir string) []hwmonReading
+	slowChipWait time.Duration
+
+	memModules struct {
+		sync.Mutex
+		info *models.MemoryModulesInfo
+	}
 }
 
 func defaultPlatformSources() platformSources {
-	return platformSources{sockDump: dumpSockets, i2cRead: readHwmonReadings, i2cWait: 100 * time.Millisecond}
+	return platformSources{sockDump: dumpSockets, slowChipRead: readHwmonReadings, slowChipWait: 100 * time.Millisecond}
 }

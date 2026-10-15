@@ -4,6 +4,8 @@ package gops
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -134,6 +136,7 @@ func (self processExtras) readFDs(procRoot string, pid int32) (g procGPU, n proc
 	}
 	if self.gpu != nil {
 		g = self.gpu.fromScan(pid, scan)
+		g.drm = scan.DRM
 	}
 	if sockets {
 		n = self.net.fromScan(scan)
@@ -164,17 +167,40 @@ func isNvidiaGPUDevice(target []byte) bool {
 }
 
 func listProcPIDs(procRoot string) ([]int32, error) {
-	entries, err := os.ReadDir(procRoot)
+	fd, err := unix.Open(procRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
-	pids := make([]int32, 0, len(entries))
-	for _, entry := range entries {
-		pid, err := strconv.ParseInt(entry.Name(), 10, 32)
-		if err != nil || pid <= 0 {
-			continue
+	defer unix.Close(fd)
+	pids := make([]int32, 0, 1024)
+	var buf [16 << 10]byte
+	for {
+		n, err := unix.Getdents(fd, buf[:])
+		if err != nil {
+			return nil, err
 		}
-		pids = append(pids, int32(pid))
+		if n <= 0 {
+			return pids, nil
+		}
+		// linux_dirent64: d_reclen at offset 16, the NUL-terminated d_name at 19.
+		for off := 0; off+19 < n; {
+			reclen := int(binary.NativeEndian.Uint16(buf[off+16:]))
+			if pid, ok := parsePID(buf[off+19 : off+reclen]); ok {
+				pids = append(pids, pid)
+			}
+			off += reclen
+		}
 	}
-	return pids, nil
+}
+
+func parsePID(name []byte) (int32, bool) {
+	var pid int64
+	i := 0
+	for ; i < len(name) && name[i] != 0; i++ {
+		if name[i] < '0' || name[i] > '9' || pid > math.MaxInt32/10 {
+			return 0, false
+		}
+		pid = pid*10 + int64(name[i]-'0')
+	}
+	return int32(pid), pid > 0 && pid <= math.MaxInt32
 }

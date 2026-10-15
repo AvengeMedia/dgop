@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,8 +20,21 @@ const dmiUdevData = "/run/udev/data/+dmi:id"
 
 // GetMemoryModules reads the DMI memory devices that systemd's udev rules
 // export without root as MEMORY_DEVICE_<n>_* properties.
+// The result is read once per GopsUtil, since modules don't change at runtime;
+// a failed read is retried on the next call.
 func (self *GopsUtil) GetMemoryModules() (*models.MemoryModulesInfo, error) {
-	return readMemoryModules(dmiUdevData)
+	self.memModules.Lock()
+	defer self.memModules.Unlock()
+	if self.memModules.info == nil {
+		info, err := readMemoryModules(dmiUdevData)
+		if err != nil {
+			return nil, err
+		}
+		self.memModules.info = info
+	}
+	info := *self.memModules.info
+	info.Modules = slices.Clone(info.Modules)
+	return &info, nil
 }
 
 func readMemoryModules(udevData string) (*models.MemoryModulesInfo, error) {

@@ -71,7 +71,7 @@ func TestCollectGPUStats_Amdgpu(t *testing.T) {
 	amdgpuFixture(t, pciRoot)
 
 	gpus := []models.GPUStats{amdIdentity()}
-	cursor := NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	cursor := NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 	assert.Empty(t, cursor)
 
 	g := gpus[0]
@@ -126,14 +126,14 @@ func TestCollectGPUStats_FanPercent(t *testing.T) {
 	writeHwmonFiles(t, hw, map[string]string{"pwm1": "40\n", "pwm1_max": "255\n"})
 
 	gpus := []models.GPUStats{amdIdentity()}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 	require.NotNil(t, gpus[0].FanPercent)
 	assert.InDelta(t, 15.69, *gpus[0].FanPercent, 0.01, "PWM duty wins over rpm")
 
 	require.NoError(t, os.Remove(filepath.Join(hw, "pwm1_max")))
 	require.NoError(t, os.WriteFile(filepath.Join(hw, "fan1_input"), []byte("4000\n"), 0o644))
 	gpus = []models.GPUStats{amdIdentity()}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 	require.NotNil(t, gpus[0].FanPercent)
 	assert.Equal(t, 100.0, *gpus[0].FanPercent, "rpm above max is clamped")
 }
@@ -148,7 +148,7 @@ func TestCollectGPUStats_AmdgpuClockFallbackIgnoresSleepLevel(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dev, "pp_dpm_mclk"), []byte("S: 0Mhz *\n0: 96Mhz \n1: 1249Mhz \n"), 0o644))
 
 	gpus := []models.GPUStats{amdIdentity()}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 
 	g := gpus[0]
 	require.NotNil(t, g.CoreClock)
@@ -171,7 +171,7 @@ func TestCollectGPUStats_SuspendedReadsNothing(t *testing.T) {
 		amdIdentity(),
 		{PciSlot: "0000:01:00.0", Driver: "nvidia", Vendor: "NVIDIA", Name: "NVIDIA GeForce RTX 4070"},
 	}
-	cursor := NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	cursor := NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 	assert.Empty(t, cursor)
 
 	assert.Equal(t, models.GPUStats{
@@ -225,7 +225,7 @@ func TestCollectGPUStats_IntelUsageFromFdinfo(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 
 	gpus := []models.GPUStats{identity}
-	cursor := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", t0, noNvidia(t))
+	cursor := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", t0, noNvidia(t), nil)
 	require.NotEmpty(t, cursor)
 	assert.Nil(t, gpus[0].Usage, "no previous sample")
 	require.NotNil(t, gpus[0].CoreClock)
@@ -239,13 +239,13 @@ func TestCollectGPUStats_IntelUsageFromFdinfo(t *testing.T) {
 	writeDRMClient(t, procRoot, 300, 3, "renderD129", "drm-driver:\tamdgpu\ndrm-client-id:\t9\ndrm-pdev:\t0000:0c:00.0\ndrm-engine-gfx:\t9900000000 ns\n")
 
 	gpus = []models.GPUStats{identity}
-	next := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, cursor, t0.Add(time.Second), noNvidia(t))
+	next := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, cursor, t0.Add(time.Second), noNvidia(t), nil)
 	require.NotEmpty(t, next)
 	require.NotNil(t, gpus[0].Usage)
 	assert.InDelta(t, 60.0, *gpus[0].Usage, 0.001, "max over engines")
 
 	gpus = []models.GPUStats{identity}
-	NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, next, t0.Add(time.Second), noNvidia(t))
+	NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, next, t0.Add(time.Second), noNvidia(t), nil)
 	assert.Nil(t, gpus[0].Usage, "No time elapsed since the cursor")
 }
 
@@ -257,7 +257,7 @@ func TestCollectGPUStats_CursorSkipsIdleEngines(t *testing.T) {
 	writeDRMClient(t, procRoot, 200, 5, "renderD128", i915Client(2, 0, 0))
 
 	gpus := []models.GPUStats{{PciSlot: "0000:00:02.0", Driver: "i915"}}
-	cursor := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", time.Now(), noNvidia(t))
+	cursor := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", time.Now(), noNvidia(t), nil)
 	prev, _, ok := decodeGPUStatsCursor(cursor)
 	require.True(t, ok)
 	require.Len(t, prev, 1, "A client without activity is not stored")
@@ -273,7 +273,7 @@ func TestCollectGPUStats_CorruptCursorIsEmpty(t *testing.T) {
 
 	for _, cursor := range []string{"!!!", "bm90IGpzb24"} {
 		gpus := []models.GPUStats{{PciSlot: "0000:00:02.0", Driver: "xe"}}
-		next := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, cursor, time.Now(), noNvidia(t))
+		next := NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, cursor, time.Now(), noNvidia(t), nil)
 		assert.NotEmpty(t, next)
 		assert.Nil(t, gpus[0].Usage)
 	}
@@ -286,7 +286,7 @@ func TestCollectGPUStats_XeClocks(t *testing.T) {
 		"tile0/gt0/freq0/rp0_freq": "2400\n",
 	})
 	gpus := []models.GPUStats{{PciSlot: "0000:03:00.0", Driver: "xe"}}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t))
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), noNvidia(t), nil)
 	require.NotNil(t, gpus[0].CoreClock)
 	assert.Equal(t, 1100.0, *gpus[0].CoreClock)
 	require.NotNil(t, gpus[0].CoreClockMax)
@@ -304,7 +304,7 @@ func TestCollectGPUStats_NvidiaMergedByBDF(t *testing.T) {
 		return parseNvidiaSMI("00000000:01:00.0, 42, 1024, 12282, 2100, 2805, 10501, 10501, 55, 120.5, 200.00, 30, 4, 4, 16, 16\n")
 	}
 	gpus := []models.GPUStats{{PciSlot: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia", Vendor: "NVIDIA", Name: "NVIDIA GeForce RTX 4070"}}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), nvidia)
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), nvidia, nil)
 
 	assert.Equal(t, 1, calls)
 	g := gpus[0]
@@ -333,7 +333,7 @@ func TestCollectGPUStats_NvidiaQueriesAwakeOnly(t *testing.T) {
 		{PciSlot: "0000:01:00.0", Driver: "nvidia"},
 		{PciSlot: "0000:02:00.0", Driver: "nvidia"},
 	}
-	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), nvidia)
+	NewGopsUtil().collectGPUStats(pciRoot, t.TempDir(), gpus, "", time.Now(), nvidia, nil)
 	assert.Equal(t, []string{"0000:02:00.0"}, got)
 }
 
@@ -360,7 +360,9 @@ func TestCollectGPUStats_SuspendedDGPUFdinfoNotOpened(t *testing.T) {
 		{PciSlot: "0000:0c:00.0", Driver: "amdgpu", Vendor: "AMD"},
 	}
 	done := make(chan string, 1)
-	go func() { done <- NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", time.Now(), noNvidia(t)) }()
+	go func() {
+		done <- NewGopsUtil().collectGPUStats(pciRoot, procRoot, gpus, "", time.Now(), noNvidia(t), nil)
+	}()
 	select {
 	case cursor := <-done:
 		assert.NotEmpty(t, cursor)
@@ -368,4 +370,32 @@ func TestCollectGPUStats_SuspendedDGPUFdinfoNotOpened(t *testing.T) {
 		t.Fatal("fdinfo of a suspended GPU node was opened")
 	}
 	assert.True(t, gpus[1].Suspended)
+}
+
+func TestCollectGPUStats_SharedClientsFromProcessScan(t *testing.T) {
+	pciRoot := t.TempDir()
+	writeHwmonFiles(t, filepath.Join(pciRoot, "0000:00:02.0"), map[string]string{"drm/renderD128/dev": "226:128\n"})
+	procRoot := t.TempDir()
+	// What the process list collects with process-gpu.
+	shared := func() drmClientSet {
+		r := buildProcGPUReader(pciRoot, []models.GPU{{PciSlot: "0000:00:02.0", Driver: "i915"}}, nil, func() map[int32]uint64 { return nil })
+		set := drmClientSet{}
+		pids, err := listProcPIDs(procRoot)
+		require.NoError(t, err)
+		for _, pid := range pids {
+			g, _ := processExtras{gpu: r}.readFDs(procRoot, pid)
+			maps.Copy(set, g.drm)
+		}
+		return set
+	}
+	gpus := []models.GPUStats{{PciSlot: "0000:00:02.0", Driver: "i915"}}
+	empty := t.TempDir()
+	t0 := time.Unix(1000, 0)
+
+	writeDRMClient(t, procRoot, 100, 5, "renderD128", i915Client(1, 1_000_000_000, 0))
+	cursor := NewGopsUtil().collectGPUStats(pciRoot, empty, gpus, "", t0, noNvidia(t), shared())
+	writeDRMClient(t, procRoot, 100, 5, "renderD128", i915Client(1, 1_500_000_000, 0))
+	NewGopsUtil().collectGPUStats(pciRoot, empty, gpus, cursor, t0.Add(time.Second), noNvidia(t), shared())
+	require.NotNil(t, gpus[0].Usage, "the shared clients are used instead of scanning procRoot")
+	assert.InDelta(t, 50.0, *gpus[0].Usage, 0.001)
 }

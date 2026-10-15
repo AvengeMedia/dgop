@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"reflect"
 	"runtime"
@@ -30,13 +31,12 @@ const (
 	maxNewSocketBytesPerSec = 100e9 / 8
 )
 
-// A fresh gzip writer allocates ~850KB of flate hash tables, which is wasteful
-// for the ~4KB cursor emitted on every poll. Reuse them instead.
-var cursorWriters = sync.Pool{
-	New: func() any {
-		gz, _ := gzip.NewWriterLevel(io.Discard, gzip.BestCompression)
-		return gz
-	},
+// The cursor's gzip writer and reader live as long as the process: a fresh
+// pair allocates ~1 MB, and a sync.Pool is emptied by the GC between polls.
+var cursorGzip struct {
+	sync.Mutex
+	w *gzip.Writer
+	r *gzip.Reader
 }
 
 type processCursorBase struct {
@@ -118,11 +118,15 @@ func encodeProcessCursor(entries []processSample) string {
 
 	raw, _ := json.Marshal(wire)
 	var buf bytes.Buffer
-	gz := cursorWriters.Get().(*gzip.Writer)
-	defer cursorWriters.Put(gz)
-	gz.Reset(&buf)
-	_, _ = gz.Write(raw)
-	_ = gz.Close()
+	cursorGzip.Lock()
+	if cursorGzip.w == nil {
+		cursorGzip.w, _ = gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	} else {
+		cursorGzip.w.Reset(&buf)
+	}
+	_, _ = cursorGzip.w.Write(raw)
+	_ = cursorGzip.w.Close()
+	cursorGzip.Unlock()
 	return base64.RawURLEncoding.EncodeToString(buf.Bytes())
 }
 
@@ -133,12 +137,7 @@ func decodeProcessCursor(cursor string) map[int32]*processSample {
 		return out
 	}
 
-	gz, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		return out
-	}
-	defer func() { _ = gz.Close() }()
-	if raw, err = io.ReadAll(io.LimitReader(gz, maxCursorDecodedBytes)); err != nil {
+	if raw, err = gunzipCursor(raw); err != nil {
 		return out
 	}
 
@@ -179,6 +178,83 @@ func decodeProcessCursor(cursor string) map[int32]*processSample {
 		}
 	}
 	return out
+}
+
+func gunzipCursor(data []byte) ([]byte, error) {
+	cursorGzip.Lock()
+	defer cursorGzip.Unlock()
+	var err error
+	if cursorGzip.r == nil {
+		cursorGzip.r, err = gzip.NewReader(bytes.NewReader(data))
+	} else {
+		err = cursorGzip.r.Reset(bytes.NewReader(data))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(io.LimitReader(cursorGzip.r, maxCursorDecodedBytes))
+}
+
+type procBasics struct {
+	Name, Cmdline, Exe, Username string
+	RSS                          uint64
+}
+
+// pssMaxAge bounds how stale a cached Pss_Dirty can be; it is also re-read
+// once RSS moves by more than 5%.
+const pssMaxAge = 30 * time.Second
+
+// pssCache keeps Pss_Dirty per process, since smaps_rollup walks the page
+// tables and costs milliseconds for a large process.
+type pssCache struct {
+	mu      sync.Mutex
+	entries map[int32]pssEntry
+	read    func(pid int32) (uint64, error)
+}
+
+type pssEntry struct {
+	start, rssKB, pssKB uint64
+	at                  time.Time
+}
+
+func (self *pssCache) get(pid int32, start, rssKB uint64, now time.Time) (uint64, error) {
+	self.mu.Lock()
+	e, ok := self.entries[pid]
+	self.mu.Unlock()
+	if ok && e.start == start && now.Sub(e.at) < pssMaxAge && max(rssKB, e.rssKB)-min(rssKB, e.rssKB) <= e.rssKB/20 {
+		return e.pssKB, nil
+	}
+	read := self.read
+	if read == nil {
+		read = getPssDirty
+	}
+	pss, err := read(pid)
+	if err != nil {
+		return 0, err
+	}
+	at := now
+	if !ok {
+		// Backdate new entries by up to 9/10 of pssMaxAge, so that processes
+		// first seen together don't all expire in the same sample.
+		at = now.Add(-time.Duration(pid%10) * pssMaxAge / 10)
+	}
+	self.mu.Lock()
+	if self.entries == nil {
+		self.entries = map[int32]pssEntry{}
+	}
+	self.entries[pid] = pssEntry{start: start, rssKB: rssKB, pssKB: pss, at: at}
+	self.mu.Unlock()
+	return pss, nil
+}
+
+func (self *pssCache) prune(now time.Time) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	for pid, e := range self.entries {
+		if now.Sub(e.at) >= pssMaxAge {
+			delete(self.entries, pid)
+		}
+	}
 }
 
 // procStat is what the process list reads from /proc/<pid>/stat on Linux.
@@ -247,7 +323,7 @@ type processExtras struct {
 }
 
 // sample recovers because the baseline pass calls it on the request goroutine.
-func (self processExtras) sample(p *process.Process, s *processSample) (g procGPU, n procNet) {
+func (self processExtras) sample(r *procReader, p *process.Process, s *processSample) (g procGPU, n procNet) {
 	defer func() {
 		if recover() != nil {
 			g, n = procGPU{}, procNet{}
@@ -256,7 +332,7 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 	}()
 	if self.io {
 		var read, write uint64
-		read, write, s.ioOK = processDiskBytes(p)
+		read, write, s.ioOK = r.diskBytes(p)
 		s.io = [2]uint64{read, write}
 	}
 	g, n = self.readFDs("/proc", p.Pid)
@@ -273,10 +349,15 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 }
 
 func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.ProcessListResponse, error) {
+	res, _, err := self.getProcesses(opts)
+	return res, err
+}
+
+func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResponse, drmClientSet, error) {
 	limit, enableCPU, mergeChildren := opts.Limit, opts.EnableCPU, opts.MergeChildren
 	procs, err := self.procProvider.Processes()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	totalMem, _ := self.memProvider.VirtualMemory()
@@ -291,9 +372,12 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 		extras.net = self.newProcNetReader()
 	}
 
+	refreshUsernames()
+
 	if (enableCPU || opts.GPU || opts.IO || opts.Net) && len(cursorMap) == 0 {
+		r := newProcReader()
 		for _, p := range procs {
-			st, ok := readProcStat(p)
+			st, ok := r.stat(p)
 			if !ok {
 				continue
 			}
@@ -302,7 +386,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 				Ticks:     st.CPUTime,
 				Timestamp: time.Now().UnixMilli(),
 			}, start: st.Start}
-			extras.sample(p, s)
+			extras.sample(r, p, s)
 			cursorMap[p.Pid] = s
 		}
 		time.Sleep(cpuBaselineInterval)
@@ -313,24 +397,25 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	}
 
 	type procResult struct {
-		index   int
 		info    *models.ProcessInfo
 		sample  processSample
 		sampled bool
+		drm     drmClientSet
 	}
 
 	numCPU := float64(runtime.NumCPU())
+	now := time.Now()
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 8 {
-		numWorkers = 8
-	}
+	// /proc reads contend in the kernel: past 4 workers CPU time grows
+	// faster than wall time shrinks.
+	numWorkers := min(runtime.NumCPU(), 4)
 
 	jobs := make(chan int, len(procs))
 	results := make(chan procResult, len(procs))
 
 	for w := 0; w < numWorkers; w++ {
 		go func() {
+			r := newProcReader()
 			for idx := range jobs {
 				p := procs[idx]
 
@@ -340,7 +425,6 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 					defer func() {
 						if r := recover(); r != nil {
 							results <- procResult{
-								index: idx,
 								info: &models.ProcessInfo{
 									PID:     p.Pid,
 									Command: fmt.Sprintf("[pid %d]", p.Pid),
@@ -349,15 +433,16 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						}
 					}()
 
-					name, _ := p.Name()
-					cmdline, _ := p.Cmdline()
-					st, sampled := readProcStat(p)
-					memInfo, _ := p.MemoryInfo()
+					st, sampled := r.stat(p)
+					if !sampled && runtime.GOOS == "linux" {
+						// stat is world-readable, so the process exited.
+						results <- procResult{}
+						return
+					}
+					b := r.basics(p)
 					sample := processSample{ProcessCursorData: models.ProcessCursorData{PID: p.Pid, Timestamp: time.Now().UnixMilli()}, start: st.Start}
-					gpu, netInfo := extras.sample(p, &sample)
+					gpu, netInfo := extras.sample(r, p, &sample)
 					sampledAt := sample.Timestamp
-					username, _ := p.Username()
-					exePath, _ := p.Exe()
 					currentCPUTime := st.CPUTime
 					sample.Ticks = currentCPUTime
 					prev := cursorMap[p.Pid]
@@ -376,28 +461,22 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						}
 					}
 
-					rssKB := uint64(0)
-					rssPercent := float32(0)
 					pssKB := uint64(0)
 					pssPercent := float32(0)
-					memKB := uint64(0)
-					memPercent := float32(0)
 					memCalc := "rss"
 
-					if memInfo != nil {
-						rssKB = memInfo.RSS / 1024
-						rssPercent = float32(memInfo.RSS) / float32(totalMem.Total) * 100
+					rssKB := b.RSS / 1024
+					rssPercent := float32(b.RSS) / float32(totalMem.Total) * 100
 
-						memKB = rssKB
-						memPercent = rssPercent
+					memKB := rssKB
+					memPercent := rssPercent
 
-						if rssKB > 102400 {
-							pssDirty, err := getPssDirty(p.Pid)
-							if err == nil && pssDirty > 0 {
-								memKB = pssDirty
-								memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
-								memCalc = "pss_dirty"
-							}
+					if rssKB > 102400 {
+						pssDirty, err := self.pss.get(p.Pid, st.Start, rssKB, now)
+						if err == nil && pssDirty > 0 {
+							memKB = pssDirty
+							memPercent = float32(memKB*1024) / float32(totalMem.Total) * 100
+							memCalc = "pss_dirty"
 						}
 					}
 
@@ -413,10 +492,10 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						RSSPercent:        rssPercent,
 						PSSKB:             pssKB,
 						PSSPercent:        pssPercent,
-						Username:          username,
-						Command:           name,
-						FullCommand:       cmdline,
-						ExecutablePath:    exePath,
+						Username:          b.Username,
+						Command:           b.Name,
+						FullCommand:       b.Cmdline,
+						ExecutablePath:    b.Exe,
 						StartTime:         st.CreatedMillis / 1000,
 					}
 					if st.State != "" {
@@ -431,10 +510,10 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 					}
 
 					results <- procResult{
-						index:   idx,
 						sample:  sample,
 						sampled: sampled,
 						info:    info,
+						drm:     gpu.drm,
 					}
 				}()
 			}
@@ -446,15 +525,23 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	}
 	close(jobs)
 
-	procList := make([]*models.ProcessInfo, len(procs))
+	procList := make([]*models.ProcessInfo, 0, len(procs))
 	cursorList := make([]processSample, 0, len(procs))
+	var drm drmClientSet
+	if opts.GPU {
+		drm = drmClientSet{}
+	}
 	for i := 0; i < len(procs); i++ {
 		r := <-results
-		procList[r.index] = r.info
+		if r.info != nil {
+			procList = append(procList, r.info)
+		}
+		maps.Copy(drm, r.drm)
 		if r.sampled {
 			cursorList = append(cursorList, r.sample)
 		}
 	}
+	self.pss.prune(now)
 
 	if mergeChildren {
 		procList = mergeProcessesByExecutable(procList)
@@ -469,7 +556,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	return &models.ProcessListResponse{
 		Processes: procList,
 		Cursor:    encodeProcessCursor(cursorList),
-	}, nil
+	}, drm, nil
 }
 
 // setProcessExtras fills the requested extras of info from the current and

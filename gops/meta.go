@@ -77,7 +77,7 @@ func (p MetaParams) processOptions(modules []string) (opts ProcessOptions, modif
 func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
 	procOpts, modifier := params.processOptions(modules)
-	hasProcesses := false
+	hasProcesses, gpuStats := false, false
 
 	for _, module := range modules {
 		switch strings.ToLower(module) {
@@ -127,9 +127,7 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 				meta.GPU = gpu
 			}
 		case "gpu-stats":
-			if gs, err := self.GetGPUStats(params.GPUStatsCursor, params.GPUPciIds); err == nil {
-				meta.GPUStats = gs
-			}
+			gpuStats = true
 		case "sensors":
 			if sn, err := self.GetSensors(); err == nil {
 				meta.Sensors = sn
@@ -143,10 +141,17 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 		}
 	}
 
+	var drm drmClientSet
 	if hasProcesses || modifier {
-		if result, err := self.GetProcessesWithOptions(procOpts); err == nil {
+		if result, clients, err := self.getProcesses(procOpts); err == nil {
 			meta.Processes = result.Processes
 			meta.Cursor = result.Cursor
+			drm = clients
+		}
+	}
+	if gpuStats {
+		if gs, err := self.gpuStats(params.GPUStatsCursor, params.GPUPciIds, drm); err == nil {
+			meta.GPUStats = gs
 		}
 	}
 

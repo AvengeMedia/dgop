@@ -13,18 +13,10 @@ import (
 func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 	info := &models.SystemHardware{}
 
-	cpuInfo, err := self.GetCPUInfo()
-	if err == nil {
-		info.CPU = models.CPUBasic{
-			Count: cpuInfo.Count,
-			Model: cpuInfo.Model,
-		}
-	} else {
-		info.CPU = models.CPUBasic{
-			Count: 0,
-			Model: "Unknown",
-		}
-	}
+	cpuTracker.mu.Lock()
+	self.loadCPUStatic()
+	info.CPU = models.CPUBasic{Count: cpuTracker.cpuCount, Model: cpuTracker.cpuModel}
+	cpuTracker.mu.Unlock()
 
 	biosInfo := getBIOSInfo()
 	info.BIOS = biosInfo
@@ -193,29 +185,32 @@ func getPriority(driver, bdf string) int {
 	}
 }
 
+var (
+	gpuPciIDRe        = regexp.MustCompile(`\[([0-9a-f]{4}:[0-9a-f]{4})\]`)
+	gpuClassPrefixRe  = regexp.MustCompile(`^[^:]+: `)
+	gpuPciIDTailRe    = regexp.MustCompile(`\[[0-9a-f]{4}:[0-9a-f]{4}\].*$`)
+	gpuAfterBracketRe = regexp.MustCompile(`\]\s*([^\[]+)$`)
+	gpuLastBracketRe  = regexp.MustCompile(`\[([^\]]+)\]([^\[]*$)`)
+)
+
 func parseGPUInfo(rawLine string) (displayName, pciId string) {
 	if rawLine == "" {
 		return "Unknown", ""
 	}
 
-	pciRegex := regexp.MustCompile(`\[([0-9a-f]{4}:[0-9a-f]{4})\]`)
-	if match := pciRegex.FindStringSubmatch(rawLine); len(match) > 1 {
+	if match := gpuPciIDRe.FindStringSubmatch(rawLine); len(match) > 1 {
 		pciId = match[1]
 	}
 
-	s := regexp.MustCompile(`^[^:]+: `).ReplaceAllString(rawLine, "")
-	s = regexp.MustCompile(`\[[0-9a-f]{4}:[0-9a-f]{4}\].*$`).ReplaceAllString(s, "")
+	s := gpuClassPrefixRe.ReplaceAllString(rawLine, "")
+	s = gpuPciIDTailRe.ReplaceAllString(s, "")
 
-	afterBracketRegex := regexp.MustCompile(`\]\s*([^\[]+)$`)
-	if match := afterBracketRegex.FindStringSubmatch(s); len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+	if match := gpuAfterBracketRe.FindStringSubmatch(s); len(match) > 1 && strings.TrimSpace(match[1]) != "" {
 		displayName = strings.TrimSpace(match[1])
+	} else if match := gpuLastBracketRe.FindStringSubmatch(s); len(match) > 1 {
+		displayName = match[1]
 	} else {
-		lastBracketRegex := regexp.MustCompile(`\[([^\]]+)\]([^\[]*$)`)
-		if match := lastBracketRegex.FindStringSubmatch(s); len(match) > 1 {
-			displayName = match[1]
-		} else {
-			displayName = s
-		}
+		displayName = s
 	}
 
 	displayName = removeVendorPrefixes(displayName)

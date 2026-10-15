@@ -43,17 +43,7 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	cpuTracker.mu.Lock()
 	defer cpuTracker.mu.Unlock()
 
-	if !cpuTracker.modelCached {
-		cpuTracker.cpuCount, _ = self.cpuProvider.Counts(true)
-		info, err := self.cpuProvider.Info()
-		if err == nil && len(info) > 0 {
-			cpuTracker.cpuModel = info[0].ModelName
-			cpuTracker.cpuFreq = info[0].Mhz
-			cpuTracker.virtualization = cpuVirtualization(info[0].Flags)
-		}
-		cpuTracker.static = readCPUStaticLive()
-		cpuTracker.modelCached = true
-	}
+	self.loadCPUStatic()
 
 	now := time.Now()
 	if now.Sub(cpuTracker.freqLastRead) > 2*time.Second {
@@ -161,6 +151,22 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 	cpuInfo.Cursor = base64.RawURLEncoding.EncodeToString(cursorBytes)
 
 	return &cpuInfo, nil
+}
+
+// The caller holds cpuTracker.mu.
+func (self *GopsUtil) loadCPUStatic() {
+	if cpuTracker.modelCached {
+		return
+	}
+	cpuTracker.cpuCount, _ = self.cpuProvider.Counts(true)
+	info, err := self.cpuProvider.Info()
+	if err == nil && len(info) > 0 {
+		cpuTracker.cpuModel = info[0].ModelName
+		cpuTracker.cpuFreq = info[0].Mhz
+		cpuTracker.virtualization = cpuVirtualization(info[0].Flags)
+	}
+	cpuTracker.static = readCPUStaticLive()
+	cpuTracker.modelCached = true
 }
 
 func cpuVirtualization(flags []string) string {

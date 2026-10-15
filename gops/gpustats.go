@@ -26,11 +26,19 @@ func gpuEnabled(pciIds []string, pciId, pciSlot string) bool {
 // enables all); the others are listed with identity only and never read. The
 // cursor carries DRM client counters for GPUs whose usage comes from fdinfo.
 func (self *GopsUtil) GetGPUStats(cursor string, pciIds []string) (*models.GPUStatsInfo, error) {
+	return self.gpuStats(cursor, pciIds, nil)
+}
+
+// gpuStats takes the DRM clients of a process scan with the same pciIds;
+// nil scans the processes itself.
+func (self *GopsUtil) gpuStats(cursor string, pciIds []string, drm drmClientSet) (*models.GPUStatsInfo, error) {
 	detected, err := self.detectGPUs()
 	if err != nil {
 		return nil, err
 	}
-	return statsFor(detected, cursor, pciIds, self.fillGPUStats), nil
+	return statsFor(detected, cursor, pciIds, func(gpus []models.GPUStats, cursor string) string {
+		return self.fillGPUStats(gpus, cursor, drm)
+	}), nil
 }
 
 // statsFor lists every detected GPU and fills stats for the enabled ones only.

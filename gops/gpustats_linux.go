@@ -5,6 +5,7 @@ package gops
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,13 +21,13 @@ type gpuStatsCursor struct {
 	Clients []gpuCursorClient `json:"c"`
 }
 
-func (self *GopsUtil) fillGPUStats(gpus []models.GPUStats, cursor string) string {
-	return self.collectGPUStats(pciDevicesRoot, "/proc", gpus, cursor, time.Now(), queryNvidiaSMI)
+func (self *GopsUtil) fillGPUStats(gpus []models.GPUStats, cursor string, drm drmClientSet) string {
+	return self.collectGPUStats(pciDevicesRoot, "/proc", gpus, cursor, time.Now(), queryNvidiaSMI, drm)
 }
 
 // collectGPUStats fills gpus in place and returns the next cursor. Nothing
 // under a runtime-suspended device is read, so a sleeping dGPU stays asleep.
-func (self *GopsUtil) collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor string, now time.Time, nvidia func(bdfs []string) map[string]models.GPUStats) string {
+func (self *GopsUtil) collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor string, now time.Time, nvidia func(bdfs []string) map[string]models.GPUStats, drm drmClientSet) string {
 	fdinfoGPUs := map[string]*models.GPUStats{}
 	var nvidiaBDFs []string
 
@@ -63,7 +64,7 @@ func (self *GopsUtil) collectGPUStats(pciRoot, procRoot string, gpus []models.GP
 	if len(fdinfoGPUs) == 0 {
 		return ""
 	}
-	return fillFdinfoUsage(pciRoot, procRoot, fdinfoGPUs, cursor, now)
+	return fillFdinfoUsage(pciRoot, procRoot, fdinfoGPUs, cursor, now, drm)
 }
 
 func gpuSuspended(pciRoot, bdf string) bool {
@@ -193,25 +194,25 @@ func firstSet[T any](values ...*T) *T {
 	return nil
 }
 
-// fillFdinfoUsage scans every process's DRM fds, keeps the clients of the
-// given GPUs, and rates them against the previous sample in cursor.
-func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats, cursor string, now time.Time) string {
-	read := make([]models.GPU, 0, len(gpus))
-	for slot := range gpus {
-		read = append(read, models.GPU{PciSlot: slot})
-	}
-	nodes := gpuNodes(pciRoot, read, nil).nodes
+func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats, cursor string, now time.Time, drm drmClientSet) string {
 	cur := drmClientSet{}
-	pids, _ := listProcPIDs(procRoot)
-	for _, pid := range pids {
-		scan, err := scanProcFDs(procRoot, pid, nodes, false)
-		if err != nil {
-			continue
+	if drm == nil {
+		read := make([]models.GPU, 0, len(gpus))
+		for slot := range gpus {
+			read = append(read, models.GPU{PciSlot: slot})
 		}
-		for key, client := range scan.DRM {
-			if gpus[key.PDev] != nil {
-				cur[key] = client
+		nodes := gpuNodes(pciRoot, read, nil).nodes
+		drm = drmClientSet{}
+		pids, _ := listProcPIDs(procRoot)
+		for _, pid := range pids {
+			if scan, err := scanProcFDs(procRoot, pid, nodes, false); err == nil {
+				maps.Copy(drm, scan.DRM)
 			}
+		}
+	}
+	for key, client := range drm {
+		if gpus[key.PDev] != nil {
+			cur[key] = client
 		}
 	}
 

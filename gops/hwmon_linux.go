@@ -40,17 +40,36 @@ type hwmonChip struct {
 
 var hwmonInputRe = regexp.MustCompile(`^(temp|fan|power|freq)(\d+)_(input|average)$`)
 
-// i2c reads run in the background and keep their last result, so a held
-// bus delays a caller by at most i2cWait.
+// slowChipTime marks a chip slow: NVMe drives answer each hwmon read with an
+// admin command, taking milliseconds per file.
+const slowChipTime = 5 * time.Millisecond
+
 var (
-	i2cMu    sync.Mutex
-	i2cCache = map[string]*i2cState{}
+	hwmonMu    sync.Mutex
+	hwmonCache = map[string]*hwmonState{}
 )
 
-type i2cState struct {
+type hwmonState struct {
+	name   string
+	device string
+	async  bool
+	inputs []hwmonInput
+
 	readings []hwmonReading
+	haveRead bool
 	inflight bool
 	done     chan struct{}
+}
+
+type hwmonInput struct {
+	file     string
+	kind     string
+	label    string
+	scale    float64
+	max      *float64
+	critical *float64
+	// power limits are re-read on every sample, since users change caps at runtime.
+	powerCap, powerMax string
 }
 
 // readHwmonChips reads every usable chip under an hwmon class root.
@@ -68,13 +87,13 @@ func (self *GopsUtil) readHwmonChips(root string) []hwmonChip {
 			chips = append(chips, chip)
 		}
 	}
-	i2cMu.Lock()
-	for dir := range i2cCache {
-		if !seen[dir] {
-			delete(i2cCache, dir)
+	hwmonMu.Lock()
+	for dir := range hwmonCache {
+		if strings.HasPrefix(dir, root+"/") && !seen[dir] {
+			delete(hwmonCache, dir)
 		}
 	}
-	i2cMu.Unlock()
+	hwmonMu.Unlock()
 	return chips
 }
 
@@ -88,54 +107,123 @@ func (self *GopsUtil) readHwmonChip(dir string) (hwmonChip, bool) {
 	if readTrimmed(filepath.Join(dir, "device", "power", "runtime_status")) == "suspended" {
 		return hwmonChip{}, false
 	}
-	chip := hwmonChip{Name: name}
-	if link, err := os.Readlink(filepath.Join(dir, "device")); err == nil {
-		chip.Device = filepath.Base(link)
+	st := hwmonStateFor(dir, name)
+	chip := hwmonChip{Name: name, Device: st.device}
+	hwmonMu.Lock()
+	async, scanned := st.async, st.inputs != nil
+	hwmonMu.Unlock()
+	if async {
+		chip.Readings = self.readChipAsync(dir, st)
+		return chip, true
 	}
-	if resolved, err := filepath.EvalSymlinks(filepath.Join(dir, "device")); err == nil && strings.Contains(resolved, "/i2c-") {
-		chip.Readings = self.readI2CReadings(dir)
-	} else {
-		chip.Readings = readHwmonReadings(dir)
+	start := time.Now()
+	chip.Readings = readHwmonReadings(dir)
+	if scanned && time.Since(start) > slowChipTime {
+		hwmonMu.Lock()
+		st.async, st.readings, st.haveRead = true, chip.Readings, true
+		hwmonMu.Unlock()
 	}
 	return chip, true
 }
 
-func (self *GopsUtil) readI2CReadings(dir string) []hwmonReading {
-	i2cMu.Lock()
-	st := i2cCache[dir]
-	if st == nil {
-		st = &i2cState{}
-		i2cCache[dir] = st
+func hwmonStateFor(dir, name string) *hwmonState {
+	hwmonMu.Lock()
+	st := hwmonCache[dir]
+	hwmonMu.Unlock()
+	if st != nil && st.name == name {
+		return st
 	}
+	st = &hwmonState{name: name}
+	if link, err := os.Readlink(filepath.Join(dir, "device")); err == nil {
+		st.device = filepath.Base(link)
+	}
+	if resolved, err := filepath.EvalSymlinks(filepath.Join(dir, "device")); err == nil && strings.Contains(resolved, "/i2c-") {
+		st.async = true
+	}
+	hwmonMu.Lock()
+	hwmonCache[dir] = st
+	hwmonMu.Unlock()
+	return st
+}
+
+// readChipAsync returns the last readings and starts a new read. Only a chip
+// without readings yet makes the caller wait, at most slowChipWait, so the
+// values of an async chip are one call old.
+func (self *GopsUtil) readChipAsync(dir string, st *hwmonState) []hwmonReading {
+	hwmonMu.Lock()
 	if !st.inflight {
 		st.inflight = true
 		done := make(chan struct{})
 		st.done = done
 		go func() {
-			r := self.i2cRead(dir)
-			i2cMu.Lock()
-			st.readings, st.inflight = r, false
-			i2cMu.Unlock()
+			r := self.slowChipRead(dir)
+			hwmonMu.Lock()
+			st.readings, st.haveRead, st.inflight = r, true, false
+			hwmonMu.Unlock()
 			close(done)
 		}()
 	}
-	done := st.done
-	i2cMu.Unlock()
+	done, have := st.done, st.haveRead
+	hwmonMu.Unlock()
 
-	select {
-	case <-done:
-	case <-time.After(self.i2cWait):
+	if !have {
+		select {
+		case <-done:
+		case <-time.After(self.slowChipWait):
+		}
 	}
 
-	i2cMu.Lock()
-	defer i2cMu.Unlock()
+	hwmonMu.Lock()
+	defer hwmonMu.Unlock()
 	return st.readings
 }
 
 func readHwmonReadings(dir string) []hwmonReading {
+	hwmonMu.Lock()
+	st := hwmonCache[dir]
+	var inputs []hwmonInput
+	if st != nil {
+		inputs = st.inputs
+	}
+	hwmonMu.Unlock()
+	if inputs == nil {
+		inputs = scanHwmonInputs(dir)
+		if st != nil {
+			hwmonMu.Lock()
+			st.inputs = inputs
+			hwmonMu.Unlock()
+		}
+	}
+
+	var out []hwmonReading
+	for _, in := range inputs {
+		raw := readFloat(filepath.Join(dir, in.file))
+		if raw == nil {
+			continue
+		}
+		r := hwmonReading{Kind: in.kind, Label: in.label, Value: *raw / in.scale, Max: copyOf(in.max), Critical: copyOf(in.critical)}
+		if in.kind == sensorPower {
+			r.Max = readScaled(filepath.Join(dir, in.powerCap), 1e6)
+			if r.Max == nil {
+				r.Max = readScaled(filepath.Join(dir, in.powerMax), 1e6)
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func copyOf(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	return new(*v)
+}
+
+func scanHwmonInputs(dir string) []hwmonInput {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return []hwmonInput{}
 	}
 
 	type key struct {
@@ -167,36 +255,29 @@ func readHwmonReadings(dir string) []hwmonReading {
 		return keys[i].n < keys[j].n
 	})
 
-	var out []hwmonReading
+	out := make([]hwmonInput, 0, len(keys))
 	for _, k := range keys {
 		prefix := fmt.Sprintf("%s%d", k.typ, k.n)
-		raw := readFloat(filepath.Join(dir, files[k]))
-		if raw == nil {
-			continue
-		}
 		label := readTrimmed(filepath.Join(dir, prefix+"_label"))
 		if label == "" {
 			label = prefix
 		}
-		r := hwmonReading{Label: label}
+		in := hwmonInput{file: files[k], label: label}
 		switch k.typ {
 		case "temp":
-			r.Kind, r.Value = sensorTemperature, *raw/1000
-			r.Max = readTempLimit(filepath.Join(dir, prefix+"_max"))
-			r.Critical = readTempLimit(filepath.Join(dir, prefix+"_crit"))
+			in.kind, in.scale = sensorTemperature, 1000
+			in.max = readTempLimit(filepath.Join(dir, prefix+"_max"))
+			in.critical = readTempLimit(filepath.Join(dir, prefix+"_crit"))
 		case "fan":
-			r.Kind, r.Value = sensorFan, *raw
-			r.Max = readScaled(filepath.Join(dir, prefix+"_max"), 1)
+			in.kind, in.scale = sensorFan, 1
+			in.max = readScaled(filepath.Join(dir, prefix+"_max"), 1)
 		case "power":
-			r.Kind, r.Value = sensorPower, *raw/1e6
-			r.Max = readScaled(filepath.Join(dir, prefix+"_cap"), 1e6)
-			if r.Max == nil {
-				r.Max = readScaled(filepath.Join(dir, prefix+"_max"), 1e6)
-			}
+			in.kind, in.scale = sensorPower, 1e6
+			in.powerCap, in.powerMax = prefix+"_cap", prefix+"_max"
 		case "freq":
-			r.Kind, r.Value = sensorFrequency, *raw/1e6
+			in.kind, in.scale = sensorFrequency, 1e6
 		}
-		out = append(out, r)
+		out = append(out, in)
 	}
 	return out
 }

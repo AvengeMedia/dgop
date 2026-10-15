@@ -23,8 +23,10 @@ func writeFDLink(t *testing.T, procRoot string, pid, fd int, target string) {
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, itoa(fd))))
 }
 
+// readGPU leaves out the raw clients kept for gpu-stats.
 func readGPU(r *procGPUReader, procRoot string, pid int32) procGPU {
 	g, _ := processExtras{gpu: r}.readFDs(procRoot, pid)
+	g.drm = nil
 	return g
 }
 

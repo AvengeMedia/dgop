@@ -93,3 +93,17 @@ func TestReadMemoryModulesFailsWithoutAnySource(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, info.Modules)
 }
+
+func TestGetMemoryModules_ReadOnce(t *testing.T) {
+	g := NewGopsUtil()
+	g.memModules.info = &models.MemoryModulesInfo{Slots: 4, Modules: []models.MemoryModule{{Locator: "DIMM_A1"}}}
+
+	first, err := g.GetMemoryModules()
+	require.NoError(t, err)
+	assert.Equal(t, 4, first.Slots, "a cached result is never re-read")
+	first.Modules[0].Locator = "changed"
+
+	second, err := g.GetMemoryModules()
+	require.NoError(t, err)
+	assert.Equal(t, "DIMM_A1", second.Modules[0].Locator, "callers get their own copy")
+}
