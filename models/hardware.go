@@ -30,10 +30,27 @@ type GPU struct {
 	RawLine     string  `json:"rawLine"`
 	Temperature float64 `json:"temperature"`
 	Hwmon       string  `json:"hwmon"`
+	BusId       string  `json:"busId,omitempty"`
+
+	// Live metrics are only filled for requested GPUs; nil means the driver does
+	// not expose the value. Units: percent, KB, watts, MHz.
+	State       string   `json:"state,omitempty"`
+	Usage       *float64 `json:"usage,omitempty"`
+	MemoryUsed  *uint64  `json:"memoryUsed,omitempty"`
+	MemoryTotal *uint64  `json:"memoryTotal,omitempty"`
+	Power       *float64 `json:"power,omitempty"`
+	CoreClock   *float64 `json:"coreClock,omitempty"`
+	MemoryClock *float64 `json:"memoryClock,omitempty"`
 }
 
+const (
+	GPUStateActive    = "active"
+	GPUStateSuspended = "suspended"
+)
+
 type GPUInfo struct {
-	GPUs []GPU `json:"gpus"`
+	GPUs   []GPU  `json:"gpus"`
+	Cursor string `json:"cursor,omitempty"`
 }
 
 type GPUTempInfo struct {

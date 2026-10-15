@@ -18,7 +18,8 @@ type MetaInput struct {
 	MergeChildren  bool            `query:"merge_children" default:"true"`
 
 	// Module-specific parameters
-	GPUPciIds      []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs for GPU temperatures (when gpu module is requested)"`
+	GPUPciIds      []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs or bus addresses of GPUs to sample live metrics for (when gpu module is requested)"`
+	GPUCursor      string   `query:"gpu_cursor" doc:"GPU cursor from previous request"`
 	CPUCursor      string   `query:"cpu_cursor" doc:"CPU cursor from previous request"`
 	ProcCursor     string   `query:"proc_cursor" doc:"Process cursor from previous request"`
 	NetRateCursor  string   `query:"net_rate_cursor" doc:"Network rate cursor from previous request"`
@@ -53,6 +54,7 @@ func (self *HandlerGroup) Meta(ctx context.Context, input *MetaInput) (*MetaResp
 		EnableCPU:      !input.DisableProcCPU,
 		MergeChildren:  input.MergeChildren,
 		GPUPciIds:      input.GPUPciIds,
+		GPUCursor:      input.GPUCursor,
 		CPUCursor:      input.CPUCursor,
 		ProcCursor:     input.ProcCursor,
 		NetRateCursor:  input.NetRateCursor,

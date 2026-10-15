@@ -5,6 +5,7 @@ package gops
 import (
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/AvengeMedia/dgop/models"
 )
@@ -60,10 +61,10 @@ func detectGPUEntries() ([]gpuEntry, error) {
 	return entries, nil
 }
 
-func getNvidiaTemperature() (float64, string) {
-	return 0, "unknown"
-}
-
-func getHwmonTemperature(_ string) (float64, string) {
-	return 0, "unknown"
+func sampleGPUs(entries []gpuEntry, _ gpuCursor, now time.Time) ([]gpuSample, gpuCursor) {
+	samples := make([]gpuSample, len(entries))
+	for i := range samples {
+		samples[i].Hwmon = "unknown"
+	}
+	return samples, newGPUCursor(now)
 }
