@@ -19,6 +19,24 @@ type gpuSample struct {
 	Power       *float64
 	CoreClock   *float64
 	MemoryClock *float64
+
+	GTTUsed           *uint64
+	GTTTotal          *uint64
+	MemoryBusy        *float64
+	EncoderUsage      *float64
+	DecoderUsage      *float64
+	CoreClockMax      *float64
+	MemoryClockMax    *float64
+	Hotspot           *float64
+	MemoryTemperature *float64
+	PowerLimit        *float64
+	FanRpm            *int
+	FanMaxRpm         *int
+	FanPercent        *float64
+	PcieLinkSpeed     string
+	PcieLinkSpeedMax  string
+	PcieLinkWidth     int
+	PcieLinkWidthMax  int
 }
 
 func (s gpuSample) applyTo(gpu *models.GPU) {
@@ -31,6 +49,23 @@ func (s gpuSample) applyTo(gpu *models.GPU) {
 	gpu.Power = s.Power
 	gpu.CoreClock = s.CoreClock
 	gpu.MemoryClock = s.MemoryClock
+	gpu.GTTUsed = s.GTTUsed
+	gpu.GTTTotal = s.GTTTotal
+	gpu.MemoryBusy = s.MemoryBusy
+	gpu.EncoderUsage = s.EncoderUsage
+	gpu.DecoderUsage = s.DecoderUsage
+	gpu.CoreClockMax = s.CoreClockMax
+	gpu.MemoryClockMax = s.MemoryClockMax
+	gpu.Hotspot = s.Hotspot
+	gpu.MemoryTemperature = s.MemoryTemperature
+	gpu.PowerLimit = s.PowerLimit
+	gpu.FanRpm = s.FanRpm
+	gpu.FanMaxRpm = s.FanMaxRpm
+	gpu.FanPercent = s.FanPercent
+	gpu.PcieLinkSpeed = s.PcieLinkSpeed
+	gpu.PcieLinkSpeedMax = s.PcieLinkSpeedMax
+	gpu.PcieLinkWidth = s.PcieLinkWidth
+	gpu.PcieLinkWidthMax = s.PcieLinkWidthMax
 }
 
 // gpuCursor carries monotonic counters (idle residency, energy) between samples,
@@ -82,6 +117,12 @@ func gpuRequested(gpu models.GPU, ids []string) bool {
 		}
 	}
 	return false
+}
+
+// gpuSelected is gpuRequested for readers that take every GPU when ids is nil
+// (process-gpu); an empty, non-nil list still selects none.
+func gpuSelected(gpu models.GPU, ids []string) bool {
+	return ids == nil || gpuRequested(gpu, ids)
 }
 
 // normalizeBusId turns nvidia-smi's 8 digit PCI domain ("00000000:01:00.0")

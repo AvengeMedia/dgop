@@ -72,7 +72,13 @@ func requireSource(t *testing.T, path string) {
 
 func TestMetaE2E_PerformanceRail(t *testing.T) {
 	requireSource(t, "/proc/diskstats")
-	const mods = "modules=cpu,memory,disk-rate,net-rate,gpu-stats,sensors,memory-modules"
+	var busIds []string
+	for _, g := range asList(t, getJSON(t, "/gops/gpu", http.StatusOK)["gpus"]) {
+		if id, _ := asMap(t, g)["busId"].(string); id != "" {
+			busIds = append(busIds, id)
+		}
+	}
+	mods := "modules=cpu,memory,disk-rate,net-rate,gpu,sensors,memory-modules&gpu_pci_ids=" + url.QueryEscape(strings.Join(busIds, ","))
 	_, dmiErr := os.Stat("/run/udev/data/+dmi:id")
 
 	first := getJSON(t, "/gops/meta?"+mods, http.StatusOK)
@@ -84,6 +90,11 @@ func TestMetaE2E_PerformanceRail(t *testing.T) {
 	}
 	if _, ok := sub(t, first, "sensors")["sensors"]; !ok {
 		t.Error("sensors module returned no sensors key")
+	}
+	for _, g := range asList(t, sub(t, first, "gpu")["gpus"]) {
+		if asMap(t, g)["state"] == nil {
+			t.Error("a requested GPU has no live state")
+		}
 	}
 	if dmiErr == nil {
 		if _, ok := first["memorymodules"]; !ok {
@@ -103,11 +114,8 @@ func TestMetaE2E_PerformanceRail(t *testing.T) {
 	q := url.Values{}
 	q.Set("cpu_cursor", cursorOf(t, first, "cpu"))
 	q.Set("disk_rate_cursor", cursorOf(t, first, "diskrate"))
-	gpuCursor := ""
-	if g, ok := first["gpustats"].(map[string]any); ok {
-		gpuCursor, _ = g["cursor"].(string)
-	}
-	q.Set("gpu_stats_cursor", gpuCursor)
+	gpuCursor, _ := sub(t, first, "gpu")["cursor"].(string)
+	q.Set("gpu_cursor", gpuCursor)
 	time.Sleep(100 * time.Millisecond)
 	second := getJSON(t, "/gops/meta?"+mods+"&"+q.Encode(), http.StatusOK)
 
@@ -132,9 +140,9 @@ func TestMetaE2E_PerformanceRail(t *testing.T) {
 		t.Error("no disk row gained busy/responseTime from the disk_rate_cursor")
 	}
 	if gpuCursor != "" {
-		// The cursor came from a real fdinfo-capable GPU: it must round-trip.
-		if g := sub(t, second, "gpustats"); g["cursor"] == nil || g["cursor"] == "" {
-			t.Error("gpu stats cursor not re-emitted")
+		// The cursor came from a GPU with counter-derived metrics: it must round-trip.
+		if g := sub(t, second, "gpu"); g["cursor"] == nil || g["cursor"] == "" {
+			t.Error("gpu cursor not re-emitted")
 		}
 	}
 }
@@ -156,8 +164,8 @@ func TestMetaE2E_CPUCursorReachesCollector(t *testing.T) {
 	}
 }
 
-func TestMetaE2E_GPUStatsCursorParamAccepted(t *testing.T) {
-	body := getJSON(t, "/gops/meta?modules=gpu-stats,sensors&gpu_stats_cursor=not-a-cursor", http.StatusOK)
+func TestMetaE2E_GPUCursorParamAccepted(t *testing.T) {
+	body := getJSON(t, "/gops/meta?modules=gpu,sensors&gpu_cursor=not-a-cursor", http.StatusOK)
 	if _, ok := body["sensors"]; !ok {
 		t.Error("other modules dropped when the gpu cursor is garbage")
 	}
@@ -232,7 +240,7 @@ func TestMetaE2E_ModulesListsNewOnes(t *testing.T) {
 		}
 		got[name] = true
 	}
-	for _, m := range strings.Fields("gpu-stats sensors memory-modules process-gpu process-io") {
+	for _, m := range strings.Fields("sensors memory-modules process-gpu process-io") {
 		if !got[m] {
 			t.Errorf("module %q not listed", m)
 		}

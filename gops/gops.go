@@ -1,6 +1,8 @@
 package gops
 
 import (
+	"time"
+
 	"github.com/AvengeMedia/dankgo/log"
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/shirou/gopsutil/v4/host"
@@ -19,7 +21,8 @@ type GopsUtil struct {
 
 	pss pssCache
 
-	detectGPUs func() ([]models.GPU, error)
+	detectGPUEntries func() ([]gpuEntry, error)
+	sampleGPUs       func([]gpuEntry, gpuCursor, time.Time) ([]gpuSample, gpuCursor)
 	platformSources
 }
 
@@ -62,7 +65,8 @@ func NewGopsUtilWithProviders(
 func withDefaultSources(g *GopsUtil) *GopsUtil {
 	// The system module reads boot time on every call; it never changes.
 	host.EnableBootTimeCache(true)
-	g.detectGPUs = detectGPUs
+	g.detectGPUEntries = detectGPUEntries
+	g.sampleGPUs = g.defaultGPUSampler()
 	g.platformSources = defaultPlatformSources()
 	return g
 }

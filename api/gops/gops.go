@@ -199,18 +199,6 @@ func RegisterHandlers(server *server.Server, grp *huma.Group) {
 	huma.Register(
 		grp,
 		huma.Operation{
-			OperationID: "gpu-stats",
-			Summary:     "Get GPU Stats",
-			Description: "Get live GPU stats with cursor-based sampling for utilization rates",
-			Path:        "/gpu/stats",
-			Method:      http.MethodGet,
-		},
-		handlers.GPUStats,
-	)
-
-	huma.Register(
-		grp,
-		huma.Operation{
 			OperationID: "memory-modules",
 			Summary:     "Get Memory Modules",
 			Description: "Get information about the installed memory modules",

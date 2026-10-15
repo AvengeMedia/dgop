@@ -27,6 +27,7 @@ const (
 type hwmonReading struct {
 	Kind     string
 	Label    string
+	File     string // e.g. temp1_input
 	Value    float64
 	Max      *float64
 	Critical *float64
@@ -104,7 +105,7 @@ func (self *GopsUtil) readHwmonChip(dir string) (hwmonChip, bool) {
 	if name == "" || name == "drivetemp" {
 		return hwmonChip{}, false
 	}
-	if readTrimmed(filepath.Join(dir, "device", "power", "runtime_status")) == "suspended" {
+	if isRuntimeSuspended(filepath.Join(dir, "device")) {
 		return hwmonChip{}, false
 	}
 	st := hwmonStateFor(dir, name)
@@ -201,7 +202,7 @@ func readHwmonReadings(dir string) []hwmonReading {
 		if raw == nil {
 			continue
 		}
-		r := hwmonReading{Kind: in.kind, Label: in.label, Value: *raw / in.scale, Max: copyOf(in.max), Critical: copyOf(in.critical)}
+		r := hwmonReading{Kind: in.kind, Label: in.label, File: in.file, Value: *raw / in.scale, Max: copyOf(in.max), Critical: copyOf(in.critical)}
 		if in.kind == sensorPower {
 			r.Max = readScaled(filepath.Join(dir, in.powerCap), 1e6)
 			if r.Max == nil {

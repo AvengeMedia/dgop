@@ -27,7 +27,6 @@ var availableModules = []string{
 	"hardware",
 	"gpu",
 	"gpu-temp",
-	"gpu-stats",
 	"sensors",
 	"memory-modules",
 }
@@ -43,10 +42,9 @@ type MetaParams struct {
 	ProcLimit     int
 	EnableCPU     bool
 	MergeChildren bool
-	// GPUPciIds enables GPUs for gpu, gpu-temp, gpu-stats and process-gpu. nil
-	// enables all for gpu-stats and process-gpu; a non-nil empty list none.
-	// gpu and gpu-temp read only listed GPUs: omitting the list must not
-	// start running nvidia-smi, which wakes a suspended dGPU.
+	// GPUPciIds selects GPUs by PCI ID or bus address. gpu and gpu-temp read
+	// only listed GPUs, so omitting the list never starts nvidia-smi, which
+	// wakes a suspended dGPU. process-gpu reads all GPUs when it is nil.
 	GPUPciIds      []string
 	GPUCursor      string
 	CPUCursor      string
@@ -54,7 +52,6 @@ type MetaParams struct {
 	NetRateCursor  string
 	DiskRateCursor string
 
-	GPUStatsCursor       string
 	NetRateAllInterfaces bool
 }
 
@@ -78,7 +75,7 @@ func (p MetaParams) processOptions(modules []string) (opts ProcessOptions, modif
 func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params MetaParams) (*models.MetaInfo, error) {
 	meta := &models.MetaInfo{}
 	procOpts, modifier := params.processOptions(modules)
-	hasProcesses, gpuStats := false, false
+	hasProcesses := false
 
 	for _, module := range modules {
 		switch strings.ToLower(module) {
@@ -127,8 +124,6 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 			if gpu, err := self.GetGPUInfoWithStats(params.GPUPciIds, params.GPUCursor); err == nil {
 				meta.GPU = gpu
 			}
-		case "gpu-stats":
-			gpuStats = true
 		case "sensors":
 			if sn, err := self.GetSensors(); err == nil {
 				meta.Sensors = sn
@@ -142,18 +137,11 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 		}
 	}
 
-	var drm drmClientSet
 	if hasProcesses || modifier {
-		if result, clients, err := self.getProcesses(procOpts); err == nil {
+		if result, err := self.GetProcessesWithOptions(procOpts); err == nil {
 			meta.Processes = result.Processes
 			meta.Cursor = result.Cursor
 			meta.ProcessNetRx, meta.ProcessNetTx = result.ProcessNetRx, result.ProcessNetTx
-			drm = clients
-		}
-	}
-	if gpuStats {
-		if gs, err := self.gpuStats(params.GPUStatsCursor, params.GPUPciIds, drm); err == nil {
-			meta.GPUStats = gs
 		}
 	}
 
@@ -351,23 +339,6 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams, pro
 		}
 		mu.Lock()
 		meta.GPU = gpu
-		mu.Unlock()
-		return nil
-	})
-
-	g.Go(func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		v, err := self.GetGPUStats(params.GPUStatsCursor, params.GPUPciIds)
-		if err != nil {
-			log.Warn("failed to get GPU stats", "error", err)
-			return nil
-		}
-		mu.Lock()
-		meta.GPUStats = v
 		mu.Unlock()
 		return nil
 	})

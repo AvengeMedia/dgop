@@ -26,7 +26,6 @@ func TestNewEndpoints(t *testing.T) {
 	api := newAPI(t)
 	cases := []struct{ path, key string }{
 		{"/gops/sensors", "sensors"},
-		{"/gops/gpu/stats", "gpus"},
 		{"/gops/memory/modules", "modules"},
 	}
 	for _, c := range cases {
@@ -51,7 +50,7 @@ func TestNetRateAllInterfaces(t *testing.T) {
 }
 
 func TestMetaNewParams(t *testing.T) {
-	resp := newAPI(t).Get("/gops/meta?modules=sensors,gpu-stats,memory-modules&gpu_stats_cursor=&net_rate_all_interfaces=true")
+	resp := newAPI(t).Get("/gops/meta?modules=sensors,gpu,memory-modules&gpu_cursor=&net_rate_all_interfaces=true")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
 	}
@@ -59,7 +58,7 @@ func TestMetaNewParams(t *testing.T) {
 
 func TestOpenAPIListsNewOperations(t *testing.T) {
 	api := newAPI(t)
-	for _, p := range []string{"/gops/sensors", "/gops/gpu/stats", "/gops/memory/modules", "/gops/process/{pid}"} {
+	for _, p := range []string{"/gops/sensors", "/gops/memory/modules", "/gops/process/{pid}"} {
 		if api.OpenAPI().Paths[p] == nil {
 			t.Errorf("%s missing from OpenAPI", p)
 		}
@@ -119,32 +118,6 @@ func TestProcessesDefaultShape(t *testing.T) {
 				t.Fatalf("unexpected %s in default output", k)
 			}
 		}
-	}
-}
-
-// An absent gpu_pci_ids means all GPUs; a present one, even empty, is an allow-list.
-func TestGPUPciIdsQueryDistinguishesEmpty(t *testing.T) {
-	_, api := humatest.New(t)
-	var got []string
-	huma.Get(api, "/x", func(_ context.Context, in *gops_handler.GPUStatsInput) (*struct{}, error) {
-		got = in.GPUPciIds
-		return nil, nil
-	})
-	api.Get("/x")
-	if got != nil {
-		t.Errorf("absent: got %#v, want nil", got)
-	}
-	api.Get("/x?gpu_pci_ids=")
-	if got == nil {
-		t.Errorf("empty: got nil, want non-nil empty list")
-	}
-	api.Get("/x?gpu_pci_ids=10de:2684&gpu_pci_ids=1002:164e")
-	if len(got) != 2 || got[1] != "1002:164e" {
-		t.Errorf("repeated: got %#v", got)
-	}
-	api.Get("/x?gpu_pci_ids=10de:2684,1002:164e")
-	if len(got) != 2 || got[1] != "1002:164e" {
-		t.Errorf("comma: got %#v", got)
 	}
 }
 

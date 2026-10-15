@@ -12,8 +12,6 @@ type procGPU struct {
 	GTTBytes    uint64
 	// Clients that report engines, for rating.
 	Clients drmClientSet
-	// drm is every client read, which gpu-stats reuses.
-	drm drmClientSet
 }
 
 type gpuCursorClient struct {

@@ -18,8 +18,8 @@ type procGPUReader struct {
 // pciIds (nil enables all). It runs nvidia-smi once, and only if an enabled,
 // awake NVIDIA GPU exists.
 func (self *GopsUtil) newProcGPUReader(pciIds []string) *procGPUReader {
-	detected, _ := self.detectGPUs()
-	return buildProcGPUReader(pciDevicesRoot, detected, pciIds, queryNvidiaPIDs)
+	entries, _ := self.detectGPUEntries()
+	return buildProcGPUReader(pciDevicesRoot, gpusFromEntries(entries), pciIds, queryNvidiaPIDs)
 }
 
 func buildProcGPUReader(pciRoot string, detected []models.GPU, pciIds []string, nvidiaPIDs func() map[int32]uint64) *procGPUReader {
@@ -59,4 +59,40 @@ func (self *procGPUReader) fromScan(pid int32, scan procFDScan) procGPU {
 func procGPUUsage(prev []gpuCursorClient, cur drmClientSet, elapsed time.Duration) (all, video float64) {
 	engines := drmEngineUtilization(cursorClientSet(prev), cur, elapsed)
 	return maxEngineUtilization(engines), maxVideoEngineUtilization(engines)
+}
+
+// cursorClients returns the clients with at least one nonzero engine counter;
+// an absent engine rates the same as one at zero.
+func cursorClients(clients drmClientSet) []gpuCursorClient {
+	result := make([]gpuCursorClient, 0, len(clients))
+	for _, client := range clients {
+		if c := toCursorClient(client); len(c.Engines) > 0 {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
+func toCursorClient(client drmClient) gpuCursorClient {
+	c := gpuCursorClient{PDev: client.PDev, ID: client.ID, Engines: map[string][3]uint64{}}
+	for name, e := range client.Engines {
+		if e.BusyNs|e.Cycles|e.TotalCycles != 0 {
+			c.Engines[name] = [3]uint64{e.BusyNs, e.Cycles, e.TotalCycles}
+		}
+	}
+	return c
+}
+
+// cursorClientSet restores a previous sample. Only the current sample's
+// HasBusy and Capacity are used for rating, so these are left at defaults.
+func cursorClientSet(clients []gpuCursorClient) drmClientSet {
+	set := drmClientSet{}
+	for _, c := range clients {
+		client := drmClient{PDev: c.PDev, ID: c.ID, Engines: map[string]drmEngine{}}
+		for name, v := range c.Engines {
+			client.Engines[name] = drmEngine{BusyNs: v[0], HasBusy: true, Cycles: v[1], TotalCycles: v[2], Capacity: 1}
+		}
+		set[client.key()] = client
+	}
+	return set
 }

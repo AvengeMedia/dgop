@@ -104,12 +104,6 @@ var modulesCmd = &cobra.Command{
 	Long:  "Display all available modules for the meta command.",
 }
 
-var gpuStatsCmd = &cobra.Command{
-	Use:   "gpu-stats",
-	Short: "Get live GPU statistics",
-	Long:  "Display per-GPU usage, VRAM, clocks, temperatures, power, fan and PCIe link, with cursor-based sampling for usage on GPUs without a busy counter.",
-}
-
 var sensorsCmd = &cobra.Command{
 	Use:   "sensors",
 	Short: "Get hwmon temperature, fan and power sensors",
@@ -308,7 +302,6 @@ func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 		NetRateCursor:  netRateCursor,
 		DiskRateCursor: diskRateCursor,
 
-		GPUStatsCursor:       gpuStatsCursor,
 		NetRateAllInterfaces: allInterfaces,
 	}
 
@@ -671,14 +664,56 @@ func displayGPUInfo(gpuInfo *models.GPUInfo) {
 		if gpu.MemoryUsed != nil && gpu.MemoryTotal != nil {
 			rows = append(rows, []string{"Memory:", formatBytes(*gpu.MemoryUsed*1024) + " / " + formatBytes(*gpu.MemoryTotal*1024)})
 		}
+		if gpu.GTTUsed != nil && gpu.GTTTotal != nil {
+			rows = append(rows, []string{"GTT:", formatBytes(*gpu.GTTUsed*1024) + " / " + formatBytes(*gpu.GTTTotal*1024)})
+		}
+		if gpu.MemoryBusy != nil {
+			rows = append(rows, []string{"Memory Busy:", fmt.Sprintf("%.0f%%", *gpu.MemoryBusy)})
+		}
+		if gpu.EncoderUsage != nil {
+			rows = append(rows, []string{"Encoder:", fmt.Sprintf("%.0f%%", *gpu.EncoderUsage)})
+		}
+		if gpu.DecoderUsage != nil {
+			rows = append(rows, []string{"Decoder:", fmt.Sprintf("%.0f%%", *gpu.DecoderUsage)})
+		}
+		if gpu.Hotspot != nil {
+			rows = append(rows, []string{"Hotspot:", fmt.Sprintf("%.1f°C", *gpu.Hotspot)})
+		}
+		if gpu.MemoryTemperature != nil {
+			rows = append(rows, []string{"Memory Temp:", fmt.Sprintf("%.1f°C", *gpu.MemoryTemperature)})
+		}
 		if gpu.Power != nil {
-			rows = append(rows, []string{"Power:", fmt.Sprintf("%.1f W", *gpu.Power)})
+			p := fmt.Sprintf("%.1f W", *gpu.Power)
+			if gpu.PowerLimit != nil {
+				p += fmt.Sprintf(" / %.1f W", *gpu.PowerLimit)
+			}
+			rows = append(rows, []string{"Power:", p})
 		}
 		if gpu.CoreClock != nil {
-			rows = append(rows, []string{"Core Clock:", fmt.Sprintf("%.0f MHz", *gpu.CoreClock)})
+			rows = append(rows, []string{"Core Clock:", mhzOfMax(*gpu.CoreClock, gpu.CoreClockMax)})
 		}
 		if gpu.MemoryClock != nil {
-			rows = append(rows, []string{"Memory Clock:", fmt.Sprintf("%.0f MHz", *gpu.MemoryClock)})
+			rows = append(rows, []string{"Memory Clock:", mhzOfMax(*gpu.MemoryClock, gpu.MemoryClockMax)})
+		}
+		if gpu.FanRpm != nil {
+			f := fmt.Sprintf("%d rpm", *gpu.FanRpm)
+			if gpu.FanMaxRpm != nil {
+				f += fmt.Sprintf(" / %d rpm", *gpu.FanMaxRpm)
+			}
+			rows = append(rows, []string{"Fan:", f})
+		}
+		if gpu.FanPercent != nil {
+			rows = append(rows, []string{"Fan Speed:", fmt.Sprintf("%.0f%%", *gpu.FanPercent)})
+		}
+		if gpu.PcieLinkSpeed != "" {
+			l := gpu.PcieLinkSpeed
+			if gpu.PcieLinkWidth > 0 {
+				l += fmt.Sprintf(" x%d", gpu.PcieLinkWidth)
+			}
+			if gpu.PcieLinkSpeedMax != "" {
+				l += fmt.Sprintf(" (max %s x%d)", gpu.PcieLinkSpeedMax, gpu.PcieLinkWidthMax)
+			}
+			rows = append(rows, []string{"PCIe:", l})
 		}
 
 		printTable(rows)
@@ -731,11 +766,6 @@ func displayMetaInfo(meta *models.MetaInfo) {
 
 	if meta.DiskRate != nil {
 		displayDiskRates(meta.DiskRate)
-		fmt.Println()
-	}
-
-	if meta.GPUStats != nil {
-		displayGPUStats(meta.GPUStats)
 		fmt.Println()
 	}
 
@@ -891,20 +921,6 @@ func runTopCommand(gopsUtil *gops.GopsUtil) error {
 	return runTUIWithOptions(gopsUtil, hideCPUCores, summarizeCores)
 }
 
-func runGPUStatsCommand(gopsUtil *gops.GopsUtil) error {
-	info, err := gopsUtil.GetGPUStats(gpuStatsCursor, metaGPUPciIds)
-	if err != nil {
-		return fmt.Errorf("failed to get GPU stats: %w", err)
-	}
-
-	if jsonOutput {
-		return outputJSON(info)
-	}
-
-	displayGPUStats(info)
-	return nil
-}
-
 func runSensorsCommand(gopsUtil *gops.GopsUtil) error {
 	info, err := gopsUtil.GetSensors()
 	if err != nil {
@@ -931,92 +947,6 @@ func runMemoryModulesCommand(gopsUtil *gops.GopsUtil) error {
 
 	displayMemoryModules(info)
 	return nil
-}
-
-func displayGPUStats(info *models.GPUStatsInfo) {
-	fmt.Println(titleStyle.Render("GPU STATS"))
-
-	if len(info.GPUs) == 0 {
-		fmt.Println(valueStyle.Render("  No GPUs found"))
-		return
-	}
-
-	for i, g := range info.GPUs {
-		if i > 0 {
-			fmt.Println()
-		}
-
-		fmt.Println(keyStyle.Render(fmt.Sprintf("GPU: %s", g.Name)))
-
-		rows := [][]string{
-			{"Slot:", g.PciSlot},
-			{"PCI ID:", g.PciId},
-			{"Driver:", g.Driver},
-			{"Vendor:", g.Vendor},
-		}
-		add := func(label string, v any, format string) {
-			rows = append(rows, []string{label, fmt.Sprintf(format, v)})
-		}
-		if g.Suspended {
-			rows = append(rows, []string{"State:", "suspended"})
-		}
-		if g.Usage != nil {
-			add("Usage:", *g.Usage, "%.1f%%")
-		}
-		if g.VRAMUsedKB != nil && g.VRAMTotalKB != nil {
-			rows = append(rows, []string{"VRAM:", fmt.Sprintf("%s / %s", formatBytes(*g.VRAMUsedKB*1024), formatBytes(*g.VRAMTotalKB*1024))})
-		} else if g.VRAMUsedKB != nil {
-			rows = append(rows, []string{"VRAM:", formatBytes(*g.VRAMUsedKB * 1024)})
-		}
-		if g.CoreClock != nil {
-			rows = append(rows, []string{"Core Clock:", mhzOfMax(*g.CoreClock, g.CoreClockMax)})
-		}
-		if g.MemClock != nil {
-			rows = append(rows, []string{"Mem Clock:", mhzOfMax(*g.MemClock, g.MemClockMax)})
-		}
-		if g.Temperature != nil {
-			add("Temperature:", *g.Temperature, "%.1f°C")
-		}
-		if g.Hotspot != nil {
-			add("Hotspot:", *g.Hotspot, "%.1f°C")
-		}
-		if g.MemTemp != nil {
-			add("Mem Temp:", *g.MemTemp, "%.1f°C")
-		}
-		if g.Power != nil {
-			p := fmt.Sprintf("%.1f W", *g.Power)
-			if g.PowerLimit != nil {
-				p += fmt.Sprintf(" / %.1f W", *g.PowerLimit)
-			}
-			rows = append(rows, []string{"Power:", p})
-		}
-		if g.FanRpm != nil {
-			f := fmt.Sprintf("%d rpm", *g.FanRpm)
-			if g.FanMaxRpm != nil {
-				f += fmt.Sprintf(" / %d rpm", *g.FanMaxRpm)
-			}
-			rows = append(rows, []string{"Fan:", f})
-		}
-		if g.FanPercent != nil {
-			add("Fan Speed:", *g.FanPercent, "%.0f%%")
-		}
-		if g.PcieLinkSpeed != "" {
-			l := g.PcieLinkSpeed
-			if g.PcieLinkWidth > 0 {
-				l += fmt.Sprintf(" x%d", g.PcieLinkWidth)
-			}
-			if g.PcieLinkSpeedMax != "" {
-				l += fmt.Sprintf(" (max %s x%d)", g.PcieLinkSpeedMax, g.PcieLinkWidthMax)
-			}
-			rows = append(rows, []string{"PCIe:", l})
-		}
-
-		printTable(rows)
-	}
-
-	if info.Cursor != "" {
-		fmt.Printf("\nCursor: %s\n", info.Cursor)
-	}
 }
 
 func mhzOfMax(v float64, max *float64) string {

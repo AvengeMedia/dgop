@@ -92,7 +92,7 @@ func readMilliCelsius(path string) (float64, bool) {
 }
 
 func getACPITZFallback() float64 {
-	thermalPath := "/sys/class/thermal"
+	thermalPath := thermalRoot
 	thermalEntries, err := os.ReadDir(thermalPath)
 	if err != nil {
 		return 0

@@ -13,7 +13,7 @@ import (
 // runs in parallel.
 func benchView(b *testing.B, modules ...string) {
 	u := NewGopsUtil()
-	p := MetaParams{SortBy: SortByCPU, ProcLimit: 100, EnableCPU: true, MergeChildren: true, NetRateAllInterfaces: true}
+	p := MetaParams{SortBy: SortByCPU, ProcLimit: 100, EnableCPU: true, MergeChildren: true, NetRateAllInterfaces: true, GPUPciIds: allGPUBusIds(b, u)}
 	poll := func() {
 		m, err := u.GetMeta(context.Background(), modules, p)
 		if err != nil {
@@ -29,8 +29,8 @@ func benchView(b *testing.B, modules ...string) {
 		if m.DiskRate != nil {
 			p.DiskRateCursor = m.DiskRate.Cursor
 		}
-		if m.GPUStats != nil {
-			p.GPUStatsCursor = m.GPUStats.Cursor
+		if m.GPU != nil {
+			p.GPUCursor = m.GPU.Cursor
 		}
 	}
 	poll()
@@ -43,6 +43,19 @@ func benchView(b *testing.B, modules ...string) {
 	b.ReportMetric(float64(cpuTime()-start)/float64(b.N), "cpu-ns/op")
 }
 
+// allGPUBusIds is what DMS passes to read every GPU.
+func allGPUBusIds(b *testing.B, u *GopsUtil) []string {
+	info, err := u.GetGPUInfo()
+	if err != nil {
+		b.Fatal(err)
+	}
+	ids := []string{}
+	for _, g := range info.GPUs {
+		ids = append(ids, g.BusId)
+	}
+	return ids
+}
+
 func cpuTime() int64 {
 	var r syscall.Rusage
 	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &r)
@@ -52,12 +65,14 @@ func cpuTime() int64 {
 func BenchmarkMetaBar(b *testing.B) { benchView(b, "cpu", "memory", "system") }
 
 func BenchmarkMetaProcessesTab(b *testing.B) {
-	benchView(b, "processes", "cpu", "memory", "system", "gpu", "process-gpu", "gpu-stats", "process-io", "disk", "process-net", "network")
+	benchView(b, "processes", "cpu", "memory", "system", "gpu", "process-gpu", "process-io", "disk", "process-net", "network")
 }
 
 func BenchmarkMetaPerformanceTab(b *testing.B) {
-	benchView(b, "cpu", "memory", "system", "disk-rate", "net-rate", "diskmounts", "gpu-stats", "memory-modules")
+	benchView(b, "cpu", "memory", "system", "disk-rate", "net-rate", "diskmounts", "gpu", "memory-modules")
 }
+
+func BenchmarkMetaGPU(b *testing.B) { benchView(b, "gpu") }
 
 func BenchmarkMetaSystemTab(b *testing.B) { benchView(b, "system", "cpu", "memory-modules", "sensors") }
 

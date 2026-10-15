@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"reflect"
 	"runtime"
@@ -348,15 +347,10 @@ func (self processExtras) sample(r *procReader, p *process.Process, s *processSa
 }
 
 func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.ProcessListResponse, error) {
-	res, _, err := self.getProcesses(opts)
-	return res, err
-}
-
-func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResponse, drmClientSet, error) {
 	limit, enableCPU, mergeChildren := opts.Limit, opts.EnableCPU, opts.MergeChildren
 	procs, err := self.procProvider.Processes()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	totalMem, _ := self.memProvider.VirtualMemory()
@@ -403,7 +397,6 @@ func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResp
 		info    *models.ProcessInfo
 		sample  processSample
 		sampled bool
-		drm     drmClientSet
 		net     procNet
 		prevOK  bool
 	}
@@ -518,7 +511,6 @@ func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResp
 						sample:  sample,
 						sampled: sampled,
 						info:    info,
-						drm:     gpu.drm,
 						net:     netInfo,
 						prevOK:  prev != nil,
 					}
@@ -534,17 +526,12 @@ func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResp
 
 	procList := make([]*models.ProcessInfo, 0, len(procs))
 	cursorList := make([]processSample, 0, len(procs))
-	var drm drmClientSet
-	if opts.GPU {
-		drm = drmClientSet{}
-	}
 	var netRows []netRow
 	for i := 0; i < len(procs); i++ {
 		r := <-results
 		if r.info != nil {
 			procList = append(procList, r.info)
 		}
-		maps.Copy(drm, r.drm)
 		if r.sampled {
 			cursorList = append(cursorList, r.sample)
 		}
@@ -575,7 +562,7 @@ func (self *GopsUtil) getProcesses(opts ProcessOptions) (*models.ProcessListResp
 		Cursor:       encodeCursor(cursorList, nextNet),
 		ProcessNetRx: netRx,
 		ProcessNetTx: netTx,
-	}, drm, nil
+	}, nil
 }
 
 // setProcessExtras fills the requested extras of info from the current and

@@ -17,7 +17,7 @@ func TestGetModulesListsNewModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []string{"gpu-stats", "sensors", "memory-modules", "process-gpu", "process-io", "process-net"} {
+	for _, m := range []string{"sensors", "memory-modules", "process-gpu", "process-io", "process-net"} {
 		if !slices.Contains(mods.Available, m) {
 			t.Errorf("module %q not listed", m)
 		}
@@ -47,11 +47,8 @@ func TestGetMetaNewModules(t *testing.T) {
 		if _, err := os.Stat("/run/udev/data/+dmi:id"); err == nil && meta.MemoryModules == nil {
 			t.Error("memory-modules missing")
 		}
-		if hasEntries("/sys/class/drm") && meta.GPUStats == nil {
-			t.Error("gpu-stats missing")
-		}
 	}
-	t.Run("explicit", func(t *testing.T) { check(t, []string{"sensors", "memory-modules", "gpu-stats"}) })
+	t.Run("explicit", func(t *testing.T) { check(t, []string{"sensors", "memory-modules"}) })
 	t.Run("all", func(t *testing.T) { check(t, []string{"all"}) })
 }
 
@@ -129,7 +126,7 @@ func TestGetMetaAllProcessGPU(t *testing.T) {
 	}
 	g := NewGopsUtil()
 	// No detected GPU: nothing on the host is read, and the test process holds no GPU.
-	g.detectGPUs = func() ([]models.GPU, error) { return nil, nil }
+	g.detectGPUEntries = func() ([]gpuEntry, error) { return nil, nil }
 	ctx := context.Background()
 	first, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, MetaParams{})
 	if err != nil {

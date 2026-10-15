@@ -90,9 +90,6 @@ dgop gpu
 # Get temperature for specific GPU
 dgop gpu-temp --pci-id 10de:2684
 
-# Live GPU usage, VRAM, clocks, power and fans
-dgop gpu-stats
-
 # Temperature, fan and power sensors
 dgop sensors
 
@@ -123,8 +120,8 @@ dgop meta --modules gpu --gpu-pci-ids 10de:2684
 # Multiple GPU temperatures
 dgop meta --modules gpu --gpu-pci-ids 10de:2684,1002:164e
 
-# Live GPU stats and sensors
-dgop meta --modules gpu-stats,sensors
+# Live GPU usage, VRAM, clocks, power and fans, picked by bus address
+dgop meta --modules gpu,sensors --gpu-pci-ids 0000:03:00.0
 
 # Everything (same as 'dgop all')
 dgop meta --modules all
@@ -182,7 +179,6 @@ Then hit these endpoints:
 - **GET** `/gops/hardware` - Hardware info
 - **GET** `/gops/gpu` - GPU information
 - **GET** `/gops/gpu/temp?pciId=10de:2684` - GPU temperature
-- **GET** `/gops/gpu/stats` - Live GPU stats
 - **GET** `/gops/sensors` - Temperature, fan and power sensors
 - **GET** `/gops/memory/modules` - Installed memory modules
 - **GET** `/gops/net-rate?all_interfaces=true` - Network rates of every interface

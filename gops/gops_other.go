@@ -8,6 +8,10 @@ type platformSources struct{}
 
 func defaultPlatformSources() platformSources { return platformSources{} }
 
+func (self *GopsUtil) defaultGPUSampler() func([]gpuEntry, gpuCursor, time.Time) ([]gpuSample, gpuCursor) {
+	return sampleGPUs
+}
+
 type drmClientSet map[string]struct{}
 
 type procGPUReader struct{}

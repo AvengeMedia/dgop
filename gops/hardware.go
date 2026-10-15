@@ -39,12 +39,12 @@ func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 }
 
 func (self *GopsUtil) GetGPUInfo() (*models.GPUInfo, error) {
-	gpus, err := self.detectGPUs()
+	entries, err := self.detectGPUEntries()
 	if err != nil {
 		return nil, err
 	}
 
-	return &models.GPUInfo{GPUs: gpus}, nil
+	return &models.GPUInfo{GPUs: gpusFromEntries(entries)}, nil
 }
 
 func (self *GopsUtil) GetGPUInfoWithTemp(ids []string) (*models.GPUInfo, error) {
@@ -55,7 +55,7 @@ func (self *GopsUtil) GetGPUInfoWithTemp(ids []string) (*models.GPUInfo, error) 
 // ID or bus address), so cards nobody asked about are never woken. The cursor
 // from the previous call enables metrics derived from counter deltas.
 func (self *GopsUtil) GetGPUInfoWithStats(ids []string, cursor string) (*models.GPUInfo, error) {
-	entries, err := detectGPUEntries()
+	entries, err := self.detectGPUEntries()
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (self *GopsUtil) GetGPUInfoWithStats(ids []string, cursor string) (*models.
 		return info, nil
 	}
 
-	samples, next := sampleGPUs(targets, decodeGPUCursor(cursor), time.Now())
+	samples, next := self.sampleGPUs(targets, decodeGPUCursor(cursor), time.Now())
 	for i, sample := range samples {
 		sample.applyTo(&gpus[indexes[i]])
 	}
@@ -91,7 +91,7 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 		return nil, fmt.Errorf("pciId is required")
 	}
 
-	entries, err := detectGPUEntries()
+	entries, err := self.detectGPUEntries()
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 		if !gpuRequested(gpu, []string{pciId}) {
 			continue
 		}
-		samples, _ := sampleGPUs(entries[i:i+1], gpuCursor{}, time.Now())
+		samples, _ := self.sampleGPUs(entries[i:i+1], gpuCursor{}, time.Now())
 		return &models.GPUTempInfo{
 			Driver:      entries[i].Driver,
 			Hwmon:       samples[0].Hwmon,
@@ -129,14 +129,6 @@ func inferVendorFromId(vendorId, driver string) string {
 	default:
 		return inferVendor(driver, "")
 	}
-}
-
-func detectGPUs() ([]models.GPU, error) {
-	gpuEntries, err := detectGPUEntries()
-	if err != nil {
-		return nil, err
-	}
-	return gpusFromEntries(gpuEntries), nil
 }
 
 func gpusFromEntries(entries []gpuEntry) []models.GPU {

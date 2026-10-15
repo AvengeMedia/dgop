@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,10 +24,8 @@ func writeFDLink(t *testing.T, procRoot string, pid, fd int, target string) {
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, itoa(fd))))
 }
 
-// readGPU leaves out the raw clients kept for gpu-stats.
 func readGPU(r *procGPUReader, procRoot string, pid int32) procGPU {
 	g, _ := processExtras{gpu: r}.readFDs(procRoot, pid)
-	g.drm = nil
 	return g
 }
 
@@ -258,4 +257,22 @@ func TestSetProcessExtras_UnmonitoredReason(t *testing.T) {
 	assert.True(t, info.GPUUnmonitored)
 	assert.Nil(t, info.GPU, "a previous sample must not turn unmonitored into 0%")
 	assert.Nil(t, info.VRAMKB)
+}
+
+func writeDRMClient(t *testing.T, procRoot string, pid, fd int, node, fdinfo string) {
+	t.Helper()
+	pidDir := filepath.Join(procRoot, itoa(pid))
+	require.NoError(t, os.MkdirAll(filepath.Join(pidDir, "fd"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(pidDir, "fdinfo"), 0o755))
+	link := filepath.Join(pidDir, "fd", itoa(fd))
+	_ = os.Remove(link)
+	require.NoError(t, os.Symlink("/dev/dri/"+node, link))
+	require.NoError(t, os.WriteFile(filepath.Join(pidDir, "fdinfo", itoa(fd)), []byte(fdinfo), 0o644))
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+func i915Client(id int, renderNs, videoNs int64) string {
+	return "drm-driver:\ti915\ndrm-client-id:\t" + itoa(id) + "\ndrm-pdev:\t0000:00:02.0\n" +
+		"drm-engine-render:\t" + strconv.FormatInt(renderNs, 10) + " ns\ndrm-engine-video:\t" + strconv.FormatInt(videoNs, 10) + " ns\n"
 }

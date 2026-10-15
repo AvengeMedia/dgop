@@ -36,9 +36,9 @@ func gpuNodes(pciRoot string, gpus []models.GPU, pciIds []string) gpuNodeSet {
 	for _, g := range gpus {
 		state := gpuNodeRead
 		switch {
-		case !gpuEnabled(pciIds, g.PciId, g.BusId):
+		case !gpuSelected(g, pciIds):
 			state = gpuNodeExcluded
-		case gpuSuspended(pciRoot, g.BusId):
+		case isRuntimeSuspended(filepath.Join(pciRoot, g.BusId)):
 			state = gpuNodeSuspended
 		}
 		set.nvidia = set.nvidia || g.Driver == "nvidia" && state == gpuNodeRead
@@ -142,7 +142,6 @@ func (self processExtras) readFDs(procRoot string, pid int32) (g procGPU, n proc
 	}
 	if self.gpu != nil {
 		g = self.gpu.fromScan(pid, scan)
-		g.drm = scan.DRM
 	}
 	if sockets && (!self.net.foreign(scan) || self.net.loopbackOnly(procRoot, pid, scan.NetNS)) {
 		n = self.net.fromScan(scan)
