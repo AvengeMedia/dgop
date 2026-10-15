@@ -28,6 +28,9 @@ type procNet struct {
 	Remotes []procRemote
 	// TCP lists the internet TCP sockets only.
 	TCP []tcpCounters
+	// RatesUnknown is set when a TCP socket came without byte counters, so
+	// summing the rest would under-report.
+	RatesUnknown bool
 }
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")
@@ -99,7 +102,11 @@ func (self *procNetReader) fromScan(scan procFDScan) procNet {
 		proto := "udp"
 		if e.Protocol == unix.IPPROTO_TCP {
 			proto = "tcp"
-			out.TCP = append(out.TCP, tcpCounters{inode, e.RxBytes, e.TxBytes})
+			if e.HasTCPInfo {
+				out.TCP = append(out.TCP, tcpCounters{inode, e.RxBytes, e.TxBytes})
+			} else {
+				out.RatesUnknown = true
+			}
 		}
 		if len(out.Remotes) < maxProcRemotes {
 			out.Remotes = append(out.Remotes, procRemote{proto, netip.AddrPortFrom(e.Remote.Addr().Unmap(), e.Remote.Port()).String()})

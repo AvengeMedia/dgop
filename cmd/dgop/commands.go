@@ -116,6 +116,12 @@ var sensorsCmd = &cobra.Command{
 	Long:  "Display every readable hwmon temperature, fan and power sensor.",
 }
 
+var processCmd = &cobra.Command{
+	Use:   "process",
+	Short: "Get details of one process",
+	Long:  "Display lifetime I/O, swap, open files, systemd unit and terminal of one process (e.g., --pid 1234).",
+}
+
 var memoryModulesCmd = &cobra.Command{
 	Use:   "memory-modules",
 	Short: "Get installed memory modules",
@@ -1066,4 +1072,48 @@ func displayMemoryModules(info *models.MemoryModulesInfo) {
 		}
 		printTable(rows)
 	}
+}
+
+func runProcessCommand(gopsUtil *gops.GopsUtil) error {
+	detail, err := gopsUtil.GetProcessDetail(processPid)
+	if err != nil {
+		return fmt.Errorf("failed to get process detail: %w", err)
+	}
+
+	if jsonOutput {
+		return outputJSON(detail)
+	}
+
+	displayProcessDetail(detail)
+	return nil
+}
+
+func displayProcessDetail(d *models.ProcessDetail) {
+	fmt.Println(titleStyle.Render("PROCESS"))
+
+	unknown := "—"
+	bytesOr := func(v *uint64, scale uint64) string {
+		if v == nil {
+			return unknown
+		}
+		return formatBytes(*v * scale)
+	}
+	openFiles := unknown
+	if d.OpenFiles != nil {
+		openFiles = fmt.Sprint(*d.OpenFiles)
+	}
+	unit := d.Unit
+	if unit == "" {
+		unit = unknown
+	}
+
+	printTable([][]string{
+		{"PID:", fmt.Sprint(d.PID)},
+		{"Read total:", bytesOr(d.ReadTotal, 1)},
+		{"Written total:", bytesOr(d.WriteTotal, 1)},
+		{"Swap:", bytesOr(d.SwapKB, 1024)},
+		{"Open files:", openFiles},
+		{"Unit:", unit},
+		{"Terminal:", fmt.Sprint(d.Terminal)},
+	})
 }

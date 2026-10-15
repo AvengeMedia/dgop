@@ -187,6 +187,18 @@ func RegisterHandlers(server *server.Server, grp *huma.Group) {
 	huma.Register(
 		grp,
 		huma.Operation{
+			OperationID: "process-detail",
+			Summary:     "Get Process Detail",
+			Description: "Get the on-demand details of one process: lifetime I/O, swap, open files, systemd unit and terminal",
+			Path:        "/process/{pid}",
+			Method:      http.MethodGet,
+		},
+		handlers.ProcessDetail,
+	)
+
+	huma.Register(
+		grp,
+		huma.Operation{
 			OperationID: "gpu-stats",
 			Summary:     "Get GPU Stats",
 			Description: "Get live GPU stats with cursor-based sampling for utilization rates",

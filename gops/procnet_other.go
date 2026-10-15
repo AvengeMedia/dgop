@@ -14,10 +14,11 @@ type tcpCounters struct {
 }
 
 type procNet struct {
-	Known   bool
-	Count   int
-	Remotes []procRemote
-	TCP     []tcpCounters
+	Known        bool
+	Count        int
+	Remotes      []procRemote
+	TCP          []tcpCounters
+	RatesUnknown bool
 }
 
 type procNetReader struct{ dumpedAt int64 }

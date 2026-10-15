@@ -23,6 +23,7 @@ var (
 	procIO         bool
 	metaModules    []string
 	gpuPciId       string
+	processPid     int32
 	metaGPUPciIds  []string
 	cpuCursor      string
 	procCursor     string
@@ -81,7 +82,7 @@ func init() {
 
 	diskRateCmd.Flags().StringVar(&diskRateCursor, "cursor", "", "Cursor from previous disk rate request")
 
-	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read (e.g., 10de:2684,1002:164e); empty reads none, omitted reads all")
+	gpuStatsCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read (e.g., 10de:2684,1002:164e); empty reads none; omitted reads all, except gpu-temp, which reads none")
 	gpuStatsCmd.Flags().StringVar(&gpuStatsCursor, "cursor", "", "Cursor from previous GPU stats request")
 
 	processesCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
@@ -108,6 +109,9 @@ func init() {
 
 	gpuTempCmd.Flags().StringVar(&gpuPciId, "pci-id", "", "PCI ID of GPU to get temperature (e.g., 10de:2684)")
 	gpuTempCmd.MarkFlagRequired("pci-id")
+
+	processCmd.Flags().Int32Var(&processPid, "pid", 0, "PID of the process")
+	processCmd.MarkFlagRequired("pid")
 
 	topCmd.Flags().BoolVar(&hideCPUCores, "hide-cpu-cores", false, "Hide individual CPU core display in TUI")
 	topCmd.Flags().BoolVar(&summarizeCores, "summarize-cores", false, "Show summarized CPU core groups instead of individual cores")
@@ -159,6 +163,7 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 	rootCmd.AddCommand(diskRateCmd)
 	rootCmd.AddCommand(gpuStatsCmd)
 	rootCmd.AddCommand(sensorsCmd)
+	rootCmd.AddCommand(processCmd)
 	rootCmd.AddCommand(memoryModulesCmd)
 	rootCmd.AddCommand(topCmd)
 	rootCmd.AddCommand(serverCmd)
@@ -226,6 +231,10 @@ func setupCommands(gopsUtil *gops.GopsUtil) {
 
 	sensorsCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runSensorsCommand(gopsUtil)
+	}
+
+	processCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runProcessCommand(gopsUtil)
 	}
 
 	memoryModulesCmd.RunE = func(cmd *cobra.Command, args []string) error {

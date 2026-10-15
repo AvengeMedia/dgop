@@ -77,6 +77,7 @@ func TestProcNetReaderRead(t *testing.T) {
 	assert.Equal(t, 2, got.Count)
 	assert.Equal(t, []procRemote{{"tcp", "[2001:4860::8888]:443"}, {"udp", "8.8.8.8:53"}}, got.Remotes)
 	assert.Equal(t, []tcpCounters{{1, 5, 6}}, got.TCP, "UDP and non-internet sockets carry no counters")
+	assert.False(t, got.RatesUnknown)
 
 	got = r.read(2)
 	assert.True(t, got.Known, "loopback-only is zero, not unknown")
@@ -84,6 +85,8 @@ func TestProcNetReaderRead(t *testing.T) {
 
 	got = r.read(3)
 	assert.Equal(t, 40, got.Count, "count is exact")
+	assert.True(t, got.RatesUnknown, "TCP sockets without tcp_info make the rate unknown, not zero")
+	assert.Empty(t, got.TCP)
 	assert.Len(t, got.Remotes, maxProcRemotes)
 
 	assert.True(t, r.read(4).Known)
@@ -112,7 +115,7 @@ func TestProcNetReaderDedupesSharedSocket(t *testing.T) {
 	for _, fd := range []string{"0", "1", "2"} {
 		require.NoError(t, os.Symlink("socket:[1]", filepath.Join(d, fd)))
 	}
-	socks := map[uint32]sockDiagEntry{1: {Inode: 1, Protocol: unix.IPPROTO_TCP, Remote: netip.MustParseAddrPort("8.8.8.8:443")}}
+	socks := map[uint32]sockDiagEntry{1: {Inode: 1, Protocol: unix.IPPROTO_TCP, Remote: netip.MustParseAddrPort("8.8.8.8:443"), HasTCPInfo: true}}
 	r := &procNetReader{procRoot: root, socks: socks, ok: true}
 	got := r.read(1)
 	assert.Equal(t, 1, got.Count)

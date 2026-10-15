@@ -3,6 +3,7 @@ package gops_handler_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -58,7 +59,7 @@ func TestMetaNewParams(t *testing.T) {
 
 func TestOpenAPIListsNewOperations(t *testing.T) {
 	api := newAPI(t)
-	for _, p := range []string{"/gops/sensors", "/gops/gpu/stats", "/gops/memory/modules"} {
+	for _, p := range []string{"/gops/sensors", "/gops/gpu/stats", "/gops/memory/modules", "/gops/process/{pid}"} {
 		if api.OpenAPI().Paths[p] == nil {
 			t.Errorf("%s missing from OpenAPI", p)
 		}
@@ -172,5 +173,20 @@ func TestResolveGPUPciIds(t *testing.T) {
 	api.Get("/p")
 	if meta != nil || proc != nil {
 		t.Errorf("absent must be nil: meta=%#v proc=%#v", meta, proc)
+	}
+}
+
+func TestProcessDetailEndpoint(t *testing.T) {
+	api := newAPI(t)
+	resp := api.Get(fmt.Sprintf("/gops/process/%d", os.Getpid()))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["pid"] != float64(os.Getpid()) {
+		t.Errorf("pid = %v, want %d", body["pid"], os.Getpid())
 	}
 }

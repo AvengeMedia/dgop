@@ -45,6 +45,8 @@ type MetaParams struct {
 	MergeChildren bool
 	// GPUPciIds enables GPUs for gpu-temp, gpu-stats and process-gpu. nil
 	// enables all for gpu-stats and process-gpu; a non-nil empty list none.
+	// gpu-temp reads only listed GPUs, as before: omitting the list must not
+	// start running nvidia-smi, which wakes a suspended dGPU.
 	GPUPciIds      []string
 	CPUCursor      string
 	ProcCursor     string

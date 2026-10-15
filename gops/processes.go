@@ -242,7 +242,7 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 	if g.Readable && g.UsageKnown {
 		s.gpuOK, s.gpu = true, g.cursorClients()
 	}
-	if n.Known {
+	if n.Known && !n.RatesUnknown {
 		s.netOK, s.netAt = true, self.net.dumpedAt
 		for _, c := range n.TCP {
 			s.net = append(s.net, [3]uint64{uint64(c.Inode), c.RxBytes, c.TxBytes})
