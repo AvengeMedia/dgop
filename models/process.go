@@ -55,13 +55,65 @@ type ProcessListResponse struct {
 	Cursor    string         `json:"cursor,omitempty"`
 }
 
+// ListenSocket is a socket a process listens on.
+type ListenSocket struct {
+	Protocol string `json:"protocol" doc:"tcp or udp."`
+	Address  string `json:"address" doc:"Bind address without brackets; 0.0.0.0 or :: for any."`
+	Port     int    `json:"port" doc:"Bound port."`
+}
+
+// Sandbox describes the container or app sandbox a process runs in.
+type Sandbox struct {
+	Kind string `json:"kind" doc:"flatpak, snap or container."`
+	ID   string `json:"id,omitempty" doc:"Flatpak app id, snap name or short container id, when known."`
+}
+
+// Privileges lists what lets a process act beyond its user.
+type Privileges struct {
+	Setuid       bool     `json:"setuid,omitempty" doc:"True when the real and effective user IDs differ."`
+	Capabilities []string `json:"capabilities,omitempty" doc:"Effective capabilities, e.g. cap_net_raw; only listed for non-root users."`
+}
+
 // ProcessDetail holds per-process data that is too costly to poll for every row; it is read on demand for one PID.
 type ProcessDetail struct {
-	PID        int32   `json:"pid"`
-	ReadTotal  *uint64 `json:"readTotal,omitempty" doc:"Bytes read from storage over the process lifetime."`
-	WriteTotal *uint64 `json:"writeTotal,omitempty" doc:"Bytes written to storage over the process lifetime."`
-	SwapKB     *uint64 `json:"swapKB,omitempty" doc:"Memory swapped out, in KB."`
-	OpenFiles  *int    `json:"openFiles,omitempty" doc:"Open file descriptors."`
-	Unit       string  `json:"unit,omitempty" doc:"Innermost systemd unit or scope from the cgroup path, e.g. app-firefox@1.scope."`
-	Terminal   bool    `json:"terminal,omitempty" doc:"True when the process has a controlling terminal, so it cannot be relaunched detached."`
+	PID        int32          `json:"pid"`
+	ReadTotal  *uint64        `json:"readTotal,omitempty" doc:"Bytes read from storage over the process lifetime."`
+	WriteTotal *uint64        `json:"writeTotal,omitempty" doc:"Bytes written to storage over the process lifetime."`
+	SwapKB     *uint64        `json:"swapKB,omitempty" doc:"Memory swapped out, in KB."`
+	OpenFiles  *int           `json:"openFiles,omitempty" doc:"Open file descriptors."`
+	Unit       string         `json:"unit,omitempty" doc:"Innermost systemd unit or scope from the cgroup path, e.g. app-firefox@1.scope."`
+	Terminal   bool           `json:"terminal,omitempty" doc:"True when the process has a controlling terminal, so it cannot be relaunched detached."`
+	Cwd        string         `json:"cwd,omitempty" doc:"Working directory."`
+	Listening  []ListenSocket `json:"listening,omitempty" doc:"TCP sockets in LISTEN state and unconnected UDP sockets the process owns."`
+	Sandbox    *Sandbox       `json:"sandbox,omitempty" doc:"Flatpak, snap or container the process runs in."`
+	Privileges *Privileges    `json:"privileges,omitempty" doc:"Set-uid state and effective capabilities."`
+
+	UserTime            *float64 `json:"userTime,omitempty" doc:"CPU time spent in user mode, in seconds."`
+	SystemTime          *float64 `json:"systemTime,omitempty" doc:"CPU time spent in kernel mode, in seconds."`
+	VoluntarySwitches   *uint64  `json:"voluntarySwitches,omitempty" doc:"Context switches where the process gave up the CPU."`
+	InvoluntarySwitches *uint64  `json:"involuntarySwitches,omitempty" doc:"Context switches forced by the scheduler."`
+	LastCPU             *int     `json:"lastCpu,omitempty" doc:"CPU the process last ran on."`
+	Affinity            string   `json:"affinity,omitempty" doc:"CPUs the process may run on, e.g. 0-31."`
+	Policy              string   `json:"policy,omitempty" doc:"Scheduling policy: normal, fifo, rr, batch, idle or deadline."`
+	Priority            *int     `json:"priority,omitempty" doc:"Kernel scheduling priority."`
+	IOClass             string   `json:"ioClass,omitempty" doc:"I/O scheduling class: none, realtime, best-effort or idle."`
+	IOLevel             *int     `json:"ioLevel,omitempty" doc:"I/O priority level, 0 (highest) to 7."`
+
+	RSSKB       *uint64 `json:"rssKB,omitempty" doc:"Resident memory, in KB."`
+	RSSAnonKB   *uint64 `json:"rssAnonKB,omitempty" doc:"Resident anonymous memory, in KB."`
+	RSSFileKB   *uint64 `json:"rssFileKB,omitempty" doc:"Resident file-backed memory, in KB."`
+	RSSShmemKB  *uint64 `json:"rssShmemKB,omitempty" doc:"Resident shared memory, in KB."`
+	PeakKB      *uint64 `json:"peakKB,omitempty" doc:"Peak resident memory, in KB."`
+	VirtualKB   *uint64 `json:"virtualKB,omitempty" doc:"Virtual memory size, in KB."`
+	MinorFaults *uint64 `json:"minorFaults,omitempty" doc:"Page faults served without disk I/O."`
+	MajorFaults *uint64 `json:"majorFaults,omitempty" doc:"Page faults that needed disk I/O."`
+	OOMScore    *int    `json:"oomScore,omitempty" doc:"Kernel out-of-memory killer score."`
+	OOMScoreAdj *int    `json:"oomScoreAdj,omitempty" doc:"Out-of-memory score adjustment, -1000 to 1000."`
+
+	UID     *int   `json:"uid,omitempty" doc:"Real user ID."`
+	GID     *int   `json:"gid,omitempty" doc:"Real group ID."`
+	Group   string `json:"group,omitempty" doc:"Name of the real group."`
+	TTY     string `json:"tty,omitempty" doc:"Controlling terminal, e.g. pts/3."`
+	Session *int   `json:"session,omitempty" doc:"Session ID."`
+	Cgroup  string `json:"cgroup,omitempty" doc:"Full cgroup v2 path."`
 }

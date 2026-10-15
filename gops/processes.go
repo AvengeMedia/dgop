@@ -275,6 +275,17 @@ type procStat struct {
 	// the creation time elsewhere.
 	Start         uint64
 	CreatedMillis int64
+	// Ext is set only when the full stat line was parsed.
+	Ext *procStatExt
+}
+
+// procStatExt holds the stat fields only the on-demand process detail reads.
+type procStatExt struct {
+	Session           int
+	MinFlt, MajFlt    uint64
+	UTime, STime      float64
+	Priority          int
+	Processor, Policy int
 }
 
 func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool, mergeChildren bool) (*models.ProcessListResponse, error) {

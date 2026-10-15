@@ -264,19 +264,24 @@ func (self *uidNames) lookup(uid uint32) string {
 // parseProcStat counts fields from the last ')', since the command name may
 // contain spaces and parentheses.
 func parseProcStat(text string) (procStat, bool) {
+	return parseProcStatN(text, 20)
+}
+
+// parseProcStatN reads the first want fields after the command; 39 adds Ext.
+func parseProcStatN(text string, want int) (procStat, bool) {
 	i := strings.LastIndexByte(text, ')')
 	if i < 0 {
 		return procStat{}, false
 	}
-	var f [20]string
+	var f [39]string
 	n := 0
 	for field := range strings.FieldsSeq(text[i+1:]) {
 		f[n] = field
-		if n++; n == len(f) {
+		if n++; n == want {
 			break
 		}
 	}
-	if n < len(f) {
+	if n < 20 {
 		return procStat{}, false
 	}
 	ppid, err1 := strconv.ParseInt(f[1], 10, 32)
@@ -289,7 +294,7 @@ func parseProcStat(text string) (procStat, bool) {
 	if err := errors.Join(err1, err2, err3, err4, err5, err6, err7); err != nil {
 		return procStat{}, false
 	}
-	return procStat{
+	st := procStat{
 		PPID:    int32(ppid),
 		State:   f[0],
 		Nice:    nice,
@@ -297,5 +302,21 @@ func parseProcStat(text string) (procStat, bool) {
 		TTY:     tty,
 		CPUTime: float64(utime+stime) / clockTicks,
 		Start:   start,
-	}, true
+	}
+	if n == 39 {
+		session, e1 := strconv.Atoi(f[3])
+		minflt, e2 := strconv.ParseUint(f[7], 10, 64)
+		majflt, e3 := strconv.ParseUint(f[9], 10, 64)
+		prio, e4 := strconv.Atoi(f[15])
+		cpu, e5 := strconv.Atoi(f[36])
+		policy, e6 := strconv.Atoi(f[38])
+		if errors.Join(e1, e2, e3, e4, e5, e6) == nil {
+			st.Ext = &procStatExt{
+				Session: session, MinFlt: minflt, MajFlt: majflt,
+				UTime: float64(utime) / clockTicks, STime: float64(stime) / clockTicks,
+				Priority: prio, Processor: cpu, Policy: policy,
+			}
+		}
+	}
+	return st, true
 }

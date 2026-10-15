@@ -3,9 +3,13 @@
 package gops
 
 import (
+	"net"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,4 +38,134 @@ func TestGetProcessDetailSelf(t *testing.T) {
 
 	_, err = NewGopsUtil().GetProcessDetail(-5)
 	assert.ErrorIs(t, err, ErrProcessNotFound)
+}
+
+func TestGetProcessDetailSelfExtras(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	d, err := NewGopsUtil().GetProcessDetail(int32(os.Getpid()))
+	require.NoError(t, err)
+	wd, _ := os.Getwd()
+	assert.Equal(t, wd, d.Cwd)
+	assert.Contains(t, d.Listening, models.ListenSocket{Protocol: "tcp", Address: "127.0.0.1", Port: port})
+}
+
+func TestParseListenTable(t *testing.T) {
+	tcp := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
+		"   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 111 1 0\n" +
+		"   1: 0100007F:1F90 0100007F:D2A4 01 00000000:00000000 00:00000000 00000000  1000 0 222 1 0\n" +
+		"   2: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 333 1 0\n"
+	got := parseListenTable(tcp, "tcp", false, map[uint32]bool{111: true, 222: true})
+	assert.Equal(t, []models.ListenSocket{{Protocol: "tcp", Address: "127.0.0.1", Port: 8080}}, got)
+
+	tcp6 := "hdr\n   0: 00000000000000000000000001000000:0016 00000000000000000000000000000000:0000 0A 0:0 0:0 0 0 0 5 1 0\n"
+	got = parseListenTable(tcp6, "tcp", true, map[uint32]bool{5: true})
+	assert.Equal(t, []models.ListenSocket{{Protocol: "tcp", Address: "::1", Port: 22}}, got)
+
+	udp := "hdr\n   0: 00000000:0035 00000000:0000 07 0:0 0:0 0 0 0 7 2 0\n   1: 00000000:0044 0100007F:0035 01 0:0 0:0 0 0 0 8 2 0\n"
+	got = parseListenTable(udp, "udp", false, map[uint32]bool{7: true, 8: true})
+	assert.Equal(t, []models.ListenSocket{{Protocol: "udp", Address: "0.0.0.0", Port: 53}}, got)
+}
+
+func TestListeningSocketsSortDedupe(t *testing.T) {
+	dir := t.TempDir()
+	row := func(port, inode string) string {
+		return "   0: 00000000:" + port + " 00000000:0000 0A 0:0 0:0 0 0 0 " + inode + " 1 0\n"
+	}
+	require.NoError(t, os.WriteFile(dir+"/tcp", []byte("hdr\n"+row("1F90", "1")+row("1F90", "2")+row("0050", "3")), 0o600))
+	require.NoError(t, os.WriteFile(dir+"/udp", []byte("hdr\n"+row("0050", "4")), 0o600))
+	got := listeningSockets(dir, []uint32{1, 2, 3, 4})
+	assert.Equal(t, []models.ListenSocket{
+		{Protocol: "tcp", Address: "0.0.0.0", Port: 80},
+		{Protocol: "udp", Address: "0.0.0.0", Port: 80},
+		{Protocol: "tcp", Address: "0.0.0.0", Port: 8080},
+	}, got)
+}
+
+func TestSandboxParsing(t *testing.T) {
+	assert.Equal(t, "org.mozilla.firefox", flatpakAppID("[Application]\nname=org.mozilla.firefox\nruntime=x\n[Instance]\nname=other\n"))
+	assert.Equal(t, "", flatpakAppID("[Instance]\nname=other\n"))
+
+	assert.Equal(t, &models.Sandbox{Kind: "snap", ID: "firefox"},
+		sandboxFromCgroup("0::/user.slice/user-1000.slice/user@1000.service/app.slice/snap.firefox.firefox-1234.scope\n"))
+	assert.Equal(t, &models.Sandbox{Kind: "container", ID: "0123456789ab"},
+		sandboxFromCgroup("0::/system.slice/docker-0123456789abcdef0123.scope\n"))
+	assert.Equal(t, &models.Sandbox{Kind: "container", ID: "abc"},
+		sandboxFromCgroup("0::/machine.slice/libpod-abc.scope\n"))
+	assert.Nil(t, sandboxFromCgroup("0::/user.slice/app.slice/app-foo.scope\n"))
+}
+
+func TestParsePrivileges(t *testing.T) {
+	// cap_net_bind_service (10) and cap_net_raw (13)
+	user := "Uid:\t1000\t1000\t1000\t1000\nCapEff:\t0000000000002400\n"
+	p := parsePrivileges(user)
+	require.NotNil(t, p)
+	assert.False(t, p.Setuid)
+	assert.True(t, slices.Equal([]string{"cap_net_bind_service", "cap_net_raw"}, p.Capabilities))
+
+	p = parsePrivileges("Uid:\t1000\t0\t0\t0\nCapEff:\t000001ffffffffff\n")
+	require.NotNil(t, p)
+	assert.True(t, p.Setuid)
+	assert.Empty(t, p.Capabilities)
+
+	assert.Nil(t, parsePrivileges("Uid:\t1000\t1000\t1000\t1000\nCapEff:\t0000000000000000\n"))
+	assert.Nil(t, parsePrivileges("Uid:\t0\t0\t0\t0\nCapEff:\t000001ffffffffff\n"))
+}
+
+func TestParseProcStatExt(t *testing.T) {
+	line := "42 (Web (x) Content) S 1 42 77 34817 -1 4194560 11 0 3 0 200 50 0 0 25 5 4 0 100 0 0 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 9 0 2 0 0 0\n"
+	st, ok := parseProcStatN(line, 39)
+	require.True(t, ok)
+	require.NotNil(t, st.Ext)
+	assert.Equal(t, procStatExt{Session: 77, MinFlt: 11, MajFlt: 3, UTime: 2, STime: 0.5, Priority: 25, Processor: 9, Policy: 2}, *st.Ext)
+
+	st, ok = parseProcStat(line)
+	require.True(t, ok)
+	assert.Nil(t, st.Ext)
+}
+
+func TestSchedPolicy(t *testing.T) {
+	for n, want := range map[int]string{0: "normal", 1: "fifo", 2: "rr", 3: "batch", 5: "idle", 6: "deadline", 4: ""} {
+		assert.Equal(t, want, schedPolicy(n))
+	}
+}
+
+func TestTTYName(t *testing.T) {
+	assert.Equal(t, "pts/1", ttyName(136<<8|1))
+	assert.Equal(t, "pts/257", ttyName(137<<8|1))
+	assert.Equal(t, "tty2", ttyName(4<<8|2))
+	assert.Equal(t, "ttyS1", ttyName(4<<8|65))
+	assert.Equal(t, "", ttyName(0))
+}
+
+func TestDecodeIOPrio(t *testing.T) {
+	c, l := decodeIOPrio(2<<13|4, 0)
+	assert.Equal(t, "best-effort", c)
+	assert.Equal(t, 4, *l)
+	c, l = decodeIOPrio(0, 0)
+	assert.Equal(t, "none", c)
+	assert.Equal(t, 4, *l)
+	c, l = decodeIOPrio(1<<13|0, 0)
+	assert.Equal(t, "realtime", c)
+	assert.Equal(t, 0, *l)
+	c, l = decodeIOPrio(3<<13, 0)
+	assert.Equal(t, "idle", c)
+	assert.NotNil(t, l)
+}
+
+func TestGetProcessDetailSelfExtended(t *testing.T) {
+	d, err := (&GopsUtil{}).GetProcessDetail(int32(os.Getpid()))
+	require.NoError(t, err)
+	require.NotNil(t, d.RSSKB)
+	assert.Greater(t, *d.RSSKB, uint64(0))
+	require.NotNil(t, d.UID)
+	assert.Equal(t, os.Getuid(), *d.UID)
+	if cg, _ := os.ReadFile("/proc/self/cgroup"); strings.Contains(string(cg), "0::") {
+		assert.NotEmpty(t, d.Cgroup)
+	}
+	assert.NotEmpty(t, d.Policy)
+	assert.NotEmpty(t, d.Affinity)
 }
