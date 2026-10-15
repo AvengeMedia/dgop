@@ -34,8 +34,6 @@ type MetaInfo struct {
 	Sensors       *SensorsInfo       `json:"sensors,omitempty"`
 	MemoryModules *MemoryModulesInfo `json:"memorymodules,omitempty"`
 	Cursor        string             `json:"cursor,omitempty"`
-	ProcessNetRx  *float64           `json:"processNetRx,omitempty" doc:"Sum of every known netRx, before merging and the limit. An interface rate minus this is traffic not attributed to a readable process."`
-	ProcessNetTx  *float64           `json:"processNetTx,omitempty" doc:"Sum of every known netTx, like processNetRx."`
 }
 
 type ModulesInfo struct {

@@ -28,10 +28,8 @@ func (in *ProcessInput) Resolve(ctx huma.Context) []error {
 
 type ProcessResponse struct {
 	Body struct {
-		Data         []*models.ProcessInfo `json:"data"`
-		Cursor       string                `json:"cursor,omitempty"`
-		ProcessNetRx *float64              `json:"processNetRx,omitempty" doc:"Sum of every known netRx, before merging and the limit. An interface rate minus this is traffic not attributed to a readable process."`
-		ProcessNetTx *float64              `json:"processNetTx,omitempty" doc:"Sum of every known netTx, like processNetRx."`
+		Data   []*models.ProcessInfo `json:"data"`
+		Cursor string                `json:"cursor,omitempty"`
 	}
 }
 
@@ -51,6 +49,5 @@ func (self *HandlerGroup) Processes(ctx context.Context, input *ProcessInput) (*
 	resp := &ProcessResponse{}
 	resp.Body.Data = result.Processes
 	resp.Body.Cursor = result.Cursor
-	resp.Body.ProcessNetRx, resp.Body.ProcessNetTx = result.ProcessNetRx, result.ProcessNetTx
 	return resp, nil
 }

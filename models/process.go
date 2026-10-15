@@ -51,10 +51,8 @@ type ProcessCursorData struct {
 }
 
 type ProcessListResponse struct {
-	Processes    []*ProcessInfo `json:"processes"`
-	Cursor       string         `json:"cursor,omitempty"`
-	ProcessNetRx *float64       `json:"processNetRx,omitempty" doc:"Sum of every known netRx, before merging and the limit. An interface rate minus this is traffic not attributed to a readable process."`
-	ProcessNetTx *float64       `json:"processNetTx,omitempty" doc:"Sum of every known netTx, like processNetRx."`
+	Processes []*ProcessInfo `json:"processes"`
+	Cursor    string         `json:"cursor,omitempty"`
 }
 
 // ProcessDetail holds per-process data that is too costly to poll for every row; it is read on demand for one PID.

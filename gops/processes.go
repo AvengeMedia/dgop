@@ -388,7 +388,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 		}
 		time.Sleep(cpuBaselineInterval)
 		if extras.net != nil {
-			_, _, prevNet = applyNetRates(netBaseline{}, &extras.net.netDump, netRows)
+			prevNet = applyNetRates(netBaseline{}, &extras.net.netDump, netRows)
 			extras.net = self.newProcNetReader()
 		}
 	}
@@ -541,10 +541,9 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	}
 	self.pss.prune(now)
 
-	var netRx, netTx *float64
 	var nextNet netBaseline
 	if extras.net != nil {
-		netRx, netTx, nextNet = applyNetRates(prevNet, &extras.net.netDump, netRows)
+		nextNet = applyNetRates(prevNet, &extras.net.netDump, netRows)
 	}
 
 	if mergeChildren {
@@ -558,10 +557,8 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 	}
 
 	return &models.ProcessListResponse{
-		Processes:    procList,
-		Cursor:       encodeCursor(cursorList, nextNet),
-		ProcessNetRx: netRx,
-		ProcessNetTx: netTx,
+		Processes: procList,
+		Cursor:    encodeCursor(cursorList, nextNet),
 	}, nil
 }
 
@@ -598,10 +595,10 @@ type netRow struct {
 }
 
 // applyNetRates sets each row's TCP rates from cur against prev and returns
-// the attributed totals and the next baseline. A socket absent from prev is
+// the next baseline. A socket absent from prev is
 // new and counts from zero, less the SYN in bytes_acked; one held by several
 // processes counts for the lowest PID.
-func applyNetRates(prev netBaseline, cur *netDump, rows []netRow) (rx, tx *float64, next netBaseline) {
+func applyNetRates(prev netBaseline, cur *netDump, rows []netRow) (next netBaseline) {
 	owner := make(map[uint64]int32)
 	for _, r := range rows {
 		for _, s := range r.net.TCP {
@@ -631,10 +628,9 @@ func applyNetRates(prev netBaseline, cur *netDump, rows []netRow) (rx, tx *float
 		}
 	}
 	if prev.at <= 0 || cur.at <= prev.at {
-		return nil, nil, next
+		return next
 	}
 	secs := float64(cur.at-prev.at) / 1000
-	var sumRx, sumTx float64
 	for _, r := range rows {
 		n := r.net
 		if n.RatesUnknown || n.UDP && len(n.TCP) == 0 {
@@ -656,11 +652,8 @@ func applyNetRates(prev netBaseline, cur *netDump, rows []netRow) (rx, tx *float
 		}
 		r.info.NetRx, r.info.NetTx = new(float64(bytes[0])/secs), new(float64(bytes[1])/secs)
 		r.info.NetPartial = n.UDP
-		sumRx += *r.info.NetRx
-		sumTx += *r.info.NetTx
-		rx, tx = &sumRx, &sumTx
 	}
-	return rx, tx, next
+	return next
 }
 
 func counterDelta(p sockBaseline, rx, tx uint64) [2]uint64 {

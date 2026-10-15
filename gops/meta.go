@@ -141,7 +141,6 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 		if result, err := self.GetProcessesWithOptions(procOpts); err == nil {
 			meta.Processes = result.Processes
 			meta.Cursor = result.Cursor
-			meta.ProcessNetRx, meta.ProcessNetTx = result.ProcessNetRx, result.ProcessNetTx
 		}
 	}
 
@@ -287,7 +286,6 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams, pro
 		mu.Lock()
 		meta.Processes = procs.Processes
 		meta.Cursor = procs.Cursor
-		meta.ProcessNetRx, meta.ProcessNetTx = procs.ProcessNetRx, procs.ProcessNetTx
 		mu.Unlock()
 		return nil
 	})

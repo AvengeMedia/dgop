@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -318,39 +317,4 @@ func TestProcessExtras_NetTailCreditedToPreviousHolder(t *testing.T) {
 	require.NotNil(t, row.NetRx)
 	assert.Positive(t, *row.NetRx, "the bytes after the last dump count for the process that held the socket")
 	assert.InDelta(t, 2.0, *row.NetRx / *row.NetTx, 1e-9)
-	assert.Equal(t, row.NetRx, res.ProcessNetRx)
-}
-
-func TestProcessExtras_NetTotalsIgnoreLimit(t *testing.T) {
-	own, _ := loopbackConn(t)
-	passed, _ := loopbackConn(t)
-	ownInode, childInode := socketInode(t, own.(*net.TCPConn)), socketInode(t, passed.(*net.TCPConn))
-	f, err := passed.(*net.TCPConn).File()
-	require.NoError(t, err)
-	child := exec.Command("sleep", "30")
-	child.ExtraFiles = []*os.File{f}
-	require.NoError(t, child.Start())
-	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
-	f.Close()
-	passed.Close() // the child alone holds it now
-	childProc, err := process.NewProcess(int32(child.Process.Pid))
-	require.NoError(t, err)
-
-	var calls uint64
-	g := netTestUtil(t, func() ([]sockDiagEntry, error) {
-		calls++
-		e := func(inode uint32, cookie uint64) sockDiagEntry {
-			return sockDiagEntry{Inode: inode, Cookie: cookie, Protocol: 6, Remote: netip.MustParseAddrPort("8.8.8.8:443"), RxBytes: calls * 1000 * cookie, TxBytes: 1, HasTCPInfo: true}
-		}
-		return []sockDiagEntry{e(ownInode, 1), e(childInode, 2)}, nil
-	}, ownProcess(t), childProc)
-
-	res, err := g.GetProcessesWithOptions(ProcessOptions{Net: true, Limit: 1, SortBy: SortByPID})
-	require.NoError(t, err)
-	require.Len(t, res.Processes, 1)
-	row := res.Processes[0]
-	require.NotNil(t, row.NetRx)
-	require.NotNil(t, res.ProcessNetRx)
-	assert.InDelta(t, 3*(*row.NetRx), *res.ProcessNetRx, 1e-6, "the child cut by the limit still counts")
-	assert.Zero(t, *res.ProcessNetTx)
 }

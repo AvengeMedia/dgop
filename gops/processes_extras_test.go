@@ -408,12 +408,10 @@ func TestApplyNetRates_PerSocketDeltas(t *testing.T) {
 	socks := []tcpCounters{tcp(1, 11*mb, 5*mb), tcp(3, 1, 1), tcp(4, mb/2, mb/2+1)} // 4 is new: bytes_acked counts the SYN
 	rows := netRows(map[int32]procNet{7: {TCP: socks}}, 7)
 
-	rx, tx, next := applyNetRates(prev, dumpOf(now, socks...), rows)
+	next := applyNetRates(prev, dumpOf(now, socks...), rows)
 	require.NotNil(t, rows[0].info.NetRx)
 	assert.InDelta(t, 1.5*mb, *rows[0].info.NetRx, 1e-6)
 	assert.InDelta(t, 0.5*mb, *rows[0].info.NetTx, 1e-6)
-	assert.Equal(t, rows[0].info.NetRx, rx)
-	assert.Equal(t, rows[0].info.NetTx, tx)
 	assert.Equal(t, netBaseline{at: now, socks: map[uint64]sockBaseline{1: {11 * mb, 5 * mb, 7}, 3: {1, 1, 7}, 4: {mb / 2, mb/2 + 1, 7}}}, next)
 
 	prev.at = now - 2_000
@@ -428,9 +426,8 @@ func TestApplyNetRates_PerSocketDeltas(t *testing.T) {
 
 	for name, p := range map[string]netBaseline{"no baseline": {}, "baseline not older": {at: now}} {
 		rows = netRows(map[int32]procNet{7: {TCP: socks}}, 7)
-		rx, _, next = applyNetRates(p, dumpOf(now, socks...), rows)
+		next = applyNetRates(p, dumpOf(now, socks...), rows)
 		assert.Nil(t, rows[0].info.NetRx, name)
-		assert.Nil(t, rx, name)
 		assert.Len(t, next.socks, 3, "%s: the next baseline is still taken", name)
 	}
 }
@@ -448,7 +445,7 @@ func TestApplyNetRates_SocketIdentity(t *testing.T) {
 		30: {TCP: socks[1:]}, // first seen: one old socket, one opened since
 	}, 10)
 
-	_, _, next := applyNetRates(prev, dumpOf(now, socks...), rows)
+	next := applyNetRates(prev, dumpOf(now, socks...), rows)
 	assert.Equal(t, 0.0, *rows[0].info.NetRx)
 	assert.Equal(t, []float64{50, 20}, []float64{*rows[1].info.NetRx, *rows[1].info.NetTx}, "a moved socket is a delta, not a spike")
 	assert.Equal(t, []float64{1100, 500}, []float64{*rows[2].info.NetRx, *rows[2].info.NetTx}, "a process new to the cursor still has a baseline per socket")
@@ -466,10 +463,9 @@ func TestApplyNetRates_SharedSocketCountsOnce(t *testing.T) {
 	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{1: {0, 0, 4}}}
 	shared := []tcpCounters{tcp(1, 100, 100)}
 	rows := netRows(map[int32]procNet{3: {TCP: shared}, 4: {TCP: shared}}, 3, 4)
-	rx, _, next := applyNetRates(prev, dumpOf(now, shared...), rows)
+	next := applyNetRates(prev, dumpOf(now, shared...), rows)
 	assert.Equal(t, 100.0, *rows[0].info.NetRx, "the lowest PID holding it")
 	assert.Equal(t, 0.0, *rows[1].info.NetRx)
-	assert.Equal(t, 100.0, *rx)
 	assert.Equal(t, int32(3), next.socks[1].pid)
 }
 
@@ -481,13 +477,12 @@ func TestApplyNetRates_UDP(t *testing.T) {
 		2: {UDP: true, TCP: []tcpCounters{tcp(1, 40, 0)}},
 		3: {RatesUnknown: true, TCP: []tcpCounters{tcp(9, 1, 1)}},
 	}, 1, 2, 3)
-	rx, _, _ := applyNetRates(prev, dumpOf(now, tcp(1, 40, 0)), rows)
+	applyNetRates(prev, dumpOf(now, tcp(1, 40, 0)), rows)
 	assert.Nil(t, rows[0].info.NetRx, "UDP only has no counters: unknown, not 0")
 	assert.False(t, rows[0].info.NetPartial)
 	assert.Equal(t, 40.0, *rows[1].info.NetRx)
 	assert.True(t, rows[1].info.NetPartial, "TCP plus UDP is a lower bound")
 	assert.Nil(t, rows[2].info.NetRx)
-	assert.Equal(t, 40.0, *rx, "totals sum known rates only")
 }
 
 func TestApplyNetRates_ClosedSocketTails(t *testing.T) {
@@ -508,10 +503,9 @@ func TestApplyNetRates_ClosedSocketTails(t *testing.T) {
 		return 300, 250, true
 	}
 	rows := netRows(map[int32]procNet{7: {}, 8: {}}, 7)
-	rx, tx, next := applyNetRates(prev, cur, rows)
+	next := applyNetRates(prev, cur, rows)
 	assert.Equal(t, []float64{230, 160}, []float64{*rows[0].info.NetRx, *rows[0].info.NetTx}, "tail of 1 plus the orphan's delta")
 	assert.Equal(t, 0.0, *rows[1].info.NetRx, "a reused PID gets nothing")
-	assert.Equal(t, []float64{230, 160}, []float64{*rx, *tx})
 	assert.Equal(t, map[uint64]sockBaseline{3: {130, 110, 7}}, next.socks, "an orphan keeps its holder")
 }
 
