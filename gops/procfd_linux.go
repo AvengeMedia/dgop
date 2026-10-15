@@ -179,7 +179,7 @@ func listProcPIDs(procRoot string) ([]int32, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 	pids := make([]int32, 0, 1024)
 	var buf [16 << 10]byte
 	for {

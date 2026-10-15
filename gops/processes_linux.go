@@ -75,7 +75,7 @@ func (self *procReader) read(pid int32, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 	n := 0
 	for {
 		m, err := unix.Read(fd, self.buf[n:])

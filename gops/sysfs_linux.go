@@ -20,7 +20,7 @@ func readTrimmed(path string) string {
 		return ""
 	}
 	n, err := unix.Read(fd, buf[:])
-	unix.Close(fd)
+	_ = unix.Close(fd)
 	if err != nil {
 		return ""
 	}
