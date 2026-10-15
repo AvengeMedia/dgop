@@ -20,7 +20,6 @@ type GopsUtil struct {
 	pss pssCache
 
 	detectGPUs func() ([]models.GPU, error)
-	gpuTemp    func(models.GPU) models.GPUTempInfo
 	platformSources
 }
 
@@ -64,7 +63,6 @@ func withDefaultSources(g *GopsUtil) *GopsUtil {
 	// The system module reads boot time on every call; it never changes.
 	host.EnableBootTimeCache(true)
 	g.detectGPUs = detectGPUs
-	g.gpuTemp = gpuTemp
 	g.platformSources = defaultPlatformSources()
 	return g
 }

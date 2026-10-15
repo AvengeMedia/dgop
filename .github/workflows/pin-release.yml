@@ -2,6 +2,7 @@ name: Pin release
 
 # Pins this repo to a DankMaterialShell release version. Dispatched by the DMS
 # Release workflow; the tag push that lands here runs Create Release.
+# X.Y.0 tags master and cuts stable-X.Y there; X.Y.Z tags stable-X.Y.
 
 on:
   workflow_dispatch:
@@ -18,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: pin-release
@@ -48,11 +50,19 @@ jobs:
         run: |
           set -euo pipefail
           tag="v${VERSION#v}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             echo "::error::version must be X.Y.Z (got '$VERSION')"; exit 1
           fi
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          stable="stable-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          branch="$stable"
+          [ "$patch" != 0 ] || branch=master
+          {
+            echo "tag=${tag}"
+            echo "version=${tag#v}"
+            echo "branch=${branch}"
+            echo "stable=${stable}"
+          } >> "$GITHUB_OUTPUT"
 
           if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
@@ -60,27 +70,41 @@ jobs:
             exit 0
           fi
 
+          if ! git rev-parse -q --verify "refs/remotes/origin/${branch}" >/dev/null; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "no ${branch} branch — skipping ${tag}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           # X.Y.0 always tags, to keep the version aligned with DMS.
-          if [ "$FORCE" = "true" ] || [ "${tag##*.}" = "0" ]; then
+          if [ "$FORCE" = "true" ] || [ "$patch" = 0 ]; then
             echo "proceed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          last_tag=$(git describe --tags --abbrev=0 "origin/${branch}" 2>/dev/null || true)
           if [ -z "$last_tag" ]; then
             echo "proceed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Bot commits are version bumps from previous releases, not real work.
-          human_commits=$(git log --format='%an' "${last_tag}..HEAD" | grep -cv '\[bot\]' || true)
+          human_commits=$(git log --format='%an' "${last_tag}..origin/${branch}" | grep -cv '\[bot\]' || true)
           if [ "$human_commits" -gt 0 ]; then
             echo "proceed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "proceed=false" >> "$GITHUB_OUTPUT"
-          echo "no commits since ${last_tag} — skipping ${tag}" >> "$GITHUB_STEP_SUMMARY"
+          echo "no commits on ${branch} since ${last_tag} — skipping ${tag}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Port audit (informational)
+        if: steps.decide.outputs.branch != 'master'
+        env:
+          BRANCH: ${{ steps.decide.outputs.branch }}
+        run: |
+          git rev-parse -q --verify "refs/remotes/origin/${BRANCH}" >/dev/null || exit 0
+          bash scripts/port-audit.sh "$BRANCH" || echo "::warning::port audit failed; continuing"
 
       - name: Bump version, tag, and push
         if: steps.decide.outputs.proceed == 'true'
@@ -88,10 +112,12 @@ jobs:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           TAG: ${{ steps.decide.outputs.tag }}
           VERSION: ${{ steps.decide.outputs.version }}
+          BRANCH: ${{ steps.decide.outputs.branch }}
         run: |
           set -euo pipefail
           git config user.name "dms-ci[bot]"
           git config user.email "dms-ci[bot]@users.noreply.github.com"
+          git switch --detach "origin/${BRANCH}"
 
           sed -i "s/version = \"[0-9][^\"]*\"/version = \"${VERSION}\"/" flake.nix
           git add flake.nix
@@ -99,5 +125,25 @@ jobs:
 
           git tag "${TAG}"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
-            "HEAD:${{ github.ref_name }}" "refs/tags/${TAG}"
-          echo "tagged ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+            "HEAD:refs/heads/${BRANCH}" "refs/tags/${TAG}"
+          echo "tagged ${TAG} on ${BRANCH}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cut release branch
+        if: steps.decide.outputs.branch == 'master'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          STABLE: ${{ steps.decide.outputs.stable }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code origin "refs/heads/${STABLE}" >/dev/null; then
+            echo "${STABLE} already exists" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+            "$(git rev-parse "${TAG}^{commit}"):refs/heads/${STABLE}"
+          echo "cut ${STABLE} at ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+          GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh label create "port ${STABLE}" \
+            --repo "${{ github.repository }}" \
+            --description "Auto-port merged PR to ${STABLE}" --color 0e8a16 ||
+            echo "label 'port ${STABLE}' may already exist"

@@ -302,6 +302,7 @@ func runMetaCommand(gopsUtil *gops.GopsUtil) error {
 		EnableCPU:      !disableProcCPU,
 		MergeChildren:  mergeChildren,
 		GPUPciIds:      metaGPUPciIds,
+		GPUCursor:      gpuCursor,
 		CPUCursor:      cpuCursor,
 		ProcCursor:     procCursor,
 		NetRateCursor:  netRateCursor,
@@ -657,6 +658,27 @@ func displayGPUInfo(gpuInfo *models.GPUInfo) {
 			{"Full Name:", gpu.FullName},
 			{"PCI ID:", gpu.PciId},
 			{"Temperature:", fmt.Sprintf("%.1f°C", gpu.Temperature)},
+		}
+		if gpu.BusId != "" {
+			rows = append(rows, []string{"Bus ID:", gpu.BusId})
+		}
+		if gpu.State != "" {
+			rows = append(rows, []string{"State:", gpu.State})
+		}
+		if gpu.Usage != nil {
+			rows = append(rows, []string{"Usage:", fmt.Sprintf("%.0f%%", *gpu.Usage)})
+		}
+		if gpu.MemoryUsed != nil && gpu.MemoryTotal != nil {
+			rows = append(rows, []string{"Memory:", formatBytes(*gpu.MemoryUsed*1024) + " / " + formatBytes(*gpu.MemoryTotal*1024)})
+		}
+		if gpu.Power != nil {
+			rows = append(rows, []string{"Power:", fmt.Sprintf("%.1f W", *gpu.Power)})
+		}
+		if gpu.CoreClock != nil {
+			rows = append(rows, []string{"Core Clock:", fmt.Sprintf("%.0f MHz", *gpu.CoreClock)})
+		}
+		if gpu.MemoryClock != nil {
+			rows = append(rows, []string{"Memory Clock:", fmt.Sprintf("%.0f MHz", *gpu.MemoryClock)})
 		}
 
 		printTable(rows)

@@ -40,8 +40,8 @@ func TestFillEnabled_OnlyEnabledAreFilled(t *testing.T) {
 
 func TestStatsFor_DisabledGPUNeverReachesFill(t *testing.T) {
 	detected := []models.GPU{
-		{PciId: "10de:2684", PciSlot: "0000:01:00.0", FullName: "A"},
-		{PciId: "1002:164e", PciSlot: "0000:6c:00.0", FullName: "B"},
+		{PciId: "10de:2684", BusId: "0000:01:00.0", FullName: "A"},
+		{PciId: "1002:164e", BusId: "0000:6c:00.0", FullName: "B"},
 	}
 	fill := func(s []models.GPUStats, _ string) string {
 		for i := range s {

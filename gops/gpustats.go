@@ -47,13 +47,13 @@ func statsFor(detected []models.GPU, cursor string, pciIds []string, fill func([
 	enabled := make([]bool, 0, len(detected))
 	for _, gpu := range detected {
 		gpus = append(gpus, models.GPUStats{
-			PciSlot: gpu.PciSlot,
+			PciSlot: gpu.BusId,
 			PciId:   gpu.PciId,
 			Driver:  gpu.Driver,
 			Vendor:  gpu.Vendor,
 			Name:    gpu.FullName,
 		})
-		enabled = append(enabled, gpuEnabled(pciIds, gpu.PciId, gpu.PciSlot))
+		enabled = append(enabled, gpuEnabled(pciIds, gpu.PciId, gpu.BusId))
 	}
 	return &models.GPUStatsInfo{GPUs: gpus, Cursor: fillEnabled(gpus, enabled, cursor, fill)}
 }

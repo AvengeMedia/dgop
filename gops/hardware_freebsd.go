@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -171,7 +172,7 @@ func parsePciconfCaption(line string) (key, value string, ok bool) {
 	return strings.TrimSpace(k), strings.Trim(strings.TrimSpace(v), "'"), true
 }
 
-func getNvidiaTemperature(_ string) (float64, string) {
+func getNvidiaTemperature() (float64, string) {
 	cmd := exec.Command("nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
 	output, err := cmd.Output()
 	if err != nil {
@@ -189,6 +190,13 @@ func getNvidiaTemperature(_ string) (float64, string) {
 	return 0, "unknown"
 }
 
-func getHwmonTemperature(_ string) (float64, string) {
-	return 0, "unknown"
+func sampleGPUs(entries []gpuEntry, _ gpuCursor, now time.Time) ([]gpuSample, gpuCursor) {
+	samples := make([]gpuSample, len(entries))
+	for i, entry := range entries {
+		samples[i].Hwmon = "unknown"
+		if entry.Driver == "nvidia" {
+			samples[i].Temperature, samples[i].Hwmon = getNvidiaTemperature()
+		}
+	}
+	return samples, newGPUCursor(now)
 }

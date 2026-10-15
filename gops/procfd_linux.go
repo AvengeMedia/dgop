@@ -36,13 +36,13 @@ func gpuNodes(pciRoot string, gpus []models.GPU, pciIds []string) gpuNodeSet {
 	for _, g := range gpus {
 		state := gpuNodeRead
 		switch {
-		case !gpuEnabled(pciIds, g.PciId, g.PciSlot):
+		case !gpuEnabled(pciIds, g.PciId, g.BusId):
 			state = gpuNodeExcluded
-		case gpuSuspended(pciRoot, g.PciSlot):
+		case gpuSuspended(pciRoot, g.BusId):
 			state = gpuNodeSuspended
 		}
 		set.nvidia = set.nvidia || g.Driver == "nvidia" && state == gpuNodeRead
-		entries, _ := os.ReadDir(filepath.Join(pciRoot, g.PciSlot, "drm"))
+		entries, _ := os.ReadDir(filepath.Join(pciRoot, g.BusId, "drm"))
 		for _, e := range entries {
 			set.nodes[e.Name()] = state
 		}

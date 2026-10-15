@@ -1,0 +1,101 @@
+name: Port to release branch
+
+# Ports flagged commits from master onto stable-X.Y branches:
+#   - "port 1.5" flag in a commit message pushed to master — own line or
+#     mid-line; separators : / - or space; "stable-1.5" also accepted;
+#     comma lists ("Port: 1.5, 1.4") work in the own-line form
+#   - "port stable-1.5" label on a merged PR
+# Conflicts are reported to the "Port status: <branch>" tracking issue.
+
+on:
+  push:
+    branches: [master]
+  pull_request_target:
+    types: [closed, labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: port-engine
+  cancel-in-progress: false
+
+jobs:
+  port:
+    name: Port flagged commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub App token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # Base-repo code only; PR head code is never checked out or executed.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ steps.app_token.outputs.token }}
+
+      - name: Port trailer-flagged commits
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        run: |
+          set -euo pipefail
+          git config user.name "dms-ci[bot]"
+          git config user.email "dms-ci[bot]@users.noreply.github.com"
+
+          for sha in $(jq -r '.[].id' <<<"$COMMITS"); do
+            git cat-file -e "$sha" 2>/dev/null || continue
+            # skip merge commits (handled by the label path)
+            [ "$(git rev-list --no-walk --count --min-parents=2 "$sha")" -eq 0 ] || continue
+
+            # own-line form (supports comma lists), validated version-shaped
+            t1=$(git log -1 --format=%B "$sha" |
+              { grep -iE '^Port[:/ -]' || true; } | sed -E 's|^port[-:/ ]+||I' | tr ',' '\n' |
+              sed 's/[[:space:]]//g; /^$/d' | sed -E 's,^stable-,,I' |
+              { grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || true; })
+            # mid-line form, e.g. "fix thing fixes #2802 port 1.5"
+            t2=$(git log -1 --format=%B "$sha" |
+              { grep -oiE '\bport[-: /]+(stable-)?[0-9]+\.[0-9]+(\.[0-9]+)?\b' || true; } |
+              sed -E 's|^port[-:/ ]+||I' | sed -E 's,^stable-,,I')
+            targets=$(printf '%s\n%s\n' "$t1" "$t2" | sed '/^$/d' | sort -u)
+            for ver in $targets; do
+              echo "::group::port $sha -> stable-$ver"
+              bash scripts/port.sh "stable-$ver" "$sha"
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Port label-flagged PR
+        if: >
+          github.event_name == 'pull_request_target' &&
+          github.event.pull_request.merged == true &&
+          (github.event.action == 'closed' ||
+           (github.event.action == 'labeled' && startsWith(github.event.label.name, 'port ')))
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PORT_SOURCE_PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git config user.name "dms-ci[bot]"
+          git config user.email "dms-ci[bot]@users.noreply.github.com"
+
+          targets=$(jq -r '.[] | select(startswith("port ")) | sub("^port +"; "")' <<<"$LABELS" |
+            sed -E 's,^stable-,,' | sort -u)
+          [ -n "$targets" ] || { echo "no port labels, nothing to do"; exit 0; }
+          [ -n "$MERGE_SHA" ] || { echo "::error::PR has no merge commit sha"; exit 1; }
+
+          for ver in $targets; do
+            echo "::group::port PR #${PORT_SOURCE_PR} ($MERGE_SHA) -> stable-$ver"
+            bash scripts/port.sh "stable-$ver" "$MERGE_SHA"
+            echo "::endgroup::"
+          done

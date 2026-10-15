@@ -175,17 +175,17 @@ func BenchmarkInferVendor(b *testing.B) {
 	}
 }
 
-func TestGPUPciSlotOmittedWhenEmpty(t *testing.T) {
+func TestGPUBusIdOmittedWhenEmpty(t *testing.T) {
 	out, err := json.Marshal(models.GPU{Driver: "amdgpu", PciId: "1002:744c"})
 	require.NoError(t, err)
-	assert.NotContains(t, string(out), "pciSlot")
+	assert.NotContains(t, string(out), "busId")
 	for _, key := range []string{"driver", "vendor", "displayName", "fullName", "pciId", "rawLine", "temperature", "hwmon"} {
 		assert.Contains(t, string(out), `"`+key+`"`)
 	}
 
-	out, err = json.Marshal(models.GPU{PciSlot: "0000:0c:00.0"})
+	out, err = json.Marshal(models.GPU{BusId: "0000:0c:00.0"})
 	require.NoError(t, err)
-	assert.Contains(t, string(out), `"pciSlot":"0000:0c:00.0"`)
+	assert.Contains(t, string(out), `"busId":"0000:0c:00.0"`)
 }
 
 func TestGPUStatsOptionalKeys(t *testing.T) {

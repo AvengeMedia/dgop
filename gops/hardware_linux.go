@@ -5,7 +5,6 @@ package gops
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -130,7 +129,7 @@ func scanGPUEntries() ([]gpuEntry, error) {
 			Driver:   driver,
 			Vendor:   vendor,
 			RawLine:  rawLine,
-			BDF:      bdf,
+			BusId:    bdf,
 		})
 	}
 
@@ -198,39 +197,6 @@ func getGPUDriver(bdf string) string {
 		return filepath.Base(link)
 	}
 	return ""
-}
-
-func getNvidiaTemperature(slot string) (float64, string) {
-	out, err := exec.Command("nvidia-smi", "--id="+nvidiaSMIID(slot), "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits").Output()
-	if err != nil {
-		return 0, "unknown"
-	}
-	if temp, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
-		return temp, "nvidia"
-	}
-	return 0, "unknown"
-}
-
-func getHwmonTemperature(slot string) (float64, string) {
-	hwmonDirs, _ := filepath.Glob(filepath.Join(pciDevicesRoot, slot, "hwmon", "hwmon*"))
-	for _, hwmonDir := range hwmonDirs {
-		if temp, ok := readMilliCelsius(filepath.Join(hwmonDir, "temp1_input")); ok {
-			return temp, filepath.Base(hwmonDir)
-		}
-	}
-
-	thermalPath := "/sys/class/thermal"
-	thermalEntries, err := os.ReadDir(thermalPath)
-	if err != nil {
-		return 0, "unknown"
-	}
-
-	maxTemp := getMaxACPITZTemperatureForGPU(thermalPath, thermalEntries, 20, 90)
-	if maxTemp > 0 {
-		return maxTemp, "acpitz"
-	}
-
-	return 0, "unknown"
 }
 
 func getMaxACPITZTemperatureForGPU(thermalPath string, thermalEntries []os.DirEntry, minTemp, maxTemp float64) float64 {

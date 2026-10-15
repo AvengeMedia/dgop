@@ -378,7 +378,7 @@ func TestCollectGPUStats_SharedClientsFromProcessScan(t *testing.T) {
 	procRoot := t.TempDir()
 	// What the process list collects with process-gpu.
 	shared := func() drmClientSet {
-		r := buildProcGPUReader(pciRoot, []models.GPU{{PciSlot: "0000:00:02.0", Driver: "i915"}}, nil, func() map[int32]uint64 { return nil })
+		r := buildProcGPUReader(pciRoot, []models.GPU{{BusId: "0000:00:02.0", Driver: "i915"}}, nil, func() map[int32]uint64 { return nil })
 		set := drmClientSet{}
 		pids, err := listProcPIDs(procRoot)
 		require.NoError(t, err)

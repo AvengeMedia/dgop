@@ -199,7 +199,7 @@ func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats,
 	if drm == nil {
 		read := make([]models.GPU, 0, len(gpus))
 		for slot := range gpus {
-			read = append(read, models.GPU{PciSlot: slot})
+			read = append(read, models.GPU{BusId: slot})
 		}
 		nodes := gpuNodes(pciRoot, read, nil).nodes
 		drm = drmClientSet{}

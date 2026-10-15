@@ -43,11 +43,12 @@ type MetaParams struct {
 	ProcLimit     int
 	EnableCPU     bool
 	MergeChildren bool
-	// GPUPciIds enables GPUs for gpu-temp, gpu-stats and process-gpu. nil
+	// GPUPciIds enables GPUs for gpu, gpu-temp, gpu-stats and process-gpu. nil
 	// enables all for gpu-stats and process-gpu; a non-nil empty list none.
-	// gpu-temp reads only listed GPUs, as before: omitting the list must not
+	// gpu and gpu-temp read only listed GPUs: omitting the list must not
 	// start running nvidia-smi, which wakes a suspended dGPU.
 	GPUPciIds      []string
+	GPUCursor      string
 	CPUCursor      string
 	ProcCursor     string
 	NetRateCursor  string
@@ -123,7 +124,7 @@ func (self *GopsUtil) GetMeta(ctx context.Context, modules []string, params Meta
 				meta.Hardware = hw
 			}
 		case "gpu", "gpu-temp":
-			if gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds); err == nil {
+			if gpu, err := self.GetGPUInfoWithStats(params.GPUPciIds, params.GPUCursor); err == nil {
 				meta.GPU = gpu
 			}
 		case "gpu-stats":
@@ -343,7 +344,7 @@ func (self *GopsUtil) loadAllModules(ctx context.Context, params MetaParams, pro
 			return ctx.Err()
 		default:
 		}
-		gpu, err := self.GetGPUInfoWithTemp(params.GPUPciIds)
+		gpu, err := self.GetGPUInfoWithStats(params.GPUPciIds, params.GPUCursor)
 		if err != nil {
 			log.Warn("failed to get GPU info", "error", err)
 			return nil

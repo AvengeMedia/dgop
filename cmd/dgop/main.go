@@ -25,6 +25,7 @@ var (
 	gpuPciId       string
 	processPid     int32
 	metaGPUPciIds  []string
+	gpuCursor      string
 	cpuCursor      string
 	procCursor     string
 	netRateCursor  string
@@ -98,7 +99,8 @@ func init() {
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")
 	metaCmd.Flags().IntVar(&procLimit, "limit", 0, "Limit number of processes (0 = no limit)")
-	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs of GPUs to read for gpu-temp, gpu-stats and process-gpu (e.g., 10de:2684,1002:164e); empty reads none. Omitted, gpu-stats and process-gpu read all and gpu-temp reads none")
+	metaCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "PCI IDs or bus addresses of GPUs to read for gpu, gpu-temp, gpu-stats and process-gpu (e.g., 10de:2684,0000:03:00.0); empty reads none. Omitted, gpu-stats and process-gpu read all and gpu and gpu-temp read none")
+	metaCmd.Flags().StringVar(&gpuCursor, "gpu-cursor", "", "GPU cursor from previous request")
 	metaCmd.Flags().StringVar(&cpuCursor, "cpu-cursor", "", "CPU cursor from previous request")
 	metaCmd.Flags().StringVar(&procCursor, "proc-cursor", "", "Process cursor from previous request")
 	metaCmd.Flags().StringVar(&netRateCursor, "net-rate-cursor", "", "Network rate cursor from previous request")

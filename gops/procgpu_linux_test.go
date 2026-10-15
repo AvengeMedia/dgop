@@ -143,8 +143,8 @@ func TestBuildProcGPUReader_AllowList(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(pciRoot, slot, "drm", node), 0o755))
 	}
 	detected := []models.GPU{
-		{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
-		{PciSlot: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
+		{BusId: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
+		{BusId: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
 	}
 	smi := 0
 	query := func() map[int32]uint64 { smi++; return map[int32]uint64{} }
@@ -175,8 +175,8 @@ func TestProcGPUReader_ExcludedGPUIsUnknown(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(pciRoot, slot, "drm", node), 0o755))
 	}
 	detected := []models.GPU{
-		{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
-		{PciSlot: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
+		{BusId: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
+		{BusId: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
 	}
 	procRoot := t.TempDir()
 	writeDRMClient(t, procRoot, 1, 4, "renderD129", i915Client(1, 10, 10)) // excluded iGPU
@@ -209,8 +209,8 @@ func TestProcGPUReader_ExcludedWinsOverPartialSum(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(pciRoot, slot, "drm", node), 0o755))
 	}
 	detected := []models.GPU{
-		{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
-		{PciSlot: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
+		{BusId: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
+		{BusId: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
 	}
 	procRoot := t.TempDir()
 	writeDRMClient(t, procRoot, 1, 4, "renderD128", amdgpuEngineClient)
@@ -231,7 +231,7 @@ func TestProcGPUReader_SuspendedGPUIsIdle(t *testing.T) {
 	fdinfo := filepath.Join(procRoot, "1", "fdinfo", "4")
 	require.NoError(t, os.Remove(fdinfo))
 	require.NoError(t, os.Mkdir(fdinfo, 0o755))
-	detected := []models.GPU{{PciSlot: slot, PciId: "1002:744c", Driver: "amdgpu"}}
+	detected := []models.GPU{{BusId: slot, PciId: "1002:744c", Driver: "amdgpu"}}
 	r := buildProcGPUReader(pciRoot, detected, nil, func() map[int32]uint64 { return nil })
 	assert.Equal(t, procGPU{Readable: true, UsageKnown: true}, readGPU(r, procRoot, 1), "a runtime-suspended GPU is idle: 0, not unknown")
 }

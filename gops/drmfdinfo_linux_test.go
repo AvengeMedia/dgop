@@ -290,10 +290,10 @@ func TestGPUNodes(t *testing.T) {
 		"0000:01:00.0/drm/renderD131/dev":   "226:131\n",
 	})
 	gpus := []models.GPU{
-		{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
-		{PciSlot: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
-		{PciSlot: "0000:03:00.0", PciId: "8086:56a0", Driver: "xe"},
-		{PciSlot: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
+		{BusId: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
+		{BusId: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
+		{BusId: "0000:03:00.0", PciId: "8086:56a0", Driver: "xe"},
+		{BusId: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
 	}
 
 	set := gpuNodes(pciRoot, gpus, []string{"1002:744c", "8086:a780", "10de:2786"})
