@@ -35,6 +35,8 @@ type MetaInfo struct {
 	Sensors       *SensorsInfo       `json:"sensors,omitempty"`
 	MemoryModules *MemoryModulesInfo `json:"memorymodules,omitempty"`
 	Cursor        string             `json:"cursor,omitempty"`
+	ProcessNetRx  *float64           `json:"processNetRx,omitempty" doc:"Sum of netRx over every process with a known rate, before merging and the limit: the TCP payload of processes dgop can read in its network namespace. An interface rate minus this is traffic not attributed to a process."`
+	ProcessNetTx  *float64           `json:"processNetTx,omitempty" doc:"Sum of netTx, like processNetRx."`
 }
 
 type ModulesInfo struct {

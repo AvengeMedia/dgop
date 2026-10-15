@@ -2,6 +2,7 @@ package gops
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -245,11 +247,12 @@ func TestProcessExtras_ReusedPIDIgnoresPreviousSample(t *testing.T) {
 
 // Worst case (seeded, host-independent): 500 readable processes with
 // incompressible IO counters, start ticks, GPU clients and TCP sockets;
-// measured 21.2 KB.
+// measured 20.2 KB.
 func TestProcessCursorWithExtrasSize(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	counter := func() uint64 { return 1_000_000_000 + rng.Uint64N(99_000_000_000) } // 10-11 digits
 	entries := make([]processSample, 0, 500)
+	net := netBaseline{at: 1_755_000_000_000, socks: map[uint64]sockBaseline{}}
 	for i := range 500 {
 		s := processSample{
 			ProcessCursorData: models.ProcessCursorData{PID: int32(1000 + i*7 + int(rng.Uint64N(7))), Ticks: float64(rng.Uint64N(10_000_000)) / 100, Timestamp: 1_755_000_000_000 + int64(rng.Uint64N(200))},
@@ -257,12 +260,10 @@ func TestProcessCursorWithExtrasSize(t *testing.T) {
 			ioOK:              true,
 			io:                [2]uint64{counter(), counter()},
 			gpuOK:             i%2 == 0,
-			netOK:             true,
-			netAt:             1_755_000_000_000,
 		}
 		if i%10 == 0 {
 			for range 3 {
-				s.net = append(s.net, [3]uint64{rng.Uint64N(1 << 32), counter(), counter()})
+				net.socks[rng.Uint64N(1<<32)] = sockBaseline{counter(), counter(), s.PID}
 			}
 		}
 		if i%25 == 0 {
@@ -273,9 +274,11 @@ func TestProcessCursorWithExtrasSize(t *testing.T) {
 		entries = append(entries, s)
 	}
 
-	encoded := encodeProcessCursor(entries)
+	encoded := encodeCursor(entries, net)
 	assert.Less(t, len(encoded), 24<<10, "cursor with extras is %d bytes", len(encoded))
-	assert.Len(t, decodeProcessCursor(encoded), 500)
+	procs, gotNet := decodeCursor(encoded)
+	assert.Len(t, procs, 500)
+	assert.Equal(t, net, gotNet)
 }
 
 func TestProcessCursor_BadExtrasDropOnlyExtras(t *testing.T) {
@@ -374,74 +377,158 @@ func TestSortProcesses_ExtrasPutUnknownLast(t *testing.T) {
 	}
 }
 
-func TestSetProcessExtras_NetRatesPerSocket(t *testing.T) {
+func netRows(nets map[int32]procNet, prevOK ...int32) []netRow {
+	rows := make([]netRow, 0, len(nets))
+	for pid, n := range nets {
+		n.Known = true
+		rows = append(rows, netRow{pid: pid, info: &models.ProcessInfo{PID: pid}, net: n, prevOK: slices.Contains(prevOK, pid)})
+	}
+	slices.SortFunc(rows, func(a, b netRow) int { return cmp.Compare(a.pid, b.pid) })
+	return rows
+}
+
+func tcp(cookie, rx, tx uint64) tcpCounters { return tcpCounters{cookie, rx, tx} }
+
+func dumpOf(at int64, socks ...tcpCounters) *netDump {
+	d := &netDump{at: at}
+	for _, s := range socks {
+		d.socks = append(d.socks, dumpSocket{tcpCounters: s})
+	}
+	return d
+}
+
+func TestApplyNetRates_PerSocketDeltas(t *testing.T) {
 	const now = int64(1_755_000_010_000)
 	const mb = 1_000_000
-	prev := &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now - 1_000}, netOK: true, netAt: now - 1_000, net: [][3]uint64{
-		{1, 10 * mb, 5 * mb}, // kept
-		{2, 7 * mb, 7 * mb},  // closed
-		{3, 4 * mb, 4 * mb},  // counters went backwards
+	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{
+		1: {10 * mb, 5 * mb, 7}, // kept
+		2: {7 * mb, 7 * mb, 7},  // closed, no tail known
+		3: {4 * mb, 4 * mb, 7},  // counters went backwards
 	}}
-	cur := &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now}, netOK: true, netAt: now, net: [][3]uint64{
-		{1, 11 * mb, 5 * mb},
-		{3, 1, 1},
-		{4, mb / 2, mb/2 + 1}, // new: bytes_acked counts the SYN
-		{5, 1 << 50, 1},       // new but far beyond any link for 1 s: not a new socket
+	socks := []tcpCounters{tcp(1, 11*mb, 5*mb), tcp(3, 1, 1), tcp(4, mb/2, mb/2+1)} // 4 is new: bytes_acked counts the SYN
+	rows := netRows(map[int32]procNet{7: {TCP: socks}}, 7)
+
+	rx, tx, next := applyNetRates(prev, dumpOf(now, socks...), rows)
+	require.NotNil(t, rows[0].info.NetRx)
+	assert.InDelta(t, 1.5*mb, *rows[0].info.NetRx, 1e-6)
+	assert.InDelta(t, 0.5*mb, *rows[0].info.NetTx, 1e-6)
+	assert.Equal(t, rows[0].info.NetRx, rx)
+	assert.Equal(t, rows[0].info.NetTx, tx)
+	assert.Equal(t, netBaseline{at: now, socks: map[uint64]sockBaseline{1: {11 * mb, 5 * mb, 7}, 3: {1, 1, 7}, 4: {mb / 2, mb/2 + 1, 7}}}, next)
+
+	prev.at = now - 2_000
+	rows = netRows(map[int32]procNet{7: {TCP: socks}}, 7)
+	applyNetRates(prev, dumpOf(now, socks...), rows)
+	assert.InDelta(t, 0.75*mb, *rows[0].info.NetRx, 1e-6, "the rate spans the dump interval")
+
+	rows = netRows(map[int32]procNet{7: {}}, 7)
+	applyNetRates(prev, dumpOf(now), rows)
+	require.NotNil(t, rows[0].info.NetRx)
+	assert.Zero(t, *rows[0].info.NetRx, "all sockets closed is 0, not unknown")
+
+	for name, p := range map[string]netBaseline{"no baseline": {}, "baseline not older": {at: now}} {
+		rows = netRows(map[int32]procNet{7: {TCP: socks}}, 7)
+		rx, _, next = applyNetRates(p, dumpOf(now, socks...), rows)
+		assert.Nil(t, rows[0].info.NetRx, name)
+		assert.Nil(t, rx, name)
+		assert.Len(t, next.socks, 3, "%s: the next baseline is still taken", name)
+	}
+}
+
+func TestApplyNetRates_SocketIdentity(t *testing.T) {
+	const now = int64(1_755_000_010_000)
+	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{
+		1: {100, 100, 10}, // moves from PID 10 to 20 (fd passing or fork)
+		2: {500, 500, 0},  // held by a process we couldn't read
 	}}
+	socks := []tcpCounters{tcp(1, 150, 120), tcp(2, 600, 500), tcp(3, 1000, 501)}
+	rows := netRows(map[int32]procNet{
+		10: {},
+		20: {TCP: socks[:1]},
+		30: {TCP: socks[1:]}, // first seen: one old socket, one opened since
+	}, 10)
 
-	var info models.ProcessInfo
-	setProcessExtras(&info, prev, cur, procGPU{})
-	require.NotNil(t, info.NetRx)
-	require.NotNil(t, info.NetTx)
-	assert.InDelta(t, 1.5*mb, *info.NetRx, 1e-6)
-	assert.InDelta(t, 0.5*mb, *info.NetTx, 1e-6)
+	_, _, next := applyNetRates(prev, dumpOf(now, socks...), rows)
+	assert.Equal(t, 0.0, *rows[0].info.NetRx)
+	assert.Equal(t, []float64{50, 20}, []float64{*rows[1].info.NetRx, *rows[1].info.NetTx}, "a moved socket is a delta, not a spike")
+	assert.Equal(t, []float64{1100, 500}, []float64{*rows[2].info.NetRx, *rows[2].info.NetTx}, "a process new to the cursor still has a baseline per socket")
+	assert.Equal(t, int32(20), next.socks[1].pid)
 
-	info = models.ProcessInfo{}
-	setProcessExtras(&info, &processSample{ProcessCursorData: prev.ProcessCursorData}, cur, procGPU{})
-	assert.Nil(t, info.NetRx, "no previous socket sample means unknown")
-	assert.Nil(t, info.NetTx)
+	// The same holder, a reused inode, a different socket: the cookie tells.
+	prev = netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{5: {1 << 30, 1 << 30, 7}}}
+	rows = netRows(map[int32]procNet{7: {TCP: []tcpCounters{tcp(6, 10, 11)}}}, 7)
+	applyNetRates(prev, dumpOf(now, tcp(6, 10, 11)), rows)
+	assert.Equal(t, []float64{10, 10}, []float64{*rows[0].info.NetRx, *rows[0].info.NetTx})
+}
 
-	// The rate spans the dump interval (2 s), not the per-process sample times (1 s).
-	skewedPrev := *prev
-	skewedPrev.netAt = now - 2_000
-	info = models.ProcessInfo{}
-	setProcessExtras(&info, &skewedPrev, cur, procGPU{})
-	require.NotNil(t, info.NetRx)
-	assert.InDelta(t, 0.75*mb, *info.NetRx, 1e-6)
+func TestApplyNetRates_SharedSocketCountsOnce(t *testing.T) {
+	const now = int64(1_755_000_010_000)
+	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{1: {0, 0, 4}}}
+	shared := []tcpCounters{tcp(1, 100, 100)}
+	rows := netRows(map[int32]procNet{3: {TCP: shared}, 4: {TCP: shared}}, 3, 4)
+	rx, _, next := applyNetRates(prev, dumpOf(now, shared...), rows)
+	assert.Equal(t, 100.0, *rows[0].info.NetRx, "the lowest PID holding it")
+	assert.Equal(t, 0.0, *rows[1].info.NetRx)
+	assert.Equal(t, 100.0, *rx)
+	assert.Equal(t, int32(3), next.socks[1].pid)
+}
 
-	skewedPrev.netAt = 0
-	info = models.ProcessInfo{}
-	setProcessExtras(&info, &skewedPrev, cur, procGPU{})
-	assert.Nil(t, info.NetRx, "a previous sample without a dump time has no rate")
+func TestApplyNetRates_UDP(t *testing.T) {
+	const now = int64(1_755_000_010_000)
+	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{1: {0, 0, 2}}}
+	rows := netRows(map[int32]procNet{
+		1: {UDP: true},
+		2: {UDP: true, TCP: []tcpCounters{tcp(1, 40, 0)}},
+		3: {RatesUnknown: true, TCP: []tcpCounters{tcp(9, 1, 1)}},
+	}, 1, 2, 3)
+	rx, _, _ := applyNetRates(prev, dumpOf(now, tcp(1, 40, 0)), rows)
+	assert.Nil(t, rows[0].info.NetRx, "UDP only has no counters: unknown, not 0")
+	assert.False(t, rows[0].info.NetPartial)
+	assert.Equal(t, 40.0, *rows[1].info.NetRx)
+	assert.True(t, rows[1].info.NetPartial, "TCP plus UDP is a lower bound")
+	assert.Nil(t, rows[2].info.NetRx)
+	assert.Equal(t, 40.0, *rx, "totals sum known rates only")
+}
 
-	info = models.ProcessInfo{}
-	setProcessExtras(&info, prev, &processSample{ProcessCursorData: cur.ProcessCursorData, netOK: true, netAt: now}, procGPU{})
-	require.NotNil(t, info.NetRx)
-	assert.Zero(t, *info.NetRx, "all sockets closed is 0, not unknown")
+func TestApplyNetRates_ClosedSocketTails(t *testing.T) {
+	const now = int64(1_755_000_010_000)
+	prev := netBaseline{at: now - 1_000, socks: map[uint64]sockBaseline{
+		1: {100, 100, 7}, // destroyed, final counters known
+		2: {100, 100, 8}, // destroyed, held by a PID that is now someone else
+		3: {100, 100, 7}, // orphaned: no fd, still closing
+		4: {100, 100, 0}, // destroyed, never attributed
+		5: {100, 100, 7}, // destroyed, no final counters
+	}}
+	cur := dumpOf(now)
+	cur.socks = append(cur.socks, dumpSocket{tcp(3, 130, 110), true})
+	cur.tail = func(cookie uint64) (uint64, uint64, bool) {
+		if cookie == 5 {
+			return 0, 0, false
+		}
+		return 300, 250, true
+	}
+	rows := netRows(map[int32]procNet{7: {}, 8: {}}, 7)
+	rx, tx, next := applyNetRates(prev, cur, rows)
+	assert.Equal(t, []float64{230, 160}, []float64{*rows[0].info.NetRx, *rows[0].info.NetTx}, "tail of 1 plus the orphan's delta")
+	assert.Equal(t, 0.0, *rows[1].info.NetRx, "a reused PID gets nothing")
+	assert.Equal(t, []float64{230, 160}, []float64{*rx, *tx})
+	assert.Equal(t, map[uint64]sockBaseline{3: {130, 110, 7}}, next.socks, "an orphan keeps its holder")
 }
 
 func TestProcessCursor_NetRoundTrip(t *testing.T) {
-	prev := []processSample{
-		{ProcessCursorData: models.ProcessCursorData{PID: 1, Timestamp: 1000}, netOK: true, netAt: 1000, net: [][3]uint64{{9, 10, 20}}},
-		{ProcessCursorData: models.ProcessCursorData{PID: 2, Timestamp: 1000}, netOK: true, netAt: 1000},
-		{ProcessCursorData: models.ProcessCursorData{PID: 3, Timestamp: 1000}},
-	}
-	got := decodeProcessCursor(encodeProcessCursor(prev))
-	require.Len(t, got, 3)
+	net := netBaseline{at: 1000, socks: map[uint64]sockBaseline{9: {10, 20, 1}, 1 << 60: {1, 2, 0}}}
+	_, got := decodeCursor(encodeCursor(nil, net))
+	assert.Equal(t, net, got)
 
-	rate := func(pid int32, net ...[3]uint64) *float64 {
-		var info models.ProcessInfo
-		cur := &processSample{ProcessCursorData: models.ProcessCursorData{PID: pid, Timestamp: 2000}, netOK: true, netAt: 2000, net: net}
-		setProcessExtras(&info, got[pid], cur, procGPU{})
-		return info.NetRx
-	}
-	assert.Equal(t, ptr(1000.0), rate(1, [3]uint64{9, 1010, 20}), "socket counters survive the round trip")
-	assert.Equal(t, ptr(0.0), rate(2), "sampled with no sockets is 0")
-	assert.Nil(t, rate(3), "not sampled has no rate")
+	_, got = decodeCursor(encodeCursor(nil, netBaseline{at: 1000}))
+	assert.Equal(t, netBaseline{at: 1000, socks: map[uint64]sockBaseline{}}, got, "a dump without sockets is still a baseline")
 
-	got = decodeProcessCursor(gzipB64(t, `{"t":5,"pid":[1],"cpu":[1000],"dt":[0],"n":{"1":"nope"}}`))
-	require.Len(t, got, 1)
-	assert.False(t, got[1].netOK, "malformed socket data drops only the extras")
+	_, got = decodeCursor(gzipB64(t, `{"t":5,"pid":[1],"cpu":[1000],"dt":[0],"n":{"1":[[9,10,20]]},"nt":5}`))
+	assert.Zero(t, got.at, "the per-PID format of older cursors is not a baseline")
+
+	procs, got := decodeCursor(gzipB64(t, `{"t":5,"pid":[1],"cpu":[1000],"dt":[0],"ns":"nope","na":5}`))
+	require.Len(t, procs, 1)
+	assert.Zero(t, got.at, "malformed socket data drops only the extras")
 }
 
 func TestMergeProcesses_NetSumsAndRecaps(t *testing.T) {
@@ -452,8 +539,8 @@ func TestMergeProcesses_NetSumsAndRecaps(t *testing.T) {
 		}
 		return out
 	}
-	parent := &models.ProcessInfo{PID: 1, ExecutablePath: "/bin/a", Connections: ptr(30), Remotes: remotes(30, "1.1.1.1:443"), NetRx: ptr(100.0), NetTx: ptr(10.0)}
-	child := &models.ProcessInfo{PID: 2, PPID: 1, ExecutablePath: "/bin/a", Connections: ptr(5), Remotes: remotes(5, "8.8.8.8:443"), NetRx: ptr(50.0)}
+	parent := &models.ProcessInfo{PID: 1, ExecutablePath: "/bin/a", Connections: ptr(30), LocalConnections: ptr(1), Remotes: remotes(30, "1.1.1.1:443"), NetRx: ptr(100.0), NetTx: ptr(10.0)}
+	child := &models.ProcessInfo{PID: 2, PPID: 1, ExecutablePath: "/bin/a", Connections: ptr(5), LocalConnections: ptr(2), Remotes: remotes(5, "8.8.8.8:443"), NetRx: ptr(50.0), NetPartial: true}
 	unknown := &models.ProcessInfo{PID: 3, PPID: 1, ExecutablePath: "/bin/a"}
 	other := &models.ProcessInfo{PID: 4, ExecutablePath: "/bin/b"}
 
@@ -468,11 +555,14 @@ func TestMergeProcesses_NetSumsAndRecaps(t *testing.T) {
 	assert.Len(t, root.Remotes, maxProcRemotes)
 	assert.Equal(t, "8.8.8.8:443", root.Remotes[31].Remote)
 	assert.Nil(t, root.NetRx)
+	assert.Nil(t, root.LocalConnections)
+	assert.True(t, root.NetPartial, "partial if any member is")
 	assert.Nil(t, byPID[4].Connections)
 
 	known := mergeProcessesByExecutable([]*models.ProcessInfo{parent, child})
 	require.Len(t, known, 1)
 	assert.Equal(t, 35, *known[0].Connections, "the count stays exact")
+	assert.Equal(t, 3, *known[0].LocalConnections)
 	assert.Equal(t, 150.0, *known[0].NetRx)
 	assert.Nil(t, known[0].NetTx, "the child's unknown tx makes the sum unknown")
 

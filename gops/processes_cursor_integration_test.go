@@ -23,7 +23,7 @@ func newProcessTestUtil(t *testing.T, procs ...*process.Process) *GopsUtil {
 	mockMem := mocks.NewMockMemoryInfoProvider(t)
 	mockMem.EXPECT().VirtualMemory().Return(&mem.VirtualMemoryStat{Total: 16 << 30}, nil).Once()
 
-	return NewGopsUtilWithProviders(
+	g := NewGopsUtilWithProviders(
 		mocks.NewMockCPUInfoProvider(t),
 		mockMem,
 		mocks.NewMockDiskInfoProvider(t),
@@ -33,6 +33,8 @@ func newProcessTestUtil(t *testing.T, procs ...*process.Process) *GopsUtil {
 		mocks.NewMockLoadInfoProvider(t),
 		mocks.NewMockFileSystem(t),
 	)
+	t.Cleanup(g.Close)
+	return g
 }
 
 func TestGetProcessesWithCursor_UsesCursorForCPU(t *testing.T) {

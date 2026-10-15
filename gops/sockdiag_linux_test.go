@@ -12,6 +12,8 @@ import (
 	"os"
 	"syscall"
 	"testing"
+	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,6 +51,26 @@ func nlMsg(typ uint16, seq uint32, payload []byte) []byte {
 
 func nlInt(v int32) []byte {
 	return binary.NativeEndian.AppendUint32(nil, uint32(v))
+}
+
+// inetDiagMsg mirrors struct inet_diag_msg from linux/inet_diag.h.
+type inetDiagMsg struct {
+	Family, State, Timer, Retrans uint8
+	Sport, Dport                  [2]byte
+	Src, Dst                      [16]byte
+	If                            uint32
+	Cookie                        [2]uint32
+	Expires, Rqueue, Wqueue, UID  uint32
+	Inode                         uint32
+}
+
+func TestInetDiagMsgLayout(t *testing.T) {
+	var m inetDiagMsg
+	assert.Equal(t, uintptr(inetDiagMsgLen), unsafe.Sizeof(m))
+	assert.Equal(t, uintptr(6), unsafe.Offsetof(m.Dport))
+	assert.Equal(t, uintptr(24), unsafe.Offsetof(m.Dst))
+	assert.Equal(t, uintptr(44), unsafe.Offsetof(m.Cookie))
+	assert.Equal(t, uintptr(68), unsafe.Offsetof(m.Inode))
 }
 
 func inetDiagV4(state uint8, local, remote string, inode uint32, attrs ...[]byte) []byte {
@@ -96,6 +118,7 @@ func TestParseSockDiagCapturedTCPv6(t *testing.T) {
 	require.NoError(t, err)
 	want := sockDiagEntry{
 		Inode:      0x1adef7,
+		Cookie:     2,
 		Protocol:   unix.IPPROTO_TCP,
 		Remote:     netip.MustParseAddrPort("[::1]:43513"),
 		TxBytes:    6,
@@ -151,10 +174,67 @@ func TestParseInetDiagMsgTCPInfo(t *testing.T) {
 	}
 }
 
+func TestParseSockDestroyBroadcast(t *testing.T) {
+	info := make([]byte, tcpInfoBytesReceivedOff+8)
+	binary.NativeEndian.PutUint64(info[tcpInfoBytesAckedOff:], 1001)
+	binary.NativeEndian.PutUint64(info[tcpInfoBytesReceivedOff:], 4000)
+	msg := inetDiagV4(7, "192.0.2.10:40000", "198.51.100.7:443", 0, rtAttr(inetDiagInfo, info))
+	binary.NativeEndian.PutUint32(msg[44:], 0x89abcdef)
+	binary.NativeEndian.PutUint32(msg[48:], 0x01234567)
+	// One message per datagram, sequence 0, no NLMSG_DONE.
+	entries, done, err := parseSockDiagResponse(nlMsg(unix.SOCK_DIAG_BY_FAMILY, 0, msg), 0, unix.IPPROTO_TCP)
+	require.NoError(t, err)
+	assert.False(t, done)
+	assert.Equal(t, []sockDiagEntry{{
+		Cookie: 0x0123456789abcdef, Protocol: unix.IPPROTO_TCP, Remote: netip.MustParseAddrPort("198.51.100.7:443"),
+		RxBytes: 4000, TxBytes: 1001, HasTCPInfo: true,
+	}}, entries, "kept without an inode: the counters identify it by cookie")
+}
+
+func TestListenSockDestroysLive(t *testing.T) {
+	events := make(chan sockDiagEntry, 64)
+	stop, err := listenSockDestroys(func(e sockDiagEntry) { events <- e })
+	if err != nil {
+		t.Skipf("destroy groups unavailable: %v", err)
+	}
+	defer stop()
+
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	client, err := net.Dial("tcp4", ln.Addr().String())
+	require.NoError(t, err)
+	server, err := ln.Accept()
+	require.NoError(t, err)
+	_, err = client.Write([]byte("hello"))
+	require.NoError(t, err)
+	_, err = server.Read(make([]byte, 5))
+	require.NoError(t, err)
+	require.NoError(t, server.Close())
+	require.NoError(t, client.Close())
+
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case e := <-events:
+			if e.Remote.String() == ln.Addr().String() {
+				assert.True(t, e.HasTCPInfo)
+				assert.NotZero(t, e.Cookie)
+				assert.GreaterOrEqual(t, e.TxBytes, uint64(5), "final counters include the payload")
+				stop()
+				stop()
+				return
+			}
+		case <-timeout:
+			t.Fatal("no destroy event for the client socket")
+		}
+	}
+}
+
 func TestParseSockDiagResponseEdgeCases(t *testing.T) {
 	sock := inetDiagV4(1, "192.0.2.10:40000", "198.51.100.7:443", 42)
 
-	t.Run("skips inode 0, short messages and other sequences", func(t *testing.T) {
+	t.Run("skips inode 0 without counters, short messages and other sequences", func(t *testing.T) {
 		buf := append(nlMsg(unix.SOCK_DIAG_BY_FAMILY, 3, inetDiagV4(6, "192.0.2.10:1", "198.51.100.7:2", 0)),
 			nlMsg(unix.SOCK_DIAG_BY_FAMILY, 3, sock[:40])...)
 		buf = append(buf, nlMsg(unix.SOCK_DIAG_BY_FAMILY, 9, sock)...)

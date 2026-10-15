@@ -69,6 +69,10 @@ func withDefaultSources(g *GopsUtil) *GopsUtil {
 	return g
 }
 
+// Close stops the background socket listener that process-net starts. It is
+// idempotent; a short-lived GopsUtil may skip it.
+func (self *GopsUtil) Close() { self.closePlatform() }
+
 func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, mergeChildren bool) (*models.SystemMetrics, error) {
 	return self.GetAllMetricsWithCursors(procSortBy, procLimit, enableProcessCPU, "", "", mergeChildren)
 }

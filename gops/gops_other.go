@@ -12,11 +12,13 @@ type drmClientSet map[string]struct{}
 
 type procGPUReader struct{}
 
-type procNetReader struct{ dumpedAt int64 }
+type procNetReader struct{ netDump }
 
 func (self *GopsUtil) newProcGPUReader(_ []string) *procGPUReader { return nil }
 
 func (self *GopsUtil) newProcNetReader() *procNetReader { return nil }
+
+func (self *GopsUtil) closePlatform() {}
 
 func (self processExtras) readFDs(_ string, _ int32) (procGPU, procNet) {
 	return procGPU{}, procNet{}

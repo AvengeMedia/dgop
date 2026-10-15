@@ -11,6 +11,8 @@ import (
 
 type platformSources struct {
 	sockDump     func() ([]sockDiagEntry, error)
+	sockDestroys func(emit func(sockDiagEntry)) (stop func(), err error)
+	tails        sockTails
 	slowChipRead func(dir string) []hwmonReading
 	slowChipWait time.Duration
 
@@ -21,5 +23,7 @@ type platformSources struct {
 }
 
 func defaultPlatformSources() platformSources {
-	return platformSources{sockDump: dumpSockets, slowChipRead: readHwmonReadings, slowChipWait: 100 * time.Millisecond}
+	return platformSources{sockDump: dumpSockets, sockDestroys: listenSockDestroys, slowChipRead: readHwmonReadings, slowChipWait: 100 * time.Millisecond}
 }
+
+func (self *GopsUtil) closePlatform() { self.tails.close() }

@@ -93,7 +93,7 @@ func init() {
 	processesCmd.Flags().StringSliceVar(&metaGPUPciIds, "gpu-pci-ids", nil, "With --gpu, only read these GPUs (e.g., 10de:2684); empty reads none, omitted reads all")
 	processesCmd.Flags().BoolVar(&procGPU, "gpu", false, "Include per-process GPU usage and VRAM")
 	processesCmd.Flags().BoolVar(&procIO, "io", false, "Include per-process disk read/write rates")
-	processesCmd.Flags().BoolVar(&procNet, "net", false, "Include per-process internet connections and TCP rates")
+	processesCmd.Flags().BoolVar(&procNet, "net", false, "Include per-process connections and TCP rates")
 
 	metaCmd.Flags().StringSliceVar(&metaModules, "modules", []string{"all"}, "Modules to include (cpu,memory,network,etc)")
 	metaCmd.Flags().StringVar(&procSortBy, "sort", "cpu", "Sort processes by (cpu, memory, name, pid, gpu, vram, disk, network)")

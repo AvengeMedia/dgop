@@ -6,13 +6,16 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AvengeMedia/dgop/gops/mocks"
 	"github.com/AvengeMedia/dgop/models"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,7 +66,8 @@ func TestProcessExtras_NetLoopbackIsZeroNotUnknown(t *testing.T) {
 	require.NotNil(t, row.NetRx, "the baseline pass gives the first response rates")
 	require.NotNil(t, row.NetTx)
 	assert.Zero(t, *row.NetRx)
-	assert.True(t, decodeProcessCursor(res.Cursor)[self.Pid].netOK)
+	_, baseline := decodeCursor(res.Cursor)
+	assert.Positive(t, baseline.at, "the cursor carries the socket baseline")
 	assert.NotNil(t, row.GPU, "GPU still works on the shared fd walk")
 }
 
@@ -256,4 +260,97 @@ func TestPSSCache_RefreshRule(t *testing.T) {
 
 	c.prune(t0.Add(11*time.Second + 2*pssMaxAge))
 	assert.Empty(t, c.entries)
+}
+
+// netTestUtil serves procs on every call, so one GopsUtil (and its tails)
+// can be polled more than once.
+func netTestUtil(t *testing.T, dump func() ([]sockDiagEntry, error), procs ...*process.Process) *GopsUtil {
+	t.Helper()
+	mockProc := mocks.NewMockProcessInfoProvider(t)
+	mockProc.EXPECT().Processes().Return(procs, nil)
+	mockMem := mocks.NewMockMemoryInfoProvider(t)
+	mockMem.EXPECT().VirtualMemory().Return(&mem.VirtualMemoryStat{Total: 16 << 30}, nil)
+	g := NewGopsUtilWithProviders(nil, mockMem, nil, nil, mockProc, nil, nil, nil)
+	g.sockDump = dump
+	t.Cleanup(g.Close)
+	return g
+}
+
+func loopbackConn(t *testing.T) (client, server net.Conn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	client, err = net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	server, err = ln.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close(); server.Close() })
+	return client, server
+}
+
+func TestProcessExtras_NetTailCreditedToPreviousHolder(t *testing.T) {
+	c, _ := loopbackConn(t)
+	inode := socketInode(t, c.(*net.TCPConn))
+	remote := netip.MustParseAddrPort("8.8.8.8:443")
+	open := true
+	g := netTestUtil(t, func() ([]sockDiagEntry, error) {
+		if !open {
+			return nil, nil
+		}
+		return []sockDiagEntry{{Inode: inode, Cookie: 77, Protocol: 6, Remote: remote, RxBytes: 1000, TxBytes: 1000, HasTCPInfo: true}}, nil
+	}, ownProcess(t))
+	var emit func(sockDiagEntry)
+	g.sockDestroys = func(e func(sockDiagEntry)) (func(), error) { emit = e; return func() {}, nil }
+
+	opts := ProcessOptions{Net: true}
+	first, err := g.GetProcessesWithOptions(opts)
+	require.NoError(t, err)
+	require.NotNil(t, emit, "process-net starts the listener")
+
+	open = false
+	emit(sockDiagEntry{Cookie: 77, Protocol: 6, Remote: remote, RxBytes: 5000, TxBytes: 3000, HasTCPInfo: true})
+	time.Sleep(20 * time.Millisecond)
+	opts.Cursor = first.Cursor
+	res, err := g.GetProcessesWithOptions(opts)
+	require.NoError(t, err)
+	row := res.Processes[0]
+	require.NotNil(t, row.NetRx)
+	assert.Positive(t, *row.NetRx, "the bytes after the last dump count for the process that held the socket")
+	assert.InDelta(t, 2.0, *row.NetRx / *row.NetTx, 1e-9)
+	assert.Equal(t, row.NetRx, res.ProcessNetRx)
+}
+
+func TestProcessExtras_NetTotalsIgnoreLimit(t *testing.T) {
+	own, _ := loopbackConn(t)
+	passed, _ := loopbackConn(t)
+	ownInode, childInode := socketInode(t, own.(*net.TCPConn)), socketInode(t, passed.(*net.TCPConn))
+	f, err := passed.(*net.TCPConn).File()
+	require.NoError(t, err)
+	child := exec.Command("sleep", "30")
+	child.ExtraFiles = []*os.File{f}
+	require.NoError(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	f.Close()
+	passed.Close() // the child alone holds it now
+	childProc, err := process.NewProcess(int32(child.Process.Pid))
+	require.NoError(t, err)
+
+	var calls uint64
+	g := netTestUtil(t, func() ([]sockDiagEntry, error) {
+		calls++
+		e := func(inode uint32, cookie uint64) sockDiagEntry {
+			return sockDiagEntry{Inode: inode, Cookie: cookie, Protocol: 6, Remote: netip.MustParseAddrPort("8.8.8.8:443"), RxBytes: calls * 1000 * cookie, TxBytes: 1, HasTCPInfo: true}
+		}
+		return []sockDiagEntry{e(ownInode, 1), e(childInode, 2)}, nil
+	}, ownProcess(t), childProc)
+
+	res, err := g.GetProcessesWithOptions(ProcessOptions{Net: true, Limit: 1, SortBy: SortByPID})
+	require.NoError(t, err)
+	require.Len(t, res.Processes, 1)
+	row := res.Processes[0]
+	require.NotNil(t, row.NetRx)
+	require.NotNil(t, res.ProcessNetRx)
+	assert.InDelta(t, 3*(*row.NetRx), *res.ProcessNetRx, 1e-6, "the child cut by the limit still counts")
+	assert.Zero(t, *res.ProcessNetTx)
 }

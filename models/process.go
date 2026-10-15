@@ -30,15 +30,18 @@ type ProcessInfo struct {
 	DiskRead       *float64 `json:"diskRead,omitempty" doc:"Disk bytes read per second since the cursor."`
 	DiskWrite      *float64 `json:"diskWrite,omitempty" doc:"Disk bytes written per second since the cursor."`
 
-	Connections *int            `json:"connections,omitempty" doc:"Open sockets with an internet (non-local) remote, per process; merged rows sum their members."`
-	Remotes     []NetConnection `json:"remotes,omitempty" doc:"Internet remotes, capped at 32."`
-	NetRx       *float64        `json:"netRx,omitempty" doc:"TCP bytes received per second from internet remotes since the cursor."`
-	NetTx       *float64        `json:"netTx,omitempty" doc:"TCP bytes sent and acknowledged per second to internet remotes since the cursor."`
+	Connections      *int            `json:"connections,omitempty" doc:"Open sockets with an internet remote; merged rows sum their members."`
+	LocalConnections *int            `json:"localConnections,omitempty" doc:"Open sockets with a LAN, VPN or link-local remote (private, CGNAT or link-local address); loopback is never counted. Merged rows sum their members."`
+	Remotes          []NetConnection `json:"remotes,omitempty" doc:"Internet and local remotes, capped at 32."`
+	NetRx            *float64        `json:"netRx,omitempty" doc:"TCP payload bytes received per second from internet and local remotes since the cursor. Absent when unknown, including for a process in another network namespace with its own interfaces (a container) and one whose only such sockets are UDP, which has no byte counters."`
+	NetTx            *float64        `json:"netTx,omitempty" doc:"TCP payload bytes sent and acknowledged per second to internet and local remotes since the cursor; absent like netRx."`
+	NetPartial       bool            `json:"netPartial,omitempty" doc:"True when the process also has UDP sockets with an internet or local remote (e.g. QUIC), whose traffic netRx and netTx leave out, so they are a lower bound."`
 }
 
 type NetConnection struct {
 	Protocol string `json:"protocol" doc:"tcp or udp."`
 	Remote   string `json:"remote" doc:"Remote address as ip:port, IPv6 bracketed."`
+	Local    bool   `json:"local,omitempty" doc:"True for a LAN, VPN or link-local remote rather than an internet one."`
 }
 
 type ProcessCursorData struct {
@@ -48,8 +51,10 @@ type ProcessCursorData struct {
 }
 
 type ProcessListResponse struct {
-	Processes []*ProcessInfo `json:"processes"`
-	Cursor    string         `json:"cursor,omitempty"`
+	Processes    []*ProcessInfo `json:"processes"`
+	Cursor       string         `json:"cursor,omitempty"`
+	ProcessNetRx *float64       `json:"processNetRx,omitempty" doc:"Sum of netRx over every process with a known rate, before merging and the limit: the TCP payload of processes dgop can read in its network namespace. An interface rate minus this is traffic not attributed to a process."`
+	ProcessNetTx *float64       `json:"processNetTx,omitempty" doc:"Sum of netTx, like processNetRx."`
 }
 
 // ProcessDetail holds per-process data that is too costly to poll for every row; it is read on demand for one PID.

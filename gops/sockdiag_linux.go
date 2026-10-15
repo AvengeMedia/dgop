@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"syscall"
 	"time"
 	"unsafe"
@@ -16,6 +17,7 @@ import (
 
 type sockDiagEntry struct {
 	Inode      uint32
+	Cookie     uint64
 	Protocol   uint8
 	Remote     netip.AddrPort
 	RxBytes    uint64
@@ -29,9 +31,12 @@ const (
 	inetDiagReqV2Len = 56
 	inetDiagMsgLen   = 72
 	inetDiagInfo     = 2 // INET_DIAG_INFO attribute type
-	tcpListen        = 10
-	tcpEstablished   = 1
-	allTCPStates     = 0xfff
+	// SKNLGRP_INET_TCP_DESTROY and SKNLGRP_INET6_TCP_DESTROY from linux/sock_diag.h.
+	sknlgrpInetTCPDestroy  = 1
+	sknlgrpInet6TCPDestroy = 3
+	tcpListen              = 10
+	tcpEstablished         = 1
+	allTCPStates           = 0xfff
 )
 
 var (
@@ -64,7 +69,7 @@ func udpUnsupported(protocol uint8, err error) bool {
 
 // dumpSockets lists TCP (all states but LISTEN) and connected UDP sockets
 // of both address families through NETLINK_SOCK_DIAG. Sockets without an
-// inode (TIME_WAIT, orphans) are skipped.
+// inode are kept only with TCP counters (orphans, not TIME_WAIT).
 func dumpSockets() ([]sockDiagEntry, error) {
 	fd, err := openSockDiag()
 	if err != nil {
@@ -129,8 +134,9 @@ func encodeSockDiagRequest(seq uint32, family, protocol uint8, states uint32, ex
 	return b
 }
 
-// parseSockDiagResponse decodes one datagram of a dump. Messages from other
-// sequence numbers are ignored; done reports NLMSG_DONE.
+// parseSockDiagResponse decodes one datagram of a dump, or with seq 0 of
+// destroy broadcasts. Messages from other sequence numbers are ignored; done
+// reports NLMSG_DONE.
 func parseSockDiagResponse(b []byte, seq uint32, protocol uint8) (entries []sockDiagEntry, done bool, err error) {
 	msgs, err := syscall.ParseNetlinkMessage(b)
 	if err != nil {
@@ -158,7 +164,7 @@ func parseSockDiagResponse(b []byte, seq uint32, protocol uint8) (entries []sock
 			}
 			return entries, true, fmt.Errorf("sock_diag: %w", unix.Errno(-code))
 		case unix.SOCK_DIAG_BY_FAMILY:
-			if e, ok := parseInetDiagMsg(m.Data, protocol); ok {
+			if e, ok := parseInetDiagMsg(m.Data, protocol); ok && (e.Inode != 0 || e.HasTCPInfo) {
 				entries = append(entries, e)
 			}
 		}
@@ -170,12 +176,12 @@ func parseInetDiagMsg(b []byte, protocol uint8) (sockDiagEntry, bool) {
 	if len(b) < inetDiagMsgLen {
 		return sockDiagEntry{}, false
 	}
+	ne := binary.NativeEndian
 	e := sockDiagEntry{
 		Protocol: protocol,
-		Inode:    binary.NativeEndian.Uint32(b[68:]),
-	}
-	if e.Inode == 0 {
-		return sockDiagEntry{}, false
+		Inode:    ne.Uint32(b[68:]),
+		// idiag_cookie is two u32s, low half first.
+		Cookie: uint64(ne.Uint32(b[44:])) | uint64(ne.Uint32(b[48:]))<<32,
 	}
 	dport := binary.BigEndian.Uint16(b[6:])
 	switch b[0] {
@@ -207,4 +213,42 @@ func parseInetDiagMsg(b []byte, protocol uint8) (sockDiagEntry, bool) {
 		attrs = attrs[next:]
 	}
 	return e, true
+}
+
+// listenSockDestroys calls emit with every TCP socket destroyed in our
+// network namespace, carrying its final counters, until stop is called.
+func listenSockDestroys(emit func(sockDiagEntry)) (stop func(), err error) {
+	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK, unix.NETLINK_SOCK_DIAG)
+	if err != nil {
+		return nil, fmt.Errorf("sock_diag socket: %w", err)
+	}
+	// Broadcasts skip an unbound socket: its port id is still 0.
+	err = unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK})
+	for _, group := range []int{sknlgrpInetTCPDestroy, sknlgrpInet6TCPDestroy} {
+		if err == nil {
+			err = unix.SetsockoptInt(fd, unix.SOL_NETLINK, unix.NETLINK_ADD_MEMBERSHIP, group)
+		}
+	}
+	if err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("sock_diag destroy groups: %w", err)
+	}
+	f := os.NewFile(uintptr(fd), "sock_diag")
+	go func() {
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := f.Read(buf)
+			if errors.Is(err, unix.ENOBUFS) { // events were dropped; later ones still arrive
+				continue
+			}
+			if err != nil {
+				return
+			}
+			entries, _, _ := parseSockDiagResponse(buf[:n], 0, unix.IPPROTO_TCP)
+			for _, e := range entries {
+				emit(e)
+			}
+		}
+	}()
+	return func() { _ = f.Close() }, nil
 }

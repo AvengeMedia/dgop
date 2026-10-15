@@ -28,8 +28,10 @@ func (in *ProcessInput) Resolve(ctx huma.Context) []error {
 
 type ProcessResponse struct {
 	Body struct {
-		Data   []*models.ProcessInfo `json:"data"`
-		Cursor string                `json:"cursor,omitempty"`
+		Data         []*models.ProcessInfo `json:"data"`
+		Cursor       string                `json:"cursor,omitempty"`
+		ProcessNetRx *float64              `json:"processNetRx,omitempty" doc:"Sum of netRx over every process with a known rate, before merging and the limit."`
+		ProcessNetTx *float64              `json:"processNetTx,omitempty" doc:"Sum of netTx over every process with a known rate, before merging and the limit."`
 	}
 }
 
@@ -49,5 +51,6 @@ func (self *HandlerGroup) Processes(ctx context.Context, input *ProcessInput) (*
 	resp := &ProcessResponse{}
 	resp.Body.Data = result.Processes
 	resp.Body.Cursor = result.Cursor
+	resp.Body.ProcessNetRx, resp.Body.ProcessNetTx = result.ProcessNetRx, result.ProcessNetTx
 	return resp, nil
 }

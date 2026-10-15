@@ -12,6 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func encodeProcessCursor(entries []processSample) string {
+	return encodeCursor(entries, netBaseline{})
+}
+
+func decodeProcessCursor(cursor string) map[int32]*processSample {
+	m, _ := decodeCursor(cursor)
+	return m
+}
+
 func TestCalculateProcessCPUPercentageWithCursor(t *testing.T) {
 	baseTime := time.Now().UnixMilli()
 

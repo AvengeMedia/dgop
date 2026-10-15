@@ -57,8 +57,9 @@ type procFDScan struct {
 	NvidiaGPU   bool
 	ExcludedGPU bool
 	UnknownGPU  bool
-	// SocketInodes is filled only when sockets are requested.
+	// SocketInodes and NetNS (the ns/net link) are read only when sockets are requested.
 	SocketInodes []uint32
+	NetNS        string
 }
 
 var (
@@ -85,6 +86,11 @@ func scanProcFDs(procRoot string, pid int32, nodes map[string]gpuNodeState, sock
 	var scan procFDScan
 	dirfd := int(dir.Fd())
 	buf := make([]byte, 64)
+	if sockets {
+		if n, err := unix.Readlinkat(dirfd, "../ns/net", buf); err == nil {
+			scan.NetNS = string(buf[:n])
+		}
+	}
 	for _, name := range names {
 		n, err := unix.Readlinkat(dirfd, name, buf)
 		if err != nil {
@@ -138,7 +144,7 @@ func (self processExtras) readFDs(procRoot string, pid int32) (g procGPU, n proc
 		g = self.gpu.fromScan(pid, scan)
 		g.drm = scan.DRM
 	}
-	if sockets {
+	if sockets && (!self.net.foreign(scan) || self.net.loopbackOnly(procRoot, pid, scan.NetNS)) {
 		n = self.net.fromScan(scan)
 	}
 	return g, n
