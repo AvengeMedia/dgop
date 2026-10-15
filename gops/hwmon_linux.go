@@ -33,23 +33,18 @@ type hwmonReading struct {
 }
 
 type hwmonChip struct {
-	Dir      string
 	Name     string
 	Device   string
 	Readings []hwmonReading
-	// Suspended chips are returned without readings; they were not touched.
-	Suspended bool
 }
 
 var hwmonInputRe = regexp.MustCompile(`^(temp|fan|power|freq)(\d+)_(input|average)$`)
 
-// i2c reads can block for a long time when the bus is held by another
-// process, so they run in the background and callers wait at most i2cWait.
+// i2c reads run in the background and keep their last result, so a held
+// bus delays a caller by at most i2cWait.
 var (
-	i2cWait   = 100 * time.Millisecond
-	i2cReadFn = readHwmonReadings
-	i2cMu     sync.Mutex
-	i2cCache  = map[string]*i2cState{}
+	i2cMu    sync.Mutex
+	i2cCache = map[string]*i2cState{}
 )
 
 type i2cState struct {
@@ -59,7 +54,7 @@ type i2cState struct {
 }
 
 // readHwmonChips reads every usable chip under an hwmon class root.
-func readHwmonChips(root string) []hwmonChip {
+func (self *GopsUtil) readHwmonChips(root string) []hwmonChip {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
@@ -69,7 +64,7 @@ func readHwmonChips(root string) []hwmonChip {
 	for _, entry := range entries {
 		dir := filepath.Join(root, entry.Name())
 		seen[dir] = true
-		if chip, ok := readHwmonChip(dir); ok && !chip.Suspended {
+		if chip, ok := self.readHwmonChip(dir); ok {
 			chips = append(chips, chip)
 		}
 	}
@@ -83,31 +78,29 @@ func readHwmonChips(root string) []hwmonChip {
 	return chips
 }
 
-// readHwmonChip reads one hwmon directory. ok is false for chips that must
-// not be read (drivetemp) or have no name. Suspended devices come back with
-// Suspended set and no readings.
-func readHwmonChip(dir string) (hwmonChip, bool) {
+// readHwmonChip is not ok for chips without a name or that must not be read:
+// drivetemp, and any chip of a runtime-suspended device.
+func (self *GopsUtil) readHwmonChip(dir string) (hwmonChip, bool) {
 	name := readTrimmed(filepath.Join(dir, "name"))
 	if name == "" || name == "drivetemp" {
 		return hwmonChip{}, false
 	}
-	chip := hwmonChip{Dir: dir, Name: name}
 	if readTrimmed(filepath.Join(dir, "device", "power", "runtime_status")) == "suspended" {
-		chip.Suspended = true
-		return chip, true
+		return hwmonChip{}, false
 	}
+	chip := hwmonChip{Name: name}
 	if link, err := os.Readlink(filepath.Join(dir, "device")); err == nil {
 		chip.Device = filepath.Base(link)
 	}
 	if resolved, err := filepath.EvalSymlinks(filepath.Join(dir, "device")); err == nil && strings.Contains(resolved, "/i2c-") {
-		chip.Readings = readI2CReadings(dir)
+		chip.Readings = self.readI2CReadings(dir)
 	} else {
 		chip.Readings = readHwmonReadings(dir)
 	}
 	return chip, true
 }
 
-func readI2CReadings(dir string) []hwmonReading {
+func (self *GopsUtil) readI2CReadings(dir string) []hwmonReading {
 	i2cMu.Lock()
 	st := i2cCache[dir]
 	if st == nil {
@@ -119,7 +112,7 @@ func readI2CReadings(dir string) []hwmonReading {
 		done := make(chan struct{})
 		st.done = done
 		go func() {
-			r := i2cReadFn(dir)
+			r := self.i2cRead(dir)
 			i2cMu.Lock()
 			st.readings, st.inflight = r, false
 			i2cMu.Unlock()
@@ -131,7 +124,7 @@ func readI2CReadings(dir string) []hwmonReading {
 
 	select {
 	case <-done:
-	case <-time.After(i2cWait):
+	case <-time.After(self.i2cWait):
 	}
 
 	i2cMu.Lock()
@@ -177,8 +170,8 @@ func readHwmonReadings(dir string) []hwmonReading {
 	var out []hwmonReading
 	for _, k := range keys {
 		prefix := fmt.Sprintf("%s%d", k.typ, k.n)
-		raw, ok := readFloat(filepath.Join(dir, files[k]))
-		if !ok {
+		raw := readFloat(filepath.Join(dir, files[k]))
+		if raw == nil {
 			continue
 		}
 		label := readTrimmed(filepath.Join(dir, prefix+"_label"))
@@ -188,49 +181,24 @@ func readHwmonReadings(dir string) []hwmonReading {
 		r := hwmonReading{Label: label}
 		switch k.typ {
 		case "temp":
-			r.Kind, r.Value = sensorTemperature, raw/1000
+			r.Kind, r.Value = sensorTemperature, *raw/1000
 			r.Max = readTempLimit(filepath.Join(dir, prefix+"_max"))
 			r.Critical = readTempLimit(filepath.Join(dir, prefix+"_crit"))
 		case "fan":
-			r.Kind, r.Value = sensorFan, raw
+			r.Kind, r.Value = sensorFan, *raw
 			r.Max = readScaled(filepath.Join(dir, prefix+"_max"), 1)
 		case "power":
-			r.Kind, r.Value = sensorPower, raw/1e6
+			r.Kind, r.Value = sensorPower, *raw/1e6
 			r.Max = readScaled(filepath.Join(dir, prefix+"_cap"), 1e6)
 			if r.Max == nil {
 				r.Max = readScaled(filepath.Join(dir, prefix+"_max"), 1e6)
 			}
 		case "freq":
-			r.Kind, r.Value = sensorFrequency, raw/1e6
+			r.Kind, r.Value = sensorFrequency, *raw/1e6
 		}
 		out = append(out, r)
 	}
 	return out
-}
-
-func readTrimmed(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
-}
-
-func readFloat(path string) (float64, bool) {
-	v, err := strconv.ParseFloat(readTrimmed(path), 64)
-	return v, err == nil
-}
-
-func readScaled(path string, div float64) *float64 {
-	v, ok := readFloat(path)
-	if !ok {
-		return nil
-	}
-	v /= div
-	if v <= 0 {
-		return nil
-	}
-	return &v
 }
 
 // readTempLimit drops "unset" zeros and sentinel values no real limit has.

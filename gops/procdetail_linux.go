@@ -3,7 +3,9 @@
 package gops
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -15,8 +17,10 @@ import (
 // unreadable (another user's process, an exited PID) stay unset.
 func (self *GopsUtil) GetProcessDetail(pid int32) (*models.ProcessDetail, error) {
 	dir := fmt.Sprintf("/proc/%d", pid)
-	if _, err := os.Stat(dir); err != nil {
-		return nil, fmt.Errorf("process %d not found", pid)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("process %d: %w", pid, ErrProcessNotFound)
+	} else if err != nil {
+		return nil, err
 	}
 	d := &models.ProcessDetail{PID: pid}
 	if data, err := os.ReadFile(dir + "/io"); err == nil {
@@ -30,7 +34,8 @@ func (self *GopsUtil) GetProcessDetail(pid int32) (*models.ProcessDetail, error)
 		d.OpenFiles = new(len(fds))
 	}
 	if data, err := os.ReadFile(dir + "/stat"); err == nil {
-		d.Terminal = statTTY(string(data)) != 0
+		st, _ := parseProcStat(string(data))
+		d.Terminal = st.TTY != 0
 	}
 	if data, err := os.ReadFile(dir + "/cgroup"); err == nil {
 		d.Unit = cgroupUnit(string(data))
@@ -72,18 +77,4 @@ func cgroupUnit(text string) string {
 		}
 	}
 	return ""
-}
-
-// statTTY returns tty_nr (field 7) of a /proc/<pid>/stat line; 0 means no controlling terminal.
-func statTTY(text string) int {
-	i := strings.LastIndexByte(text, ')')
-	if i < 0 {
-		return 0
-	}
-	fields := strings.Fields(text[i+1:])
-	if len(fields) < 5 {
-		return 0
-	}
-	n, _ := strconv.Atoi(fields[4])
-	return n
 }

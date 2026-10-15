@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -124,29 +124,25 @@ func TestGetMetaProcessesNoExtras(t *testing.T) {
 }
 
 func TestGetMetaAllProcessGPU(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("per-process GPU is Linux-only")
+	}
 	g := NewGopsUtil()
+	// No detected GPU: nothing on the host is read, and the test process holds no GPU.
+	g.detectGPUs = func() ([]models.GPU, error) { return nil, nil }
 	ctx := context.Background()
-	params := MetaParams{ProcLimit: 0}
-	first, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, params)
-	if err != nil || len(first.Processes) == 0 {
-		t.Fatalf("err=%v", err)
-	}
-	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*")
-	if len(cards) == 0 {
-		t.Skip("no DRM cards")
-	}
-	time.Sleep(100 * time.Millisecond)
-	params.ProcCursor = first.Cursor
-	second, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, params)
+	first, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, MetaParams{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range second.Processes {
-		if p.VRAMKB != nil {
-			return
-		}
+	second, err := g.GetMeta(ctx, []string{"all", "process-gpu"}, MetaParams{ProcCursor: first.Cursor})
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Error("no process row has vramKB with DRM cards present")
+	row := ownRow(second.Processes)
+	if row == nil || row.VRAMKB == nil || *row.VRAMKB != 0 || row.GPU == nil || *row.GPU != 0 {
+		t.Fatalf("own row should be a known 0: %+v", row)
+	}
 }
 
 func TestGetMetaModifierWithUnknownModule(t *testing.T) {
@@ -158,17 +154,25 @@ func TestGetMetaModifierWithUnknownModule(t *testing.T) {
 func TestGetMetaTogglingModifiersKeepsCPURates(t *testing.T) {
 	g := NewGopsUtil()
 	ctx := context.Background()
+	own := int32(os.Getpid())
+	// Moving the own baseline back one CPU second makes every rate positive.
+	rewind := func(cursor string) string {
+		var entries []processSample
+		for _, e := range decodeProcessCursor(cursor) {
+			if e.PID == own {
+				e.Ticks--
+			}
+			entries = append(entries, *e)
+		}
+		return encodeProcessCursor(entries)
+	}
 	first, err := g.GetMeta(ctx, []string{"processes"}, MetaParams{EnableCPU: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cursor := first.Cursor
 	for i, mods := range [][]string{{"processes", "process-io"}, {"processes"}, {"process-io"}} {
-		deadline := time.Now().Add(150 * time.Millisecond)
-		// Spin so this process accrues measurable CPU time between polls.
-		for time.Now().Before(deadline) {
-		}
-		next, err := g.GetMeta(ctx, mods, MetaParams{EnableCPU: true, ProcCursor: cursor})
+		next, err := g.GetMeta(ctx, mods, MetaParams{EnableCPU: true, ProcCursor: rewind(cursor)})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -25,12 +25,6 @@ func TestProcField(t *testing.T) {
 	assert.Equal(t, uint64(12), *procField("VmSwap:\t      12 kB\n", "VmSwap:"))
 }
 
-func TestStatTTY(t *testing.T) {
-	assert.Equal(t, 34817, statTTY("4321 (my (odd) cmd) S 1 4321 4321 34817 4321 4194304 0"))
-	assert.Equal(t, 0, statTTY("1 (systemd) S 0 1 1 0 -1 4194560"))
-	assert.Equal(t, 0, statTTY("garbage"))
-}
-
 func TestGetProcessDetailSelf(t *testing.T) {
 	d, err := NewGopsUtil().GetProcessDetail(int32(os.Getpid()))
 	require.NoError(t, err)
@@ -39,5 +33,5 @@ func TestGetProcessDetailSelf(t *testing.T) {
 	assert.NotNil(t, d.SwapKB)
 
 	_, err = NewGopsUtil().GetProcessDetail(-5)
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrProcessNotFound)
 }

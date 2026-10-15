@@ -60,7 +60,7 @@ func detectGPUEntries() ([]gpuEntry, error) {
 	return entries, nil
 }
 
-func getNvidiaTemperature() (float64, string) {
+func getNvidiaTemperature(_ string) (float64, string) {
 	return 0, "unknown"
 }
 

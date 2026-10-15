@@ -70,25 +70,3 @@ func TestStatsFor_DisabledGPUNeverReachesFill(t *testing.T) {
 	})
 	assert.Len(t, all.GPUs, 2)
 }
-
-func TestGetGPUStats_AppliesAllowList(t *testing.T) {
-	origDetect, origFill := detectGPUsFn, fillGPUStatsFn
-	t.Cleanup(func() { detectGPUsFn, fillGPUStatsFn = origDetect, origFill })
-	detectGPUsFn = func() ([]models.GPU, error) {
-		return []models.GPU{{PciId: "10de:2684"}, {PciId: "1002:164e"}}, nil
-	}
-	fillGPUStatsFn = func(s []models.GPUStats, _ string) string {
-		for i := range s {
-			s[i].FanRpm = new(1)
-		}
-		return "next"
-	}
-
-	got, err := (&GopsUtil{}).GetGPUStats("", []string{"1002:164e"})
-	assert.NoError(t, err)
-	assert.Nil(t, got.GPUs[0].FanRpm)
-	assert.NotNil(t, got.GPUs[1].FanRpm)
-
-	got, _ = (&GopsUtil{}).GetGPUStats("", nil)
-	assert.NotNil(t, got.GPUs[0].FanRpm)
-}

@@ -46,7 +46,7 @@ func (self *GopsUtil) GetSystemHardware() (*models.SystemHardware, error) {
 }
 
 func (self *GopsUtil) GetGPUInfo() (*models.GPUInfo, error) {
-	gpus, err := detectGPUs()
+	gpus, err := self.detectGPUs()
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (self *GopsUtil) GetGPUInfo() (*models.GPUInfo, error) {
 }
 
 func (self *GopsUtil) GetGPUInfoWithTemp(pciIds []string) (*models.GPUInfo, error) {
-	gpus, err := detectGPUsFn()
+	gpus, err := self.detectGPUs()
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +65,8 @@ func (self *GopsUtil) GetGPUInfoWithTemp(pciIds []string) (*models.GPUInfo, erro
 			if !gpuEnabled(pciIds, gpu.PciId, gpu.PciSlot) {
 				continue
 			}
-			if tempInfo, err := gpuTempFn(self, gpu.PciId); err == nil {
-				gpus[i].Temperature = tempInfo.Temperature
-				gpus[i].Hwmon = tempInfo.Hwmon
-			}
+			t := self.gpuTemp(gpu)
+			gpus[i].Temperature, gpus[i].Hwmon = t.Temperature, t.Hwmon
 		}
 	}
 
@@ -79,40 +77,27 @@ func (self *GopsUtil) GetGPUTemp(pciId string) (*models.GPUTempInfo, error) {
 	if pciId == "" {
 		return nil, fmt.Errorf("pciId is required")
 	}
-
-	gpuEntries, err := detectGPUEntries()
+	gpus, err := self.detectGPUs()
 	if err != nil {
 		return nil, err
 	}
-
-	var targetGPU *gpuEntry
-	for _, gpu := range gpuEntries {
-		_, gpuPciId := parseGPUInfo(gpu.RawLine)
-		if gpuPciId == pciId {
-			targetGPU = &gpu
-			break
+	for _, gpu := range gpus {
+		if gpu.PciId == pciId {
+			t := self.gpuTemp(gpu)
+			return &t, nil
 		}
 	}
+	return nil, fmt.Errorf("GPU with PCI ID %s not found", pciId)
+}
 
-	if targetGPU == nil {
-		return nil, fmt.Errorf("GPU with PCI ID %s not found", pciId)
+func gpuTemp(gpu models.GPU) models.GPUTempInfo {
+	t := models.GPUTempInfo{Driver: gpu.Driver}
+	if gpu.Driver == "nvidia" {
+		t.Temperature, t.Hwmon = getNvidiaTemperature(gpu.PciSlot)
+	} else {
+		t.Temperature, t.Hwmon = getHwmonTemperature(gpu.PciSlot)
 	}
-
-	var temperature float64
-	var hwmon string
-
-	switch targetGPU.Driver {
-	case "nvidia":
-		temperature, hwmon = getNvidiaTemperature()
-	default:
-		temperature, hwmon = getHwmonTemperature(pciId)
-	}
-
-	return &models.GPUTempInfo{
-		Driver:      targetGPU.Driver,
-		Hwmon:       hwmon,
-		Temperature: temperature,
-	}, nil
+	return t
 }
 
 type gpuEntry struct {

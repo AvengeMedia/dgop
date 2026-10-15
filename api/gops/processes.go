@@ -21,6 +21,11 @@ type ProcessInput struct {
 	GPUPciIds      []string        `query:"gpu_pci_ids" example:"10de:2684" doc:"With gpu, only read these GPUs. Omit for all"`
 }
 
+func (in *ProcessInput) Resolve(ctx huma.Context) []error {
+	in.GPUPciIds = pciIdsFromQuery(ctx)
+	return nil
+}
+
 type ProcessResponse struct {
 	Body struct {
 		Data   []*models.ProcessInfo `json:"data"`

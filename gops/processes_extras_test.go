@@ -105,6 +105,17 @@ func TestProcessExtras_BaselinePassGivesFirstResponseRates(t *testing.T) {
 	}
 }
 
+func TestProcessExtras_BaselinePassWithoutCPU(t *testing.T) {
+	self := ownProcess(t)
+	if _, _, ok := processDiskBytes(self); !ok {
+		t.Skip("own process disk counters unreadable on this platform")
+	}
+	res, err := newProcessTestUtil(t, self).GetProcessesWithOptions(ProcessOptions{IO: true})
+	require.NoError(t, err)
+	assert.NotNil(t, res.Processes[0].DiskRead, "extras get first-response rates with process CPU off")
+	assert.Zero(t, res.Processes[0].CPU)
+}
+
 func TestProcessExtras_GPUFromCursor(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("per-process GPU is Linux-only")
@@ -142,7 +153,7 @@ func TestProcessExtras_OffLeavesRowsAndCursorUnchanged(t *testing.T) {
 	}
 
 	fields := cursorJSON(t, res.Cursor)
-	assert.ElementsMatch(t, []string{"t", "pid", "cpu", "dt"}, keys(fields), "an extras-off cursor keeps the old wire format")
+	assert.ElementsMatch(t, []string{"t", "pid", "cpu", "dt", "st"}, keys(fields), "an extras-off cursor carries no extras")
 }
 
 func keys(m map[string]json.RawMessage) []string {
@@ -193,36 +204,48 @@ func TestSetProcessExtras_DiskRates(t *testing.T) {
 	cur := &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now}, ioOK: true, io: [2]uint64{1 << 20, 2 << 20}}
 
 	var info models.ProcessInfo
-	setProcessExtras(&info, prev, cur, procGPU{}, 0)
+	setProcessExtras(&info, prev, cur, procGPU{})
 	require.NotNil(t, info.DiskRead)
 	require.NotNil(t, info.DiskWrite)
 	assert.InDelta(t, 104857.6, *info.DiskRead, 1e-6)
 	assert.InDelta(t, 209715.2, *info.DiskWrite, 1e-6)
 
 	info = models.ProcessInfo{}
-	setProcessExtras(&info, cur, &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now + 10_000}, ioOK: true}, procGPU{}, 0)
+	setProcessExtras(&info, cur, &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now + 10_000}, ioOK: true}, procGPU{})
 	assert.Nil(t, info.DiskRead, "counters going backwards are not a rate")
 	assert.Nil(t, info.DiskWrite)
 }
 
-func TestSetProcessExtras_ReusedPIDIgnoresPreviousSample(t *testing.T) {
-	const now = int64(1_755_000_010_000)
-	prev := &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now - 10_000}, ioOK: true, gpuOK: true}
-	cur := &processSample{ProcessCursorData: models.ProcessCursorData{Timestamp: now}, ioOK: true, io: [2]uint64{1 << 20, 0}, gpuOK: true}
+func TestProcessExtras_ReusedPIDIgnoresPreviousSample(t *testing.T) {
+	self := ownProcess(t)
+	if _, _, ok := processDiskBytes(self); !ok {
+		t.Skip("own process disk counters unreadable on this platform")
+	}
+	st, ok := readProcStat(self)
+	require.True(t, ok)
+	cursor := func(start uint64) string {
+		return encodeProcessCursor([]processSample{{
+			ProcessCursorData: models.ProcessCursorData{PID: self.Pid, Ticks: st.CPUTime - 1, Timestamp: time.Now().UnixMilli() - 10},
+			start:             start,
+			ioOK:              true,
+		}})
+	}
 
-	var info models.ProcessInfo
-	setProcessExtras(&info, prev, cur, procGPU{Readable: true, UsageKnown: true}, now-5_000)
-	assert.Nil(t, info.DiskRead, "the previous sample belongs to an older process with this PID")
-	assert.Nil(t, info.GPU)
-	assert.NotNil(t, info.VRAMKB, "VRAM needs no previous sample")
+	res, err := newProcessTestUtil(t, self).GetProcessesWithOptions(ProcessOptions{EnableCPU: true, IO: true, Cursor: cursor(st.Start + 1)})
+	require.NoError(t, err)
+	assert.Nil(t, res.Processes[0].DiskRead, "the previous sample belongs to an older process with this PID")
+	assert.Zero(t, res.Processes[0].CPU)
+	assert.Equal(t, st.Start, decodeProcessCursor(res.Cursor)[self.Pid].start)
 
-	setProcessExtras(&info, prev, cur, procGPU{Readable: true, UsageKnown: true}, now-20_000)
-	assert.NotNil(t, info.DiskRead)
-	assert.NotNil(t, info.GPU)
+	res, err = newProcessTestUtil(t, self).GetProcessesWithOptions(ProcessOptions{EnableCPU: true, IO: true, Cursor: cursor(st.Start)})
+	require.NoError(t, err)
+	assert.NotNil(t, res.Processes[0].DiskRead)
+	assert.Positive(t, res.Processes[0].CPU)
 }
 
 // Worst case (seeded, host-independent): 500 readable processes with
-// incompressible 10-12 digit IO counters and GPU clients; measured 13.9 KB total.
+// incompressible IO counters, start ticks, GPU clients and TCP sockets;
+// measured 21.2 KB.
 func TestProcessCursorWithExtrasSize(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	counter := func() uint64 { return 1_000_000_000 + rng.Uint64N(99_000_000_000) } // 10-11 digits
@@ -230,9 +253,17 @@ func TestProcessCursorWithExtrasSize(t *testing.T) {
 	for i := range 500 {
 		s := processSample{
 			ProcessCursorData: models.ProcessCursorData{PID: int32(1000 + i*7 + int(rng.Uint64N(7))), Ticks: float64(rng.Uint64N(10_000_000)) / 100, Timestamp: 1_755_000_000_000 + int64(rng.Uint64N(200))},
+			start:             rng.Uint64N(100_000_000),
 			ioOK:              true,
 			io:                [2]uint64{counter(), counter()},
 			gpuOK:             i%2 == 0,
+			netOK:             true,
+			netAt:             1_755_000_000_000,
+		}
+		if i%10 == 0 {
+			for range 3 {
+				s.net = append(s.net, [3]uint64{rng.Uint64N(1 << 32), counter(), counter()})
+			}
 		}
 		if i%25 == 0 {
 			s.gpu = []gpuCursorClient{{PDev: "0000:0c:00.0", ID: rng.Uint64N(1 << 20), Engines: map[string][3]uint64{
@@ -243,7 +274,7 @@ func TestProcessCursorWithExtrasSize(t *testing.T) {
 	}
 
 	encoded := encodeProcessCursor(entries)
-	assert.Less(t, len(encoded), 18<<10, "cursor with extras is %d bytes", len(encoded))
+	assert.Less(t, len(encoded), 24<<10, "cursor with extras is %d bytes", len(encoded))
 	assert.Len(t, decodeProcessCursor(encoded), 500)
 }
 
@@ -277,6 +308,17 @@ func TestProcessCursor_LegacyCursorStillRatesCPU(t *testing.T) {
 	assert.Nil(t, res.Processes[0].GPU, "a legacy cursor has no GPU baseline")
 }
 
+func TestMergeProcesses_GPUSumIsClamped(t *testing.T) {
+	merged := mergeProcessesByExecutable([]*models.ProcessInfo{
+		{PID: 1, ExecutablePath: "/bin/a", GPU: ptr(30.0), GPUVideo: ptr(70.0), VRAMKB: ptr(uint64(100))},
+		{PID: 2, PPID: 1, ExecutablePath: "/bin/a", GPU: ptr(90.0), GPUVideo: ptr(40.0), VRAMKB: ptr(uint64(50))},
+	})
+	require.Len(t, merged, 1)
+	assert.Equal(t, 100.0, *merged[0].GPU, "summed busiest engines are clamped")
+	assert.Equal(t, 100.0, *merged[0].GPUVideo)
+	assert.Equal(t, uint64(150), *merged[0].VRAMKB)
+}
+
 func TestMergeProcesses_ExtrasUnknownPropagation(t *testing.T) {
 	parent := &models.ProcessInfo{PID: 1, ExecutablePath: "/bin/a", GPU: ptr(30.0), VRAMKB: ptr(uint64(100)), DiskRead: ptr(5.0), StartTime: 111}
 	child := &models.ProcessInfo{PID: 2, PPID: 1, ExecutablePath: "/bin/a", GPU: ptr(90.0), DiskRead: nil, StartTime: 222}
@@ -291,9 +333,9 @@ func TestMergeProcesses_ExtrasUnknownPropagation(t *testing.T) {
 		byPID[p.PID] = p
 	}
 	root := byPID[1]
-	assert.Equal(t, 100.0, *root.GPU, "summed GPU is clamped")
-	assert.Equal(t, uint64(150), *root.VRAMKB)
-	assert.Equal(t, 5.0, *root.DiskRead, "known parent plus unknown child is the parent's value")
+	assert.Nil(t, root.GPU, "a member without GPU makes the sum unknown")
+	assert.Nil(t, root.VRAMKB)
+	assert.Nil(t, root.DiskRead, "known parent plus unknown child is unknown, not the parent's value")
 	assert.Nil(t, root.DiskWrite, "all members unknown stays unknown")
 	assert.Equal(t, int64(111), root.StartTime, "merged rows keep the root's start time")
 	assert.Nil(t, byPID[4].GPU)
@@ -348,59 +390,54 @@ func TestSetProcessExtras_NetRatesPerSocket(t *testing.T) {
 	}}
 
 	var info models.ProcessInfo
-	setProcessExtras(&info, prev, cur, procGPU{}, 0)
+	setProcessExtras(&info, prev, cur, procGPU{})
 	require.NotNil(t, info.NetRx)
 	require.NotNil(t, info.NetTx)
 	assert.InDelta(t, 1.5*mb, *info.NetRx, 1e-6)
 	assert.InDelta(t, 0.5*mb, *info.NetTx, 1e-6)
 
 	info = models.ProcessInfo{}
-	setProcessExtras(&info, &processSample{ProcessCursorData: prev.ProcessCursorData}, cur, procGPU{}, 0)
+	setProcessExtras(&info, &processSample{ProcessCursorData: prev.ProcessCursorData}, cur, procGPU{})
 	assert.Nil(t, info.NetRx, "no previous socket sample means unknown")
 	assert.Nil(t, info.NetTx)
-
-	info = models.ProcessInfo{}
-	setProcessExtras(&info, prev, cur, procGPU{}, now-500)
-	assert.Nil(t, info.NetRx, "the previous sample belongs to an older process with this PID")
 
 	// The rate spans the dump interval (2 s), not the per-process sample times (1 s).
 	skewedPrev := *prev
 	skewedPrev.netAt = now - 2_000
 	info = models.ProcessInfo{}
-	setProcessExtras(&info, &skewedPrev, cur, procGPU{}, 0)
+	setProcessExtras(&info, &skewedPrev, cur, procGPU{})
 	require.NotNil(t, info.NetRx)
 	assert.InDelta(t, 0.75*mb, *info.NetRx, 1e-6)
 
 	skewedPrev.netAt = 0
 	info = models.ProcessInfo{}
-	setProcessExtras(&info, &skewedPrev, cur, procGPU{}, 0)
+	setProcessExtras(&info, &skewedPrev, cur, procGPU{})
 	assert.Nil(t, info.NetRx, "a previous sample without a dump time has no rate")
 
 	info = models.ProcessInfo{}
-	setProcessExtras(&info, prev, &processSample{ProcessCursorData: cur.ProcessCursorData, netOK: true, netAt: now}, procGPU{}, 0)
+	setProcessExtras(&info, prev, &processSample{ProcessCursorData: cur.ProcessCursorData, netOK: true, netAt: now}, procGPU{})
 	require.NotNil(t, info.NetRx)
 	assert.Zero(t, *info.NetRx, "all sockets closed is 0, not unknown")
 }
 
 func TestProcessCursor_NetRoundTrip(t *testing.T) {
-	samples := []processSample{
-		{ProcessCursorData: models.ProcessCursorData{PID: 1, Ticks: 1, Timestamp: 1000}, netOK: true, netAt: 5000, net: [][3]uint64{{9, 10, 20}}},
-		{ProcessCursorData: models.ProcessCursorData{PID: 2, Ticks: 2, Timestamp: 1001}, netOK: true, netAt: 5000},
-		{ProcessCursorData: models.ProcessCursorData{PID: 3, Ticks: 3, Timestamp: 1002}},
+	prev := []processSample{
+		{ProcessCursorData: models.ProcessCursorData{PID: 1, Timestamp: 1000}, netOK: true, netAt: 1000, net: [][3]uint64{{9, 10, 20}}},
+		{ProcessCursorData: models.ProcessCursorData{PID: 2, Timestamp: 1000}, netOK: true, netAt: 1000},
+		{ProcessCursorData: models.ProcessCursorData{PID: 3, Timestamp: 1000}},
 	}
-
-	encoded := encodeProcessCursor(samples)
-	got := decodeProcessCursor(encoded)
-
+	got := decodeProcessCursor(encodeProcessCursor(prev))
 	require.Len(t, got, 3)
-	assert.Equal(t, samples[0], *got[1])
-	assert.True(t, got[2].netOK, "sampled with no sockets")
-	assert.Empty(t, got[2].net)
-	assert.False(t, got[3].netOK, "not sampled")
-	assert.Contains(t, cursorJSON(t, encoded), "n")
-	assert.JSONEq(t, "5000", string(cursorJSON(t, encoded)["nt"]))
-	assert.Equal(t, int64(5000), got[2].netAt)
-	assert.Zero(t, got[3].netAt)
+
+	rate := func(pid int32, net ...[3]uint64) *float64 {
+		var info models.ProcessInfo
+		cur := &processSample{ProcessCursorData: models.ProcessCursorData{PID: pid, Timestamp: 2000}, netOK: true, netAt: 2000, net: net}
+		setProcessExtras(&info, got[pid], cur, procGPU{})
+		return info.NetRx
+	}
+	assert.Equal(t, ptr(1000.0), rate(1, [3]uint64{9, 1010, 20}), "socket counters survive the round trip")
+	assert.Equal(t, ptr(0.0), rate(2), "sampled with no sockets is 0")
+	assert.Nil(t, rate(3), "not sampled has no rate")
 
 	got = decodeProcessCursor(gzipB64(t, `{"t":5,"pid":[1],"cpu":[1000],"dt":[0],"n":{"1":"nope"}}`))
 	require.Len(t, got, 1)
@@ -427,16 +464,40 @@ func TestMergeProcesses_NetSumsAndRecaps(t *testing.T) {
 		byPID[p.PID] = p
 	}
 	root := byPID[1]
-	assert.Equal(t, 35, *root.Connections, "the count stays exact")
+	assert.Nil(t, root.Connections, "a member with unknown sockets makes the count unknown")
 	assert.Len(t, root.Remotes, maxProcRemotes)
 	assert.Equal(t, "8.8.8.8:443", root.Remotes[31].Remote)
-	assert.Equal(t, 150.0, *root.NetRx)
-	assert.Equal(t, 10.0, *root.NetTx, "known parent plus unknown child is the parent's value")
+	assert.Nil(t, root.NetRx)
 	assert.Nil(t, byPID[4].Connections)
+
+	known := mergeProcessesByExecutable([]*models.ProcessInfo{parent, child})
+	require.Len(t, known, 1)
+	assert.Equal(t, 35, *known[0].Connections, "the count stays exact")
+	assert.Equal(t, 150.0, *known[0].NetRx)
+	assert.Nil(t, known[0].NetTx, "the child's unknown tx makes the sum unknown")
 
 	assert.Equal(t, 30, *parent.Connections, "the original rows must not be written through")
 	assert.Equal(t, models.NetConnection{}, parent.Remotes[:31][30], "the parent's spare capacity must not be appended into")
 	assert.Equal(t, 100.0, *parent.NetRx)
+}
+
+func TestSortProcesses_TiesBreakOnPID(t *testing.T) {
+	for _, sortBy := range []ProcSortBy{SortByCPU, SortByMemory, SortByName, SortByGPU, SortByNetwork} {
+		list := []*models.ProcessInfo{{PID: 5}, {PID: 2}, {PID: 9}, {PID: 1}}
+		sortProcesses(list, sortBy)
+		assert.Equal(t, []int32{1, 2, 5, 9}, []int32{list[0].PID, list[1].PID, list[2].PID, list[3].PID}, string(sortBy))
+	}
+}
+
+func TestProcessOptions_ExtraSortWithoutExtraFallsBackToCPU(t *testing.T) {
+	for sortBy, opts := range map[ProcSortBy]ProcessOptions{
+		SortByGPU: {GPU: true}, SortByVRAM: {GPU: true}, SortByDisk: {IO: true}, SortByNetwork: {Net: true},
+	} {
+		assert.Equal(t, SortByCPU, ProcessOptions{SortBy: sortBy}.effectiveSort(), string(sortBy))
+		opts.SortBy = sortBy
+		assert.Equal(t, sortBy, opts.effectiveSort(), string(sortBy))
+	}
+	assert.Equal(t, SortByName, ProcessOptions{SortBy: SortByName}.effectiveSort())
 }
 
 func TestSortProcesses_Network(t *testing.T) {

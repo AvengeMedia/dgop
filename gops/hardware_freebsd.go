@@ -171,7 +171,7 @@ func parsePciconfCaption(line string) (key, value string, ok bool) {
 	return strings.TrimSpace(k), strings.Trim(strings.TrimSpace(v), "'"), true
 }
 
-func getNvidiaTemperature() (float64, string) {
+func getNvidiaTemperature(_ string) (float64, string) {
 	cmd := exec.Command("nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
 	output, err := cmd.Output()
 	if err != nil {

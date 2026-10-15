@@ -190,3 +190,10 @@ func TestProcessDetailEndpoint(t *testing.T) {
 		t.Errorf("pid = %v, want %d", body["pid"], os.Getpid())
 	}
 }
+
+func TestProcessDetailEndpointNotFound(t *testing.T) {
+	resp := newAPI(t).Get("/gops/process/2147483647")
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status %d, want 404: %s", resp.Code, resp.Body.String())
+	}
+}

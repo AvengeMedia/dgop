@@ -54,7 +54,7 @@ func TestReadHwmonChips_AmdgpuLayout(t *testing.T) {
 	})
 	linkHwmonDevice(t, root, hw, "pci0000:00/0000:0c:00.0")
 
-	chips := readHwmonChips(filepath.Join(root, "hwmon"))
+	chips := NewGopsUtil().readHwmonChips(filepath.Join(root, "hwmon"))
 	require.Len(t, chips, 1)
 	chip := chips[0]
 	assert.Equal(t, "amdgpu", chip.Name)
@@ -92,7 +92,7 @@ func TestReadHwmonChips_PowerInputPreferredOverAverage(t *testing.T) {
 		"power1_input":   "5000000",
 		"power1_average": "9000000",
 	})
-	chips := readHwmonChips(root)
+	chips := NewGopsUtil().readHwmonChips(root)
 	require.Len(t, chips, 1)
 	require.Len(t, chips[0].Readings, 1)
 	assert.InDelta(t, 5, chips[0].Readings[0].Value, 1e-9)
@@ -107,7 +107,7 @@ func TestReadHwmonChips_UnlabeledAndNonNumeric(t *testing.T) {
 		"temp3_input": "40000",
 		"temp3_label": "Tccd1",
 	})
-	chips := readHwmonChips(root)
+	chips := NewGopsUtil().readHwmonChips(root)
 	require.Len(t, chips, 1)
 	assert.Empty(t, chips[0].Device)
 	require.Len(t, chips[0].Readings, 2)
@@ -125,7 +125,7 @@ func TestReadHwmonChips_SkipsSuspendedAndDrivetemp(t *testing.T) {
 	writeHwmonFiles(t, filepath.Join(root, "hwmon1"), map[string]string{"name": "drivetemp", "temp1_input": "1000"})
 	writeHwmonFiles(t, filepath.Join(root, "hwmon2"), map[string]string{"name": "nvme", "temp1_input": "1000"})
 
-	chips := readHwmonChips(root)
+	chips := NewGopsUtil().readHwmonChips(root)
 	require.Len(t, chips, 1)
 	assert.Equal(t, "nvme", chips[0].Name)
 }
@@ -137,33 +137,32 @@ func TestReadHwmonChip_I2CNeverBlocksCaller(t *testing.T) {
 	linkHwmonDevice(t, root, hw, "pci/i2c-10/10-0018")
 
 	release := make(chan struct{})
-	oldFn, oldWait := i2cReadFn, i2cWait
 	var calls atomic.Int32
-	i2cReadFn = func(string) []hwmonReading {
+	g := NewGopsUtil()
+	g.i2cRead = func(string) []hwmonReading {
 		calls.Add(1)
 		<-release
 		return []hwmonReading{{Kind: sensorTemperature, Label: "temp1", Value: 33}}
 	}
-	i2cWait = 20 * time.Millisecond
+	g.i2cWait = 20 * time.Millisecond
 	t.Cleanup(func() {
-		i2cReadFn, i2cWait = oldFn, oldWait
 		i2cMu.Lock()
 		delete(i2cCache, hw)
 		i2cMu.Unlock()
 	})
 
 	start := time.Now()
-	chip, ok := readHwmonChip(hw)
+	chip, ok := g.readHwmonChip(hw)
 	require.True(t, ok)
 	assert.Less(t, time.Since(start), time.Second)
 	assert.Equal(t, "10-0018", chip.Device)
 	assert.Empty(t, chip.Readings)
-	readHwmonChip(hw)
+	g.readHwmonChip(hw)
 	assert.Equal(t, int32(1), calls.Load())
 
 	close(release)
 	require.Eventually(t, func() bool {
-		c, _ := readHwmonChip(hw)
+		c, _ := g.readHwmonChip(hw)
 		return len(c.Readings) == 1 && c.Readings[0].Value == 33
 	}, 2*time.Second, 10*time.Millisecond)
 }
@@ -194,7 +193,7 @@ func TestReadHwmonChips_LimitsAndFreq(t *testing.T) {
 		"power1_input": "1000000", "power1_cap": "0", "power1_max": "50000000",
 		"freq1_input": "2500000000", "freq1_label": "sclk",
 	})
-	chips := readHwmonChips(root)
+	chips := NewGopsUtil().readHwmonChips(root)
 	require.Len(t, chips, 1)
 	by := map[string]hwmonReading{}
 	for _, r := range chips[0].Readings {
@@ -215,18 +214,16 @@ func TestReadHwmonChips_LimitsAndFreq(t *testing.T) {
 	}
 }
 
-func TestReadHwmonChip_SuspendedFlag(t *testing.T) {
+func TestReadHwmonChip_SuspendedIsSkipped(t *testing.T) {
 	root := t.TempDir()
 	hw := filepath.Join(root, "hwmon0")
 	writeHwmonFiles(t, hw, map[string]string{"name": "amdgpu", "temp1_input": "1000"})
 	linkHwmonDevice(t, root, hw, "pci/0000:03:00.0")
 	writeHwmonFiles(t, filepath.Join(root, "devices", "pci", "0000:03:00.0", "power"), map[string]string{"runtime_status": "suspended"})
-	chip, ok := readHwmonChip(hw)
-	require.True(t, ok)
-	assert.True(t, chip.Suspended)
-	assert.Empty(t, chip.Readings)
+	_, ok := NewGopsUtil().readHwmonChip(hw)
+	assert.False(t, ok)
 
-	_, ok = readHwmonChip(filepath.Join(root, "missing"))
+	_, ok = NewGopsUtil().readHwmonChip(filepath.Join(root, "missing"))
 	assert.False(t, ok)
 }
 
@@ -236,7 +233,7 @@ func TestReadHwmonChips_EvictsStaleI2CCache(t *testing.T) {
 	i2cCache[filepath.Join(root, "gone")] = &i2cState{}
 	i2cMu.Unlock()
 	writeHwmonFiles(t, filepath.Join(root, "hwmon0"), map[string]string{"name": "x"})
-	readHwmonChips(root)
+	NewGopsUtil().readHwmonChips(root)
 	i2cMu.Lock()
 	defer i2cMu.Unlock()
 	assert.NotContains(t, i2cCache, filepath.Join(root, "gone"))

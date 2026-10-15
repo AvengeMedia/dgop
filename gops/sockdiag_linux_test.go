@@ -97,9 +97,7 @@ func TestParseSockDiagCapturedTCPv6(t *testing.T) {
 	want := sockDiagEntry{
 		Inode:      0x1adef7,
 		Protocol:   unix.IPPROTO_TCP,
-		Local:      netip.MustParseAddrPort("[::1]:36332"),
 		Remote:     netip.MustParseAddrPort("[::1]:43513"),
-		State:      tcpEstablished,
 		TxBytes:    6,
 		RxBytes:    0,
 		HasTCPInfo: true,
@@ -145,7 +143,6 @@ func TestParseInetDiagMsgTCPInfo(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, uint32(42), e.Inode)
 			assert.Equal(t, tt.protocol, e.Protocol)
-			assert.Equal(t, netip.MustParseAddrPort("192.0.2.10:40000"), e.Local)
 			assert.Equal(t, netip.MustParseAddrPort("198.51.100.7:443"), e.Remote)
 			assert.Equal(t, tt.info, e.HasTCPInfo)
 			assert.Equal(t, tt.rx, e.RxBytes)
@@ -218,21 +215,20 @@ func TestDumpSocketsLive(t *testing.T) {
 	serverInode := socketInode(t, server.(*net.TCPConn))
 	clientInode := socketInode(t, client.(*net.TCPConn))
 	udpInode := socketInode(t, udpCli.(*net.UDPConn))
+	listenInode := socketInode(t, ln.(*net.TCPListener))
 	var found int
 	for _, e := range entries {
 		assert.NotZero(t, e.Inode)
-		assert.NotEqual(t, uint8(tcpListen), e.State)
+		assert.NotEqual(t, listenInode, e.Inode, "listening sockets are not dumped")
 		switch e.Inode {
 		case serverInode:
 			found++
 			assert.Equal(t, uint8(unix.IPPROTO_TCP), e.Protocol)
-			assert.Equal(t, ln.Addr().String(), e.Local.String())
 			assert.Equal(t, client.LocalAddr().String(), e.Remote.String())
 			assert.True(t, e.HasTCPInfo)
 			assert.Equal(t, uint64(5), e.RxBytes)
 		case clientInode:
 			found++
-			assert.Equal(t, server.RemoteAddr().String(), e.Local.String())
 			assert.Equal(t, ln.Addr().String(), e.Remote.String())
 			assert.True(t, e.HasTCPInfo)
 		case udpInode:

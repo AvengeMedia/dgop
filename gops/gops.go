@@ -15,10 +15,14 @@ type GopsUtil struct {
 	hostProvider HostInfoProvider
 	loadProvider LoadInfoProvider
 	fs           FileSystem
+
+	detectGPUs func() ([]models.GPU, error)
+	gpuTemp    func(models.GPU) models.GPUTempInfo
+	platformSources
 }
 
 func NewGopsUtil() *GopsUtil {
-	return &GopsUtil{
+	return withDefaultSources(&GopsUtil{
 		cpuProvider:  &DefaultCPUInfoProvider{},
 		memProvider:  &DefaultMemoryInfoProvider{},
 		diskProvider: &DefaultDiskInfoProvider{},
@@ -27,7 +31,7 @@ func NewGopsUtil() *GopsUtil {
 		hostProvider: &DefaultHostInfoProvider{},
 		loadProvider: &DefaultLoadInfoProvider{},
 		fs:           &DefaultFileSystem{},
-	}
+	})
 }
 
 // NewGopsUtilWithProviders creates a GopsUtil with custom providers (for testing)
@@ -41,7 +45,7 @@ func NewGopsUtilWithProviders(
 	load LoadInfoProvider,
 	fs FileSystem,
 ) *GopsUtil {
-	return &GopsUtil{
+	return withDefaultSources(&GopsUtil{
 		cpuProvider:  cpu,
 		memProvider:  mem,
 		diskProvider: disk,
@@ -50,7 +54,14 @@ func NewGopsUtilWithProviders(
 		hostProvider: host,
 		loadProvider: load,
 		fs:           fs,
-	}
+	})
+}
+
+func withDefaultSources(g *GopsUtil) *GopsUtil {
+	g.detectGPUs = detectGPUs
+	g.gpuTemp = gpuTemp
+	g.platformSources = defaultPlatformSources()
+	return g
 }
 
 func (self *GopsUtil) GetAllMetrics(procSortBy ProcSortBy, procLimit int, enableProcessCPU bool, mergeChildren bool) (*models.SystemMetrics, error) {

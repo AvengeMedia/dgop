@@ -3,105 +3,164 @@
 package gops
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+
+	"github.com/AvengeMedia/dgop/models"
+	"golang.org/x/sys/unix"
 )
+
+type gpuNodeState uint8
+
+const (
+	gpuNodeUnknown gpuNodeState = iota // a node of no detected GPU
+	gpuNodeRead
+	// A runtime-suspended GPU has been idle for at least its autosuspend delay.
+	gpuNodeSuspended
+	gpuNodeExcluded
+)
+
+type gpuNodeSet struct {
+	nodes  map[string]gpuNodeState
+	nvidia bool // an enabled NVIDIA GPU is awake
+}
+
+// gpuNodes reads sysfs only. Only gpuNodeRead nodes may have their fdinfo
+// read: that runs the driver, which can resume a suspended GPU.
+func gpuNodes(pciRoot string, gpus []models.GPU, pciIds []string) gpuNodeSet {
+	set := gpuNodeSet{nodes: map[string]gpuNodeState{}}
+	for _, g := range gpus {
+		state := gpuNodeRead
+		switch {
+		case !gpuEnabled(pciIds, g.PciId, g.PciSlot):
+			state = gpuNodeExcluded
+		case gpuSuspended(pciRoot, g.PciSlot):
+			state = gpuNodeSuspended
+		}
+		set.nvidia = set.nvidia || g.Driver == "nvidia" && state == gpuNodeRead
+		entries, _ := os.ReadDir(filepath.Join(pciRoot, g.PciSlot, "drm"))
+		for _, e := range entries {
+			set.nodes[e.Name()] = state
+		}
+	}
+	return set
+}
 
 type procFDScan struct {
 	DRM drmClientSet
 	// NvidiaGPU is set for an fd on /dev/nvidia<N>, which CUDA and other
 	// proprietary-driver clients use without any /dev/dri fd.
-	NvidiaGPU bool
-	// ExcludedGPU is set for an fd on a drmNodes node mapped to false: a GPU
-	// whose fdinfo must not be read. Only the fd link is looked at.
+	NvidiaGPU   bool
 	ExcludedGPU bool
+	UnknownGPU  bool
 	// SocketInodes is filled only when sockets are requested.
 	SocketInodes []uint32
 }
 
-// scanProcFDs returns an error only when the fd directory itself is unreadable,
-// so callers can tell an unknown process from one without matching fds.
-// Only fdinfo of /dev/dri nodes mapped to true in drmNodes is read: reading it
-// runs the driver, which can resume a runtime-suspended GPU.
-func scanProcFDs(procRoot string, pid int32, drmNodes map[string]bool) (procFDScan, error) {
-	return scanProcFDsOpt(procRoot, pid, drmNodes, false)
-}
+var (
+	driPrefix    = []byte("/dev/dri/")
+	nvidiaPrefix = []byte("/dev/nvidia")
+	socketPrefix = []byte("socket:[")
+)
 
-// scanProcFDsOpt additionally collects socket inodes when sockets is set.
-func scanProcFDsOpt(procRoot string, pid int32, drmNodes map[string]bool, sockets bool) (procFDScan, error) {
+// scanProcFDs returns an error only when the fd directory itself is
+// unreadable, so callers can tell an unknown process from one without
+// matching fds.
+func scanProcFDs(procRoot string, pid int32, nodes map[string]gpuNodeState, sockets bool) (procFDScan, error) {
 	pidDir := filepath.Join(procRoot, strconv.Itoa(int(pid)))
-	entries, err := os.ReadDir(filepath.Join(pidDir, "fd"))
+	dir, err := os.Open(filepath.Join(pidDir, "fd"))
+	if err != nil {
+		return procFDScan{}, err
+	}
+	defer dir.Close()
+	names, err := dir.Readdirnames(-1)
 	if err != nil {
 		return procFDScan{}, err
 	}
 
-	scan := procFDScan{DRM: drmClientSet{}}
-	for _, entry := range entries {
-		target, err := os.Readlink(filepath.Join(pidDir, "fd", entry.Name()))
-		if err == nil && isNvidiaGPUDevice(target) {
-			scan.NvidiaGPU = true
-			continue
-		}
-		if sockets && err == nil {
-			if inode, ok := parseSocketLink(target); ok {
-				scan.SocketInodes = append(scan.SocketInodes, inode)
-				continue
-			}
-		}
-		node, isDRM := strings.CutPrefix(target, "/dev/dri/")
-		if err != nil || !isDRM {
-			continue
-		}
-		if read, known := drmNodes[node]; !read {
-			scan.ExcludedGPU = scan.ExcludedGPU || known
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(pidDir, "fdinfo", entry.Name()))
+	var scan procFDScan
+	dirfd := int(dir.Fd())
+	buf := make([]byte, 64)
+	for _, name := range names {
+		n, err := unix.Readlinkat(dirfd, name, buf)
 		if err != nil {
 			continue
 		}
-		if client, ok := parseDRMFdinfo(string(data)); ok {
-			scan.DRM[client.key()] = client
+		target := buf[:n]
+		switch {
+		case sockets && bytes.HasPrefix(target, socketPrefix):
+			if inode, ok := parseSocketLink(target); ok {
+				scan.SocketInodes = append(scan.SocketInodes, inode)
+			}
+		case bytes.HasPrefix(target, nvidiaPrefix):
+			scan.NvidiaGPU = scan.NvidiaGPU || isNvidiaGPUDevice(target)
+		case bytes.HasPrefix(target, driPrefix):
+			switch nodes[string(target[len(driPrefix):])] {
+			case gpuNodeUnknown:
+				scan.UnknownGPU = true
+			case gpuNodeExcluded:
+				scan.ExcludedGPU = true
+			case gpuNodeRead:
+				data, err := os.ReadFile(filepath.Join(pidDir, "fdinfo", name))
+				if err != nil {
+					continue
+				}
+				if client, ok := parseDRMFdinfo(string(data)); ok {
+					if scan.DRM == nil {
+						scan.DRM = drmClientSet{}
+					}
+					scan.DRM[client.key()] = client
+				}
+			}
 		}
 	}
 	return scan, nil
 }
 
-func parseSocketLink(target string) (uint32, bool) {
-	s, ok := strings.CutPrefix(target, "socket:[")
+func (self processExtras) readFDs(procRoot string, pid int32) (g procGPU, n procNet) {
+	sockets := self.net != nil && self.net.ok
+	if self.gpu == nil && !sockets {
+		return g, n
+	}
+	var nodes map[string]gpuNodeState
+	if self.gpu != nil {
+		nodes = self.gpu.nodes
+	}
+	scan, err := scanProcFDs(procRoot, pid, nodes, sockets)
+	if err != nil {
+		return g, n
+	}
+	if self.gpu != nil {
+		g = self.gpu.fromScan(pid, scan)
+	}
+	if sockets {
+		n = self.net.fromScan(scan)
+	}
+	return g, n
+}
+
+func parseSocketLink(target []byte) (uint32, bool) {
+	s, ok := bytes.CutPrefix(target, socketPrefix)
 	if !ok {
 		return 0, false
 	}
-	n, err := strconv.ParseUint(strings.TrimSuffix(s, "]"), 10, 32)
+	n, err := strconv.ParseUint(string(bytes.TrimSuffix(s, []byte("]"))), 10, 32)
 	return uint32(n), err == nil
 }
 
-func isNvidiaGPUDevice(path string) bool {
-	n, ok := strings.CutPrefix(path, "/dev/nvidia")
-	if !ok || n == "" {
+func isNvidiaGPUDevice(target []byte) bool {
+	n, ok := bytes.CutPrefix(target, nvidiaPrefix)
+	if !ok || len(n) == 0 {
 		return false
 	}
-	_, err := strconv.ParseUint(n, 10, 32)
-	return err == nil
-}
-
-// drmNodes returns the /dev/dri node names of the given PCI devices, read from
-// sysfs only.
-func drmNodes(pciRoot string, bdfs ...string) map[string]bool {
-	return drmNodesAs(map[string]bool{}, true, pciRoot, bdfs...)
-}
-
-// drmNodesAs adds the nodes of the given PCI devices to nodes with value v.
-func drmNodesAs(nodes map[string]bool, v bool, pciRoot string, bdfs ...string) map[string]bool {
-	for _, bdf := range bdfs {
-		entries, _ := os.ReadDir(filepath.Join(pciRoot, bdf, "drm"))
-		for _, entry := range entries {
-			nodes[entry.Name()] = v
+	for _, c := range n {
+		if c < '0' || c > '9' {
+			return false
 		}
 	}
-	return nodes
+	return true
 }
 
 func listProcPIDs(procRoot string) ([]int32, error) {

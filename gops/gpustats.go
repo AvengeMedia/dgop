@@ -6,13 +6,6 @@ import (
 	"github.com/AvengeMedia/dgop/models"
 )
 
-// Test seams for GetGPUStats.
-var (
-	detectGPUsFn   = detectGPUs
-	fillGPUStatsFn = fillGPUStats
-	gpuTempFn      = (*GopsUtil).GetGPUTemp
-)
-
 // gpuEnabled reports whether a GPU may be monitored. A nil list means no
 // filter; a non-nil list (even empty) enables only the GPUs it names, by
 // vendor:device ID or PCI slot.
@@ -33,11 +26,11 @@ func gpuEnabled(pciIds []string, pciId, pciSlot string) bool {
 // enables all); the others are listed with identity only and never read. The
 // cursor carries DRM client counters for GPUs whose usage comes from fdinfo.
 func (self *GopsUtil) GetGPUStats(cursor string, pciIds []string) (*models.GPUStatsInfo, error) {
-	detected, err := detectGPUsFn()
+	detected, err := self.detectGPUs()
 	if err != nil {
 		return nil, err
 	}
-	return statsFor(detected, cursor, pciIds, fillGPUStatsFn), nil
+	return statsFor(detected, cursor, pciIds, self.fillGPUStats), nil
 }
 
 // statsFor lists every detected GPU and fills stats for the enabled ones only.

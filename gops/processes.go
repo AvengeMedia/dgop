@@ -2,6 +2,7 @@ package gops
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
@@ -11,13 +12,12 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
-	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/AvengeMedia/dgop/models"
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
@@ -44,6 +44,8 @@ type processCursorBase struct {
 	PIDs         []int32 `json:"pid"`
 	CPUMillis    []int64 `json:"cpu"`
 	OffsetMillis []int64 `json:"dt"`
+	// Starts holds each procStat.Start; cursors from before it have none.
+	Starts []uint64 `json:"st,omitempty"`
 }
 
 type processCursorWire struct {
@@ -67,6 +69,7 @@ type processCursorWire struct {
 // unsampled extra has no rate.
 type processSample struct {
 	models.ProcessCursorData
+	start uint64
 	ioOK  bool
 	io    [2]uint64
 	gpuOK bool
@@ -81,6 +84,7 @@ func encodeProcessCursor(entries []processSample) string {
 		PIDs:         make([]int32, 0, len(entries)),
 		CPUMillis:    make([]int64, 0, len(entries)),
 		OffsetMillis: make([]int64, 0, len(entries)),
+		Starts:       make([]uint64, 0, len(entries)),
 	}}
 	for i, e := range entries {
 		if i == 0 || e.Timestamp < wire.BaseMillis {
@@ -91,6 +95,7 @@ func encodeProcessCursor(entries []processSample) string {
 		wire.PIDs = append(wire.PIDs, e.PID)
 		wire.CPUMillis = append(wire.CPUMillis, int64(math.Round(e.Ticks*1000)))
 		wire.OffsetMillis = append(wire.OffsetMillis, e.Timestamp-wire.BaseMillis)
+		wire.Starts = append(wire.Starts, e.start)
 		if e.ioOK {
 			wire.IOPIDs = append(wire.IOPIDs, e.PID)
 			wire.IORead = append(wire.IORead, e.io[0])
@@ -157,6 +162,9 @@ func decodeProcessCursor(cursor string) map[int32]*processSample {
 				Timestamp: wire.BaseMillis + wire.OffsetMillis[i],
 			},
 		}
+		if len(wire.Starts) == len(wire.PIDs) {
+			entries[i].start = wire.Starts[i]
+		}
 		entries[i].gpu, entries[i].gpuOK = wire.GPU[pid]
 		if entries[i].net, entries[i].netOK = wire.Net[pid]; entries[i].netOK {
 			entries[i].netAt = wire.NetAt
@@ -173,17 +181,20 @@ func decodeProcessCursor(cursor string) map[int32]*processSample {
 	return out
 }
 
-// gopsutil can panic on macOS when reading process info for system processes
-// or processes that exit mid-read, and this runs on the request goroutine
-// where a panic would take down the whole call.
-func readProcessTimes(p *process.Process) (times *cpu.TimesStat) {
-	defer func() {
-		if recover() != nil {
-			times = nil
-		}
-	}()
-	times, _ = p.Times()
-	return times
+// procStat is what the process list reads from /proc/<pid>/stat on Linux.
+// Elsewhere only PPID, CPUTime, Start and CreatedMillis are set.
+type procStat struct {
+	PPID    int32
+	State   string
+	Nice    int
+	Threads int
+	TTY     int
+	// CPUTime is user plus system time in seconds.
+	CPUTime float64
+	// Start tells a reused PID apart: clock ticks after boot on Linux,
+	// the creation time elsewhere.
+	Start         uint64
+	CreatedMillis int64
 }
 
 func (self *GopsUtil) GetProcesses(sortBy ProcSortBy, limit int, enableCPU bool, mergeChildren bool) (*models.ProcessListResponse, error) {
@@ -210,6 +221,24 @@ type ProcessOptions struct {
 	Net       bool
 }
 
+func (self ProcessOptions) effectiveSort() ProcSortBy {
+	switch self.SortBy {
+	case SortByGPU, SortByVRAM:
+		if !self.GPU {
+			return SortByCPU
+		}
+	case SortByDisk:
+		if !self.IO {
+			return SortByCPU
+		}
+	case SortByNetwork:
+		if !self.Net {
+			return SortByCPU
+		}
+	}
+	return self.SortBy
+}
+
 // processExtras reads the optional per-process counters into a sample.
 type processExtras struct {
 	gpu *procGPUReader
@@ -217,8 +246,7 @@ type processExtras struct {
 	io  bool
 }
 
-// sample recovers like readProcessTimes, since the baseline pass calls it on
-// the request goroutine.
+// sample recovers because the baseline pass calls it on the request goroutine.
 func (self processExtras) sample(p *process.Process, s *processSample) (g procGPU, n procNet) {
 	defer func() {
 		if recover() != nil {
@@ -231,16 +259,9 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 		read, write, s.ioOK = processDiskBytes(p)
 		s.io = [2]uint64{read, write}
 	}
-	switch {
-	case self.gpu != nil && self.net != nil:
-		g, n = readGPUAndNet(self.gpu, self.net, p.Pid)
-	case self.gpu != nil:
-		g = self.gpu.read(p.Pid)
-	case self.net != nil:
-		n = self.net.read(p.Pid)
-	}
+	g, n = self.readFDs("/proc", p.Pid)
 	if g.Readable && g.UsageKnown {
-		s.gpuOK, s.gpu = true, g.cursorClients()
+		s.gpuOK, s.gpu = true, cursorClients(g.Clients)
 	}
 	if n.Known && !n.RatesUnknown {
 		s.netOK, s.netAt = true, self.net.dumpedAt
@@ -252,7 +273,7 @@ func (self processExtras) sample(p *process.Process, s *processSample) (g procGP
 }
 
 func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.ProcessListResponse, error) {
-	sortBy, limit, enableCPU, mergeChildren := opts.SortBy, opts.Limit, opts.EnableCPU, opts.MergeChildren
+	limit, enableCPU, mergeChildren := opts.Limit, opts.EnableCPU, opts.MergeChildren
 	procs, err := self.procProvider.Processes()
 	if err != nil {
 		return nil, err
@@ -264,30 +285,30 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 
 	extras := processExtras{io: opts.IO}
 	if opts.GPU {
-		extras.gpu = newProcGPUReader(opts.GPUPciIds)
+		extras.gpu = self.newProcGPUReader(opts.GPUPciIds)
 	}
 	if opts.Net {
-		extras.net = newProcNetReader()
+		extras.net = self.newProcNetReader()
 	}
 
-	if enableCPU && len(cursorMap) == 0 {
+	if (enableCPU || opts.GPU || opts.IO || opts.Net) && len(cursorMap) == 0 {
 		for _, p := range procs {
-			times := readProcessTimes(p)
-			if times == nil {
+			st, ok := readProcStat(p)
+			if !ok {
 				continue
 			}
 			s := &processSample{ProcessCursorData: models.ProcessCursorData{
 				PID:       p.Pid,
-				Ticks:     times.User + times.System,
+				Ticks:     st.CPUTime,
 				Timestamp: time.Now().UnixMilli(),
-			}}
+			}, start: st.Start}
 			extras.sample(p, s)
 			cursorMap[p.Pid] = s
 		}
 		time.Sleep(cpuBaselineInterval)
 		if opts.Net {
 			// Socket counters come from the dump, so the baseline needs its own.
-			extras.net = newProcNetReader()
+			extras.net = self.newProcNetReader()
 		}
 	}
 
@@ -330,25 +351,19 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 
 					name, _ := p.Name()
 					cmdline, _ := p.Cmdline()
-					ppid, _ := p.Ppid()
+					st, sampled := readProcStat(p)
 					memInfo, _ := p.MemoryInfo()
-					times, _ := p.Times()
-					sample := processSample{ProcessCursorData: models.ProcessCursorData{PID: p.Pid, Timestamp: time.Now().UnixMilli()}}
+					sample := processSample{ProcessCursorData: models.ProcessCursorData{PID: p.Pid, Timestamp: time.Now().UnixMilli()}, start: st.Start}
 					gpu, netInfo := extras.sample(p, &sample)
 					sampledAt := sample.Timestamp
 					username, _ := p.Username()
 					exePath, _ := p.Exe()
-					var created, startTime int64
-					if c, err := p.CreateTime(); err == nil {
-						created, startTime = c, c/1000
-					}
-
-					currentCPUTime := float64(0)
-					if times != nil {
-						currentCPUTime = times.User + times.System
-					}
+					currentCPUTime := st.CPUTime
 					sample.Ticks = currentCPUTime
 					prev := cursorMap[p.Pid]
+					if prev != nil && prev.start != 0 && prev.start != st.Start {
+						prev = nil // the PID was reused
+					}
 
 					cpuPercent := 0.0
 					if enableCPU {
@@ -388,7 +403,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 
 					info := &models.ProcessInfo{
 						PID:               p.Pid,
-						PPID:              ppid,
+						PPID:              st.PPID,
 						CPU:               cpuPercent,
 						PTicks:            currentCPUTime,
 						MemoryPercent:     memPercent,
@@ -402,12 +417,12 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 						Command:           name,
 						FullCommand:       cmdline,
 						ExecutablePath:    exePath,
-						StartTime:         startTime,
+						StartTime:         st.CreatedMillis / 1000,
 					}
-					if st, ok := readProcStat(p.Pid); ok {
-						info.Status, info.Threads, info.Nice = st.Status, st.Threads, &st.Nice
+					if st.State != "" {
+						info.Status, info.Threads, info.Nice = st.State, st.Threads, &st.Nice
 					}
-					setProcessExtras(info, prev, &sample, gpu, created)
+					setProcessExtras(info, prev, &sample, gpu)
 					if netInfo.Known {
 						info.Connections = new(netInfo.Count)
 						for _, r := range netInfo.Remotes {
@@ -418,7 +433,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 					results <- procResult{
 						index:   idx,
 						sample:  sample,
-						sampled: times != nil,
+						sampled: sampled,
 						info:    info,
 					}
 				}()
@@ -445,7 +460,7 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 		procList = mergeProcessesByExecutable(procList)
 	}
 
-	sortProcesses(procList, sortBy)
+	sortProcesses(procList, opts.effectiveSort())
 
 	if limit > 0 && len(procList) > limit {
 		procList = procList[:limit]
@@ -458,15 +473,14 @@ func (self *GopsUtil) GetProcessesWithOptions(opts ProcessOptions) (*models.Proc
 }
 
 // setProcessExtras fills the requested extras of info from the current and
-// previous samples. Anything without a previous sample stays unknown, as does
-// a previous sample taken before the process was created (a reused PID).
-func setProcessExtras(info *models.ProcessInfo, prev, cur *processSample, gpu procGPU, createdMillis int64) {
+// previous samples. Rates without a previous sample stay unknown.
+func setProcessExtras(info *models.ProcessInfo, prev, cur *processSample, gpu procGPU) {
 	info.GPUUnmonitored = gpu.Unmonitored
 	if gpu.Readable {
 		info.VRAMKB = new(gpu.VRAMBytes / 1024)
 		info.GPUGttKB = new(gpu.GTTBytes / 1024)
 	}
-	if prev == nil || cur.Timestamp <= prev.Timestamp || createdMillis > prev.Timestamp {
+	if prev == nil || cur.Timestamp <= prev.Timestamp {
 		return
 	}
 	elapsed := time.Duration(cur.Timestamp-prev.Timestamp) * time.Millisecond
@@ -515,57 +529,50 @@ func tcpSocketDeltas(prev, cur [][3]uint64, elapsed time.Duration) (rx, tx float
 	return rx, tx
 }
 
+// Extras sort descending with unknown values last; ties go by PID.
 func sortProcesses(procList []*models.ProcessInfo, sortBy ProcSortBy) {
+	var by func(a, b *models.ProcessInfo) int
 	switch sortBy {
-	case SortByCPU:
-		sort.Slice(procList, func(i, j int) bool {
-			return procList[i].CPU > procList[j].CPU
-		})
 	case SortByMemory:
-		sort.Slice(procList, func(i, j int) bool {
-			return procList[i].MemoryPercent > procList[j].MemoryPercent
-		})
+		by = func(a, b *models.ProcessInfo) int { return cmp.Compare(b.MemoryPercent, a.MemoryPercent) }
 	case SortByName:
-		sort.Slice(procList, func(i, j int) bool {
-			return procList[i].Command < procList[j].Command
-		})
+		by = func(a, b *models.ProcessInfo) int { return strings.Compare(a.Command, b.Command) }
 	case SortByPID:
-		sort.Slice(procList, func(i, j int) bool {
-			return procList[i].PID < procList[j].PID
-		})
+		by = func(a, b *models.ProcessInfo) int { return 0 }
 	case SortByGPU:
-		sort.Slice(procList, func(i, j int) bool {
-			return knownGreater(procList[i].GPU, procList[j].GPU)
-		})
+		by = func(a, b *models.ProcessInfo) int { return knownDesc(a.GPU, b.GPU) }
 	case SortByVRAM:
-		sort.Slice(procList, func(i, j int) bool {
-			return knownGreater(procList[i].VRAMKB, procList[j].VRAMKB)
-		})
+		by = func(a, b *models.ProcessInfo) int { return knownDesc(a.VRAMKB, b.VRAMKB) }
 	case SortByDisk:
-		sort.Slice(procList, func(i, j int) bool {
-			return knownGreater(diskTotal(procList[i]), diskTotal(procList[j]))
-		})
+		by = func(a, b *models.ProcessInfo) int { return knownDesc(diskTotal(a), diskTotal(b)) }
 	case SortByNetwork:
-		sort.Slice(procList, func(i, j int) bool {
-			a, b := procList[i].Connections, procList[j].Connections
-			if (a == nil) != (b == nil) || (a != nil && *a != *b) {
-				return knownGreater(a, b)
+		by = func(a, b *models.ProcessInfo) int {
+			if c := knownDesc(a.Connections, b.Connections); c != 0 {
+				return c
 			}
-			return knownGreater(netTotal(procList[i]), netTotal(procList[j]))
-		})
+			return knownDesc(netTotal(a), netTotal(b))
+		}
 	default:
-		sort.Slice(procList, func(i, j int) bool {
-			return procList[i].CPU > procList[j].CPU
-		})
+		by = func(a, b *models.ProcessInfo) int { return cmp.Compare(b.CPU, a.CPU) }
 	}
+	slices.SortFunc(procList, func(a, b *models.ProcessInfo) int {
+		if c := by(a, b); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID)
+	})
 }
 
-// knownGreater orders descending with unknown values last.
-func knownGreater[T int | float64 | uint64](a, b *T) bool {
-	if a == nil || b == nil {
-		return a != nil && b == nil
+func knownDesc[T int | float64 | uint64](a, b *T) int {
+	switch {
+	case a != nil && b != nil:
+		return cmp.Compare(*b, *a)
+	case a != nil:
+		return -1
+	case b != nil:
+		return 1
 	}
-	return *a > *b
+	return 0
 }
 
 func diskTotal(p *models.ProcessInfo) *float64 {
@@ -680,16 +687,13 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 			if root.GPU != nil && *root.GPU > 100 {
 				root.GPU = new(100.0)
 			}
-			root.GPUUnmonitored = root.GPUUnmonitored || p.GPUUnmonitored
 			root.GPUVideo = addKnown(root.GPUVideo, p.GPUVideo)
 			if root.GPUVideo != nil && *root.GPUVideo > 100 {
 				root.GPUVideo = new(100.0)
 			}
+			root.GPUUnmonitored = root.GPUUnmonitored || p.GPUUnmonitored
 			root.VRAMKB = addKnown(root.VRAMKB, p.VRAMKB)
 			root.GPUGttKB = addKnown(root.GPUGttKB, p.GPUGttKB)
-			if root.GPUUnmonitored {
-				root.GPU, root.GPUVideo, root.VRAMKB, root.GPUGttKB = nil, nil, nil, nil
-			}
 			root.DiskRead = addKnown(root.DiskRead, p.DiskRead)
 			root.DiskWrite = addKnown(root.DiskWrite, p.DiskWrite)
 			root.Connections = addKnown(root.Connections, p.Connections)
@@ -712,15 +716,11 @@ func mergeProcessesByExecutable(procList []*models.ProcessInfo) []*models.Proces
 	return result
 }
 
-// addKnown sums two possibly unknown values into a new allocation, since
+// addKnown is unknown if either value is. The sum is a new allocation since
 // merged roots share pointers with the rows they were cloned from.
-func addKnown[T int | float64 | uint64](sum, v *T) *T {
-	switch {
-	case v == nil:
-		return sum
-	case sum == nil:
-		return new(*v)
-	default:
-		return new(*sum + *v)
+func addKnown[T int | float64 | uint64](a, b *T) *T {
+	if a == nil || b == nil {
+		return nil
 	}
+	return new(*a + *b)
 }

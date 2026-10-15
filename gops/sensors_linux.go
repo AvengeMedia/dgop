@@ -10,7 +10,7 @@ import (
 
 // GetSensors returns every hwmon temperature, fan and power input.
 func (self *GopsUtil) GetSensors() (*models.SensorsInfo, error) {
-	return sensorsFromChips(readHwmonChips(hwmonRoot)), nil
+	return sensorsFromChips(self.readHwmonChips(hwmonRoot)), nil
 }
 
 func sensorsFromChips(chips []hwmonChip) *models.SensorsInfo {

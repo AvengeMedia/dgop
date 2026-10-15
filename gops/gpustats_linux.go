@@ -5,9 +5,7 @@ package gops
 import (
 	"encoding/base64"
 	"encoding/json"
-	"maps"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,22 +20,13 @@ type gpuStatsCursor struct {
 	Clients []gpuCursorClient `json:"c"`
 }
 
-type gpuCursorClient struct {
-	PDev string `json:"p"`
-	// Driver is set only for clients without a PDev, which it disambiguates.
-	Driver string `json:"d,omitempty"`
-	ID     uint64 `json:"i"`
-	// Engine name -> busy ns, cycles, total cycles.
-	Engines map[string][3]uint64 `json:"e"`
-}
-
-func fillGPUStats(gpus []models.GPUStats, cursor string) string {
-	return collectGPUStats(pciDevicesRoot, "/proc", gpus, cursor, time.Now(), queryNvidiaSMI)
+func (self *GopsUtil) fillGPUStats(gpus []models.GPUStats, cursor string) string {
+	return self.collectGPUStats(pciDevicesRoot, "/proc", gpus, cursor, time.Now(), queryNvidiaSMI)
 }
 
 // collectGPUStats fills gpus in place and returns the next cursor. Nothing
 // under a runtime-suspended device is read, so a sleeping dGPU stays asleep.
-func collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor string, now time.Time, nvidia func(bdfs []string) map[string]models.GPUStats) string {
+func (self *GopsUtil) collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor string, now time.Time, nvidia func(bdfs []string) map[string]models.GPUStats) string {
 	fdinfoGPUs := map[string]*models.GPUStats{}
 	var nvidiaBDFs []string
 
@@ -52,7 +41,7 @@ func collectGPUStats(pciRoot, procRoot string, gpus []models.GPUStats, cursor st
 			nvidiaBDFs = append(nvidiaBDFs, g.PciSlot)
 			continue
 		}
-		readGPUSysfs(g, dev)
+		self.readGPUSysfs(g, dev)
 		if g.Usage == nil && drmDriverReportsEngines(g.Driver) {
 			fdinfoGPUs[g.PciSlot] = g
 		}
@@ -81,26 +70,18 @@ func gpuSuspended(pciRoot, bdf string) bool {
 	return readTrimmed(filepath.Join(pciRoot, bdf, "power", "runtime_status")) == "suspended"
 }
 
-// awakeGPUNodes returns the /dev/dri node names of the given GPUs that are not
-// runtime-suspended. Only these nodes may have their fdinfo read.
-func awakeGPUNodes(pciRoot string, bdfs []string) map[string]bool {
-	return drmNodes(pciRoot, slices.DeleteFunc(slices.Clone(bdfs), func(bdf string) bool {
-		return gpuSuspended(pciRoot, bdf)
-	})...)
-}
-
-func readGPUSysfs(g *models.GPUStats, dev string) {
-	g.Usage = readFloatPtr(filepath.Join(dev, "gpu_busy_percent"))
+func (self *GopsUtil) readGPUSysfs(g *models.GPUStats, dev string) {
+	g.Usage = readFloat(filepath.Join(dev, "gpu_busy_percent"))
 	g.VRAMUsed = readUint(filepath.Join(dev, "mem_info_vram_used"))
 	g.VRAMTotal = readUint(filepath.Join(dev, "mem_info_vram_total"))
 	g.GTTUsed = readUint(filepath.Join(dev, "mem_info_gtt_used"))
 	g.GTTTotal = readUint(filepath.Join(dev, "mem_info_gtt_total"))
-	g.MemoryBusy = readFloatPtr(filepath.Join(dev, "mem_busy_percent"))
+	g.MemoryBusy = readFloat(filepath.Join(dev, "mem_busy_percent"))
 
 	hwmons, _ := filepath.Glob(filepath.Join(dev, "hwmon", "hwmon*"))
 	var firstTemp *float64
 	for _, dir := range hwmons {
-		chip, ok := readHwmonChip(dir)
+		chip, ok := self.readHwmonChip(dir)
 		if !ok {
 			continue
 		}
@@ -141,10 +122,9 @@ func readGPUSysfs(g *models.GPUStats, dev string) {
 	}
 	// PWM duty is what nvidia-smi reports as fan speed, so prefer it over rpm.
 	for _, dir := range hwmons {
-		pwm, okPWM := readFloat(filepath.Join(dir, "pwm1"))
-		pwmMax, okMax := readFloat(filepath.Join(dir, "pwm1_max"))
-		if okPWM && okMax && pwmMax > 0 {
-			pct := min(pwm/pwmMax*100, 100)
+		pwm, pwmMax := readFloat(filepath.Join(dir, "pwm1")), readFloat(filepath.Join(dir, "pwm1_max"))
+		if pwm != nil && pwmMax != nil && *pwmMax > 0 {
+			pct := min(*pwm / *pwmMax * 100, 100)
 			g.FanPercent = &pct
 			break
 		}
@@ -157,11 +137,11 @@ func readGPUSysfs(g *models.GPUStats, dev string) {
 
 	cards, _ := filepath.Glob(filepath.Join(dev, "drm", "card[0-9]*"))
 	for _, card := range cards {
-		g.CoreClock = firstSet(g.CoreClock, readFloatPtr(filepath.Join(card, "gt_act_freq_mhz")), readScaled(filepath.Join(card, "gt_cur_freq_mhz"), 1))
+		g.CoreClock = firstSet(g.CoreClock, readFloat(filepath.Join(card, "gt_act_freq_mhz")), readScaled(filepath.Join(card, "gt_cur_freq_mhz"), 1))
 		g.CoreClockMax = firstSet(g.CoreClockMax, readScaled(filepath.Join(card, "gt_RP0_freq_mhz"), 1), readScaled(filepath.Join(card, "gt_max_freq_mhz"), 1))
 	}
 	xe := filepath.Join(dev, "tile0", "gt0", "freq0")
-	g.CoreClock = firstSet(g.CoreClock, readFloatPtr(filepath.Join(xe, "act_freq")))
+	g.CoreClock = firstSet(g.CoreClock, readFloat(filepath.Join(xe, "act_freq")))
 	g.CoreClockMax = firstSet(g.CoreClockMax, readScaled(filepath.Join(xe, "rp0_freq"), 1))
 
 	g.PcieLinkSpeed = readLinkSpeed(filepath.Join(dev, "current_link_speed"))
@@ -204,22 +184,6 @@ func readLinkSpeed(path string) string {
 	return s
 }
 
-func readFloatPtr(path string) *float64 {
-	v, ok := readFloat(path)
-	if !ok {
-		return nil
-	}
-	return &v
-}
-
-func readUint(path string) *uint64 {
-	v, err := strconv.ParseUint(readTrimmed(path), 10, 64)
-	if err != nil {
-		return nil
-	}
-	return &v
-}
-
 func firstSet[T any](values ...*T) *T {
 	for _, v := range values {
 		if v != nil {
@@ -232,11 +196,15 @@ func firstSet[T any](values ...*T) *T {
 // fillFdinfoUsage scans every process's DRM fds, keeps the clients of the
 // given GPUs, and rates them against the previous sample in cursor.
 func fillFdinfoUsage(pciRoot, procRoot string, gpus map[string]*models.GPUStats, cursor string, now time.Time) string {
-	nodes := awakeGPUNodes(pciRoot, slices.Collect(maps.Keys(gpus)))
+	read := make([]models.GPU, 0, len(gpus))
+	for slot := range gpus {
+		read = append(read, models.GPU{PciSlot: slot})
+	}
+	nodes := gpuNodes(pciRoot, read, nil).nodes
 	cur := drmClientSet{}
 	pids, _ := listProcPIDs(procRoot)
 	for _, pid := range pids {
-		scan, err := scanProcFDs(procRoot, pid, nodes)
+		scan, err := scanProcFDs(procRoot, pid, nodes, false)
 		if err != nil {
 			continue
 		}
@@ -295,9 +263,6 @@ func cursorClients(clients drmClientSet) []gpuCursorClient {
 
 func toCursorClient(client drmClient) gpuCursorClient {
 	c := gpuCursorClient{PDev: client.PDev, ID: client.ID, Engines: map[string][3]uint64{}}
-	if client.PDev == "" {
-		c.Driver = client.Driver
-	}
 	for name, e := range client.Engines {
 		if e.BusyNs|e.Cycles|e.TotalCycles != 0 {
 			c.Engines[name] = [3]uint64{e.BusyNs, e.Cycles, e.TotalCycles}
@@ -311,7 +276,7 @@ func toCursorClient(client drmClient) gpuCursorClient {
 func cursorClientSet(clients []gpuCursorClient) drmClientSet {
 	set := drmClientSet{}
 	for _, c := range clients {
-		client := drmClient{Driver: c.Driver, PDev: c.PDev, ID: c.ID, Engines: map[string]drmEngine{}}
+		client := drmClient{PDev: c.PDev, ID: c.ID, Engines: map[string]drmEngine{}}
 		for name, v := range c.Engines {
 			client.Engines[name] = drmEngine{BusyNs: v[0], HasBusy: true, Cycles: v[1], TotalCycles: v[2], Capacity: 1}
 		}

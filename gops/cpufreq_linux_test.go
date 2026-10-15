@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +110,26 @@ func TestReadCPUBaseFrequencyIntel(t *testing.T) {
 	root := t.TempDir()
 	writeSys(t, root, "cpu0/cpufreq/base_frequency", "2400000")
 	assert.Equal(t, 2400.0, readCPUStatic(root).baseMHz)
+}
+
+func TestGetCPUInfoDoesNotShareCache(t *testing.T) {
+	cpuTracker.mu.Lock()
+	cpuTracker.dynamic.coreMHz = []float64{1000}
+	cpuTracker.static.cache = &models.CPUCache{L1d: 1}
+	cpuTracker.modelCached, cpuTracker.freqLastRead = true, time.Now()
+	cpuTracker.mu.Unlock()
+	t.Cleanup(func() {
+		cpuTracker.mu.Lock()
+		cpuTracker.modelCached, cpuTracker.freqLastRead = false, time.Time{}
+		cpuTracker.mu.Unlock()
+	})
+
+	info, err := NewGopsUtil().GetCPUInfo()
+	require.NoError(t, err)
+	info.CoreFrequencies[0], info.Cache.L1d = 0, 0
+
+	info, err = NewGopsUtil().GetCPUInfo()
+	require.NoError(t, err)
+	assert.Equal(t, []float64{1000}, info.CoreFrequencies)
+	assert.Equal(t, uint64(1), info.Cache.L1d)
 }

@@ -81,3 +81,15 @@ func TestReadZramStats(t *testing.T) {
 	assert.Zero(t, orig)
 	assert.Zero(t, compr)
 }
+
+func TestReadMemoryModulesFailsWithoutAnySource(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, err := readMemoryModules(filepath.Join(t.TempDir(), "missing"))
+	assert.Error(t, err, "no udev data and no udevadm is an error, not an empty list")
+
+	path := filepath.Join(t.TempDir(), "dmi")
+	require.NoError(t, os.WriteFile(path, []byte(dmiFixture), 0o644))
+	info, err := readMemoryModules(path)
+	require.NoError(t, err)
+	assert.NotEmpty(t, info.Modules)
+}

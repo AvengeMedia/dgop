@@ -106,13 +106,3 @@ func (in *MetaInput) Resolve(ctx huma.Context) []error {
 	in.GPUPciIds = pciIdsFromQuery(ctx)
 	return nil
 }
-
-func (in *GPUStatsInput) Resolve(ctx huma.Context) []error {
-	in.GPUPciIds = pciIdsFromQuery(ctx)
-	return nil
-}
-
-func (in *ProcessInput) Resolve(ctx huma.Context) []error {
-	in.GPUPciIds = pciIdsFromQuery(ctx)
-	return nil
-}

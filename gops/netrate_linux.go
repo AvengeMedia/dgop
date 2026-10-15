@@ -67,8 +67,3 @@ func readLinkSysfs(root string, info *models.NetworkRateInfo) {
 		info.Speed, info.Duplex = 0, ""
 	}
 }
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}

@@ -4,6 +4,7 @@ package gops
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -19,25 +20,23 @@ const dmiUdevData = "/run/udev/data/+dmi:id"
 // GetMemoryModules reads the DMI memory devices that systemd's udev rules
 // export without root as MEMORY_DEVICE_<n>_* properties.
 func (self *GopsUtil) GetMemoryModules() (*models.MemoryModulesInfo, error) {
-	text, err := os.ReadFile(dmiUdevData)
+	return readMemoryModules(dmiUdevData)
+}
+
+func readMemoryModules(udevData string) (*models.MemoryModulesInfo, error) {
+	text, err := os.ReadFile(udevData)
 	if err != nil {
-		text = udevadmDMIProperties()
+		if text, err = udevadmDMIProperties(); err != nil {
+			return nil, fmt.Errorf("memory modules: %w", err)
+		}
 	}
 	return parseMemoryModules(string(text)), nil
 }
 
-func udevadmDMIProperties() []byte {
-	path, err := exec.LookPath("udevadm")
-	if err != nil {
-		return nil
-	}
+func udevadmDMIProperties() ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "info", "-q", "property", "-p", "/devices/virtual/dmi/id").Output()
-	if err != nil {
-		return nil
-	}
-	return out
+	return exec.CommandContext(ctx, "udevadm", "info", "-q", "property", "-p", "/devices/virtual/dmi/id").Output()
 }
 
 // parseMemoryModules accepts the udev database format (E:KEY=VALUE) and plain

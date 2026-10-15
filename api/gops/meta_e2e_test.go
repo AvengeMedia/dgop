@@ -181,8 +181,8 @@ func TestMetaE2E_ProcessJourney(t *testing.T) {
 
 	first := getJSON(t, path, http.StatusOK)
 	for _, k := range []string{"diskRead", "diskWrite", "gpu"} {
-		if v, ok := rows(first)[k]; ok {
-			t.Errorf("first call has %q=%v without a previous sample", k, v)
+		if rows(first)[k] == nil {
+			t.Errorf("first call lacks %q: the baseline pass runs with process CPU off too", k)
 		}
 	}
 	cursor, _ := first["cursor"].(string)

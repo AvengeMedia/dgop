@@ -9,53 +9,56 @@ import (
 )
 
 func TestGetMeta_GPUStatsHonorsAllowList(t *testing.T) {
-	origDetect, origFill := detectGPUsFn, fillGPUStatsFn
-	t.Cleanup(func() { detectGPUsFn, fillGPUStatsFn = origDetect, origFill })
-	detectGPUsFn = func() ([]models.GPU, error) {
-		return []models.GPU{{PciId: "10de:2684"}, {PciId: "1002:164e"}}, nil
+	g := NewGopsUtil()
+	// A nonexistent i915 slot: no sysfs stats, but enabling it starts an fdinfo cursor.
+	g.detectGPUs = func() ([]models.GPU, error) {
+		return []models.GPU{{PciSlot: "0000:99:00.0", PciId: "8086:a780", Driver: "i915"}}, nil
 	}
-	fillGPUStatsFn = func(s []models.GPUStats, _ string) string {
-		for i := range s {
-			assert.Equal(t, "10de:2684", s[i].PciId, "disabled GPU reached fill")
-			s[i].FanRpm = new(1)
-		}
-		return "next"
-	}
-	params := MetaParams{GPUPciIds: []string{"10de:2684"}}
 
-	for name, modules := range map[string][]string{"gpu-stats": {"gpu-stats"}, "all": {"all"}} {
-		meta, err := NewGopsUtil().GetMeta(context.Background(), modules, params)
-		assert.NoError(t, err, name)
-		if !assert.NotNil(t, meta.GPUStats, name) || !assert.Len(t, meta.GPUStats.GPUs, 2, name) {
-			continue
+	for _, modules := range [][]string{{"gpu-stats"}, {"all"}} {
+		meta, err := g.GetMeta(context.Background(), modules, MetaParams{GPUPciIds: []string{"8086:a780"}})
+		assert.NoError(t, err)
+		if assert.NotNil(t, meta.GPUStats, modules) {
+			assert.NotEmpty(t, meta.GPUStats.Cursor, modules)
 		}
-		assert.NotNil(t, meta.GPUStats.GPUs[0].FanRpm, name)
-		assert.Nil(t, meta.GPUStats.GPUs[1].FanRpm, name)
+		meta, err = g.GetMeta(context.Background(), modules, MetaParams{GPUPciIds: []string{"10de:2684"}})
+		assert.NoError(t, err)
+		if assert.NotNil(t, meta.GPUStats, modules) {
+			assert.Empty(t, meta.GPUStats.Cursor, modules, "a disabled GPU is never read")
+			assert.Len(t, meta.GPUStats.GPUs, 1, modules)
+		}
 	}
 }
 
 func TestGetGPUInfoWithTemp_ReadsTempsOnlyForEnabled(t *testing.T) {
-	origDetect, origTemp := detectGPUsFn, gpuTempFn
-	t.Cleanup(func() { detectGPUsFn, gpuTempFn = origDetect, origTemp })
-	detectGPUsFn = func() ([]models.GPU, error) {
-		return []models.GPU{{PciId: "10de:2684"}, {PciId: "1002:164e"}}, nil
-	}
 	var read []string
-	gpuTempFn = func(_ *GopsUtil, id string) (*models.GPUTempInfo, error) {
-		read = append(read, id)
-		return &models.GPUTempInfo{Temperature: 50}, nil
+	g := &GopsUtil{
+		detectGPUs: func() ([]models.GPU, error) {
+			return []models.GPU{{PciId: "1002:164e", PciSlot: "0000:0c:00.0"}, {PciId: "1002:164e", PciSlot: "0000:0d:00.0"}}, nil
+		},
+		gpuTemp: func(gpu models.GPU) models.GPUTempInfo {
+			read = append(read, gpu.PciSlot)
+			return models.GPUTempInfo{Temperature: float64(len(read))}
+		},
 	}
 
 	for name, ids := range map[string][]string{"nil": nil, "empty": {}} {
 		read = nil
-		info, err := (&GopsUtil{}).GetGPUInfoWithTemp(ids)
+		info, err := g.GetGPUInfoWithTemp(ids)
 		assert.NoError(t, err, name)
 		assert.Empty(t, read, name)
 		assert.Len(t, info.GPUs, 2, name)
 	}
 
-	info, err := (&GopsUtil{}).GetGPUInfoWithTemp([]string{"1002:164e"})
+	read = nil
+	info, err := g.GetGPUInfoWithTemp([]string{"0000:0d:00.0"})
 	assert.NoError(t, err)
-	assert.Equal(t, []string{"1002:164e"}, read)
-	assert.Equal(t, float64(50), info.GPUs[1].Temperature)
+	assert.Equal(t, []string{"0000:0d:00.0"}, read, "identical GPUs are told apart by slot")
+	assert.Zero(t, info.GPUs[0].Temperature)
+	assert.Equal(t, 1.0, info.GPUs[1].Temperature)
+
+	read = nil
+	info, _ = g.GetGPUInfoWithTemp([]string{"1002:164e"})
+	assert.Equal(t, []string{"0000:0c:00.0", "0000:0d:00.0"}, read, "each GPU reads its own temperature")
+	assert.Equal(t, []float64{1, 2}, []float64{info.GPUs[0].Temperature, info.GPUs[1].Temperature})
 }

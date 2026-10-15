@@ -42,11 +42,9 @@ func queryNvidiaSMI(bdfs []string) map[string]models.GPUStats {
 		return nil
 	}
 	var result map[string]models.GPUStats
-	failed := 0
 	for _, bdf := range bdfs {
 		out, err := runNvidiaSMI(path, nvidiaSMIID(bdf))
 		if err != nil {
-			failed++
 			continue
 		}
 		for k, v := range parseNvidiaSMI(string(out)) {
@@ -54,30 +52,6 @@ func queryNvidiaSMI(bdfs []string) map[string]models.GPUStats {
 				result = make(map[string]models.GPUStats)
 			}
 			result[k] = v
-		}
-	}
-	if len(bdfs) > 0 && failed == len(bdfs) {
-		return queryNvidiaSMIAll(path, bdfs)
-	}
-	return result
-}
-
-// queryNvidiaSMIAll is the fallback for nvidia-smi builds that reject --id: it
-// queries every device in one exec and keeps only the requested BDFs.
-func queryNvidiaSMIAll(path string, bdfs []string) map[string]models.GPUStats {
-	out, err := runNvidiaSMI(path, "")
-	if err != nil {
-		return nil
-	}
-	all := parseNvidiaSMI(string(out))
-	var result map[string]models.GPUStats
-	for _, bdf := range bdfs {
-		key := normalizeNvidiaBDF(nvidiaSMIID(bdf))
-		if v, ok := all[key]; ok {
-			if result == nil {
-				result = make(map[string]models.GPUStats)
-			}
-			result[key] = v
 		}
 	}
 	return result
@@ -90,11 +64,7 @@ func runNvidiaSMI(path, id string) ([]byte, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	args := []string{"--query-gpu=" + fields, "--format=csv,noheader,nounits"}
-	if id != "" {
-		args = append([]string{"--id=" + id}, args...)
-	}
-	out, err := exec.CommandContext(ctx, path, args...).Output()
+	out, err := exec.CommandContext(ctx, path, "--id="+id, "--query-gpu="+fields, "--format=csv,noheader,nounits").Output()
 	var exitErr *exec.ExitError
 	if err != nil && fields != nvidiaSMIFields && (strings.Contains(string(out), nvidiaSMIInvalidField) ||
 		errors.As(err, &exitErr) && strings.Contains(string(exitErr.Stderr), nvidiaSMIInvalidField)) {

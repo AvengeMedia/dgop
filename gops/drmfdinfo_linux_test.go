@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -173,14 +174,6 @@ func TestDRMEngineUtilizationClients(t *testing.T) {
 	assert.InDelta(t, 10.0, closed["gfx"], 0.001, "A closed client does not produce a negative delta")
 }
 
-func TestDRMClientKeyPdevless(t *testing.T) {
-	a := drmClient{Driver: "msm", ID: 1}
-	b := drmClient{Driver: "panfrost", ID: 1}
-	assert.NotEqual(t, a.key(), b.key(), "Same id on different non-PCI drivers stays distinct")
-	assert.Equal(t, drmClient{PDev: "0000:0c:00.0", Driver: "amdgpu", ID: 1}.key(),
-		drmClient{PDev: "0000:0c:00.0", Driver: "other", ID: 1}.key(), "PCI clients key on pdev and id")
-}
-
 func TestDRMEngineUtilizationXeNoBaseline(t *testing.T) {
 	cur := drmSet(drmClient{PDev: "0000:03:00.0", ID: 3, Engines: map[string]drmEngine{
 		"rcs": {Cycles: 500, TotalCycles: 1000, Capacity: 1},
@@ -205,6 +198,7 @@ func TestDRMDriverReportsEngines(t *testing.T) {
 	assert.True(t, drmDriverReportsEngines("amdgpu"))
 	assert.True(t, drmDriverReportsEngines("xe"))
 	assert.False(t, drmDriverReportsEngines("nvidia-drm"))
+	assert.False(t, drmDriverReportsEngines("msm"), "non-PCI GPUs are not supported")
 	assert.False(t, drmDriverReportsEngines(""))
 }
 
@@ -225,17 +219,17 @@ func TestScanProcFDs(t *testing.T) {
 	}
 	require.NoError(t, os.Symlink("/dev/dri/card1", filepath.Join(fdDir, "6")))
 
-	scan, err := scanProcFDs(root, 42, map[string]bool{"renderD128": true, "card1": true})
+	scan, err := scanProcFDs(root, 42, map[string]gpuNodeState{"renderD128": gpuNodeRead, "card1": gpuNodeRead}, false)
 	require.NoError(t, err)
 	require.Len(t, scan.DRM, 1, "Duplicated fds of one client count once; the socket and the fd without fdinfo are skipped")
 	assert.Equal(t, uint64(49), scan.DRM[drmClientKey{PDev: "0000:0c:00.0", ID: 49}].ID)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "43"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "43", "fd"), nil, 0o644))
-	_, err = scanProcFDs(root, 43, nil)
+	_, err = scanProcFDs(root, 43, nil, false)
 	assert.Error(t, err, "An unreadable fd dir is an error, not an empty result")
 
-	_, err = scanProcFDs(root, 44, nil)
+	_, err = scanProcFDs(root, 44, nil, false)
 	assert.Error(t, err)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "self"), 0o755))
@@ -249,13 +243,13 @@ func TestScanProcFDsLive(t *testing.T) {
 		t.Skip("no /dev/dri")
 	}
 	entries, _ := os.ReadDir("/sys/class/drm")
-	nodes := map[string]bool{}
+	nodes := map[string]gpuNodeState{}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), "renderD") || strings.HasPrefix(e.Name(), "card") && !strings.Contains(e.Name(), "-") {
-			nodes[e.Name()] = true
+			nodes[e.Name()] = gpuNodeRead
 		}
 	}
-	_, err := scanProcFDs("/proc", int32(os.Getpid()), nodes)
+	_, err := scanProcFDs("/proc", int32(os.Getpid()), nodes, true)
 	assert.NoError(t, err)
 }
 
@@ -273,26 +267,46 @@ func TestScanProcFDsSkipsUnwantedNodes(t *testing.T) {
 
 	done := make(chan procFDScan, 1)
 	go func() {
-		scan, _ := scanProcFDs(root, 42, map[string]bool{"renderD128": true})
+		scan, _ := scanProcFDs(root, 42, map[string]gpuNodeState{"renderD128": gpuNodeRead}, false)
 		done <- scan
 	}()
 	select {
 	case scan := <-done:
 		assert.Len(t, scan.DRM, 1)
+		assert.True(t, scan.UnknownGPU, "a node of no detected GPU is flagged, not read")
 	case <-time.After(5 * time.Second):
 		t.Fatal("fdinfo of an unwanted DRM node was opened")
 	}
 }
 
-func TestDRMNodes(t *testing.T) {
+func TestGPUNodes(t *testing.T) {
 	pciRoot := t.TempDir()
-	writeHwmonFiles(t, filepath.Join(pciRoot, "0000:0c:00.0", "drm"), map[string]string{
-		"card1/dev":      "226:1\n",
-		"renderD128/dev": "226:128\n",
+	writeHwmonFiles(t, pciRoot, map[string]string{
+		"0000:0c:00.0/drm/card1/dev":        "226:1\n",
+		"0000:0c:00.0/drm/renderD128/dev":   "226:128\n",
+		"0000:00:02.0/drm/renderD129/dev":   "226:129\n",
+		"0000:00:02.0/power/runtime_status": "suspended\n",
+		"0000:03:00.0/drm/renderD130/dev":   "226:130\n",
+		"0000:01:00.0/drm/renderD131/dev":   "226:131\n",
 	})
-	writeHwmonFiles(t, filepath.Join(pciRoot, "0000:03:00.0", "drm"), map[string]string{"renderD129/dev": "226:129\n"})
+	gpus := []models.GPU{
+		{PciSlot: "0000:0c:00.0", PciId: "1002:744c", Driver: "amdgpu"},
+		{PciSlot: "0000:00:02.0", PciId: "8086:a780", Driver: "i915"},
+		{PciSlot: "0000:03:00.0", PciId: "8086:56a0", Driver: "xe"},
+		{PciSlot: "0000:01:00.0", PciId: "10de:2786", Driver: "nvidia"},
+	}
 
-	assert.Equal(t, map[string]bool{"card1": true, "renderD128": true}, drmNodes(pciRoot, "0000:0c:00.0"))
-	assert.Empty(t, drmNodes(pciRoot, "0000:99:00.0"))
-	assert.Empty(t, drmNodes(pciRoot))
+	set := gpuNodes(pciRoot, gpus, []string{"1002:744c", "8086:a780", "10de:2786"})
+	assert.Equal(t, map[string]gpuNodeState{
+		"card1":      gpuNodeRead,
+		"renderD128": gpuNodeRead,
+		"renderD129": gpuNodeSuspended,
+		"renderD130": gpuNodeExcluded,
+		"renderD131": gpuNodeRead,
+	}, set.nodes)
+	assert.True(t, set.nvidia)
+
+	assert.False(t, gpuNodes(pciRoot, gpus, []string{"1002:744c"}).nvidia, "an excluded NVIDIA GPU is not monitored")
+	writeHwmonFiles(t, pciRoot, map[string]string{"0000:01:00.0/power/runtime_status": "suspended\n"})
+	assert.False(t, gpuNodes(pciRoot, gpus, nil).nvidia, "a suspended NVIDIA GPU is not monitored")
 }

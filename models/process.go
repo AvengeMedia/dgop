@@ -16,18 +16,17 @@ type ProcessInfo struct {
 	Command           string  `json:"command"`
 	FullCommand       string  `json:"fullCommand"`
 	ExecutablePath    string  `json:"executablePath,omitempty"`
-	ChildCount        int     `json:"childCount,omitempty"`
+	ChildCount        int     `json:"childCount,omitempty" doc:"Processes merged into this row. A merged row sums its members; a value unknown for any member is absent for the row."`
 	Status            string  `json:"status,omitempty" doc:"State letter from /proc/pid/stat: R, S, D, Z, T, I..."`
 	Threads           int     `json:"threads,omitempty" doc:"Thread count; merged rows sum their members."`
 	Nice              *int    `json:"nice,omitempty"`
 
-	StartTime int64    `json:"startTime,omitempty" doc:"Process start, unix seconds."`
-	GPU       *float64 `json:"gpu,omitempty" doc:"Percentage of the busiest GPU engine used since the cursor, in the range 0-100."`
-	VRAMKB    *uint64  `json:"vramKB,omitempty" doc:"GPU memory in KB."`
-	GPUVideo  *float64 `json:"gpuVideo,omitempty" doc:"Percentage of the busiest video engine (encode, decode, JPEG) used since the cursor."`
-	GPUGttKB  *uint64  `json:"gpuGtt,omitempty" doc:"System memory mapped for the GPU (GTT), in KB."`
-	// GPUUnmonitored distinguishes unknown GPU values (gpu and vramKB absent) caused by a GPU that is excluded or runtime-suspended from an unreadable process.
-	GPUUnmonitored bool     `json:"gpuUnmonitored,omitempty" doc:"True when the process holds a GPU that is excluded or suspended, so gpu and vramKB are deliberately not measured."`
+	StartTime      int64    `json:"startTime,omitempty" doc:"Process start, unix seconds."`
+	GPU            *float64 `json:"gpu,omitempty" doc:"Percentage of the busiest GPU engine used since the cursor, in the range 0-100. Merged rows sum each member's busiest engine, capped at 100."`
+	VRAMKB         *uint64  `json:"vramKB,omitempty" doc:"GPU memory in KB."`
+	GPUVideo       *float64 `json:"gpuVideo,omitempty" doc:"Percentage of the busiest video engine (encode, decode, JPEG) used since the cursor. Merged rows sum each member's busiest video engine, capped at 100."`
+	GPUGttKB       *uint64  `json:"gpuGtt,omitempty" doc:"System memory mapped for the GPU (GTT), in KB."`
+	GPUUnmonitored bool     `json:"gpuUnmonitored,omitempty" doc:"True when the process holds a GPU that is excluded, or an NVIDIA GPU that is excluded or suspended, so gpu and vramKB are deliberately not measured."`
 	DiskRead       *float64 `json:"diskRead,omitempty" doc:"Disk bytes read per second since the cursor."`
 	DiskWrite      *float64 `json:"diskWrite,omitempty" doc:"Disk bytes written per second since the cursor."`
 

@@ -62,6 +62,11 @@ type GPUStatsInput struct {
 	GPUPciIds []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"Only read these GPUs; others are listed without stats. Omit for all"`
 }
 
+func (in *GPUStatsInput) Resolve(ctx huma.Context) []error {
+	in.GPUPciIds = pciIdsFromQuery(ctx)
+	return nil
+}
+
 type GPUStatsResponse struct {
 	Body *models.GPUStatsInfo
 }

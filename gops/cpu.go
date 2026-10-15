@@ -67,13 +67,15 @@ func (self *GopsUtil) GetCPUInfoWithCursor(cursor string) (*models.CPUInfo, erro
 		cpuInfo.Frequency = cpuTracker.cpuFreq
 	}
 
-	cpuInfo.CoreFrequencies = cpuTracker.dynamic.coreMHz
+	cpuInfo.CoreFrequencies = slices.Clone(cpuTracker.dynamic.coreMHz)
 	cpuInfo.Governor = cpuTracker.dynamic.governor
 	cpuInfo.EPP = cpuTracker.dynamic.epp
 	cpuInfo.MinFrequency = cpuTracker.static.minMHz
 	cpuInfo.MaxFrequency = cpuTracker.static.maxMHz
 	cpuInfo.PhysicalCores = cpuTracker.static.physicalCores
-	cpuInfo.Cache = cpuTracker.static.cache
+	if c := cpuTracker.static.cache; c != nil {
+		cpuInfo.Cache = new(*c)
+	}
 	cpuInfo.BaseFrequency = cpuTracker.static.baseMHz
 	cpuInfo.Sockets = cpuTracker.static.sockets
 	cpuInfo.Virtualization = cpuTracker.virtualization

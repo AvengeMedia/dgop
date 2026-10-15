@@ -28,39 +28,19 @@ type drmClient struct {
 
 type drmClientKey struct {
 	PDev string
-	// Driver disambiguates clients without a PDev (non-PCI devices).
-	Driver string
-	ID     uint64
+	ID   uint64
 }
 
 type drmClientSet map[drmClientKey]drmClient
 
 func (self drmClient) key() drmClientKey {
-	k := drmClientKey{PDev: self.PDev, ID: self.ID}
-	if self.PDev == "" {
-		k.Driver = self.Driver
-	}
-	return k
-}
-
-var drmUtilizationDrivers = map[string]bool{
-	"amdgpu":   true,
-	"i915":     true,
-	"xe":       true,
-	"msm":      true,
-	"panfrost": true,
-	"panthor":  true,
-	"v3d":      true,
-	"etnaviv":  true,
-	"lima":     true,
+	return drmClientKey{PDev: self.PDev, ID: self.ID}
 }
 
 func drmDriverReportsEngines(driver string) bool {
-	return drmUtilizationDrivers[driver]
+	return driver == "amdgpu" || driver == "i915" || driver == "xe"
 }
 
-// parseDRMFdinfo parses the DRM client keys of an fdinfo file. drm-pdev is
-// optional because the kernel only prints it for PCI devices.
 func parseDRMFdinfo(text string) (drmClient, bool) {
 	client := drmClient{Engines: map[string]drmEngine{}}
 	hasID := false

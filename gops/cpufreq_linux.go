@@ -16,23 +16,6 @@ const cpuSysRoot = "/sys/devices/system/cpu"
 
 var cpuDirRe = regexp.MustCompile(`^cpu(\d+)$`)
 
-func readSysString(path string) (string, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	return strings.TrimSpace(string(b)), true
-}
-
-func readSysInt(path string) (int64, bool) {
-	s, ok := readSysString(path)
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	return n, err == nil
-}
-
 // cpuDirs maps logical CPU number to its sysfs directory, and returns the highest number.
 func cpuDirs(root string) (map[int]string, int) {
 	entries, _ := os.ReadDir(root)
@@ -62,7 +45,7 @@ func readCPUDynamic(root string) cpuDynamic {
 			continue
 		}
 		freq := filepath.Join(dir, "cpufreq")
-		khz, ok := readSysInt(filepath.Join(freq, "scaling_cur_freq"))
+		khz, ok := readInt(filepath.Join(freq, "scaling_cur_freq"))
 		if ok && d.coreMHz == nil {
 			d.coreMHz = make([]float64, n, highest+1)
 		}
@@ -70,10 +53,10 @@ func readCPUDynamic(root string) cpuDynamic {
 			d.coreMHz = append(d.coreMHz, float64(khz)/1000)
 		}
 		if d.governor == "" {
-			d.governor, _ = readSysString(filepath.Join(freq, "scaling_governor"))
+			d.governor = readTrimmed(filepath.Join(freq, "scaling_governor"))
 		}
 		if d.epp == "" {
-			d.epp, _ = readSysString(filepath.Join(freq, "energy_performance_preference"))
+			d.epp = readTrimmed(filepath.Join(freq, "energy_performance_preference"))
 		}
 	}
 	return d
@@ -90,22 +73,22 @@ func readCPUStatic(root string) cpuStatic {
 
 	for _, dir := range dirs {
 		freq := filepath.Join(dir, "cpufreq")
-		if khz, ok := readSysInt(filepath.Join(freq, "cpuinfo_min_freq")); ok {
+		if khz, ok := readInt(filepath.Join(freq, "cpuinfo_min_freq")); ok {
 			if mhz := float64(khz) / 1000; s.minMHz == 0 || mhz < s.minMHz {
 				s.minMHz = mhz
 			}
 		}
-		if khz, ok := readSysInt(filepath.Join(freq, "cpuinfo_max_freq")); ok {
+		if khz, ok := readInt(filepath.Join(freq, "cpuinfo_max_freq")); ok {
 			s.maxMHz = max(s.maxMHz, float64(khz)/1000)
 		}
-		if mhz, ok := readSysInt(filepath.Join(dir, "acpi_cppc", "nominal_freq")); ok {
+		if mhz, ok := readInt(filepath.Join(dir, "acpi_cppc", "nominal_freq")); ok {
 			s.baseMHz = max(s.baseMHz, float64(mhz))
-		} else if khz, ok := readSysInt(filepath.Join(freq, "base_frequency")); ok {
+		} else if khz, ok := readInt(filepath.Join(freq, "base_frequency")); ok {
 			s.baseMHz = max(s.baseMHz, float64(khz)/1000)
 		}
 
-		pkg, ok1 := readSysInt(filepath.Join(dir, "topology", "physical_package_id"))
-		core, ok2 := readSysInt(filepath.Join(dir, "topology", "core_id"))
+		pkg, ok1 := readInt(filepath.Join(dir, "topology", "physical_package_id"))
+		core, ok2 := readInt(filepath.Join(dir, "topology", "core_id"))
 		if ok1 && ok2 {
 			cores[[2]int64{pkg, core}] = struct{}{}
 		}
@@ -115,11 +98,11 @@ func readCPUStatic(root string) cpuStatic {
 
 		idx, _ := filepath.Glob(filepath.Join(dir, "cache", "index*"))
 		for _, ix := range idx {
-			level, ok := readSysInt(filepath.Join(ix, "level"))
-			typ, _ := readSysString(filepath.Join(ix, "type"))
-			shared, _ := readSysString(filepath.Join(ix, "shared_cpu_list"))
-			sizeStr, ok3 := readSysString(filepath.Join(ix, "size"))
-			if !ok || !ok3 {
+			level, ok := readInt(filepath.Join(ix, "level"))
+			typ := readTrimmed(filepath.Join(ix, "type"))
+			shared := readTrimmed(filepath.Join(ix, "shared_cpu_list"))
+			sizeStr := readTrimmed(filepath.Join(ix, "size"))
+			if !ok || sizeStr == "" {
 				continue
 			}
 			key := strconv.FormatInt(level, 10) + "/" + typ + "/" + shared

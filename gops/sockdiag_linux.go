@@ -17,9 +17,7 @@ import (
 type sockDiagEntry struct {
 	Inode      uint32
 	Protocol   uint8
-	Local      netip.AddrPort
 	Remote     netip.AddrPort
-	State      uint8
 	RxBytes    uint64
 	TxBytes    uint64
 	HasTCPInfo bool
@@ -174,20 +172,16 @@ func parseInetDiagMsg(b []byte, protocol uint8) (sockDiagEntry, bool) {
 	}
 	e := sockDiagEntry{
 		Protocol: protocol,
-		State:    b[1],
 		Inode:    binary.NativeEndian.Uint32(b[68:]),
 	}
 	if e.Inode == 0 {
 		return sockDiagEntry{}, false
 	}
-	sport := binary.BigEndian.Uint16(b[4:])
 	dport := binary.BigEndian.Uint16(b[6:])
 	switch b[0] {
 	case unix.AF_INET:
-		e.Local = netip.AddrPortFrom(netip.AddrFrom4([4]byte(b[8:12])), sport)
 		e.Remote = netip.AddrPortFrom(netip.AddrFrom4([4]byte(b[24:28])), dport)
 	case unix.AF_INET6:
-		e.Local = netip.AddrPortFrom(netip.AddrFrom16([16]byte(b[8:24])), sport)
 		e.Remote = netip.AddrPortFrom(netip.AddrFrom16([16]byte(b[24:40])), dport)
 	default:
 		return sockDiagEntry{}, false
