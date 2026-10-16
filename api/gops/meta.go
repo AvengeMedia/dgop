@@ -18,12 +18,13 @@ type MetaInput struct {
 	MergeChildren  bool            `query:"merge_children" default:"true"`
 
 	// Module-specific parameters
-	GPUPciIds      []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs or bus addresses of GPUs to sample live metrics for (when gpu module is requested)"`
-	GPUCursor      string   `query:"gpu_cursor" doc:"GPU cursor from previous request"`
-	CPUCursor      string   `query:"cpu_cursor" doc:"CPU cursor from previous request"`
-	ProcCursor     string   `query:"proc_cursor" doc:"Process cursor from previous request"`
-	NetRateCursor  string   `query:"net_rate_cursor" doc:"Network rate cursor from previous request"`
-	DiskRateCursor string   `query:"disk_rate_cursor" doc:"Disk rate cursor from previous request"`
+	GPUPciIds            []string `query:"gpu_pci_ids" example:"10de:2684,1002:164e" doc:"PCI IDs or bus addresses of GPUs to read for gpu, gpu-temp and process-gpu; empty reads none. Omitted, process-gpu reads all GPUs and gpu and gpu-temp read none (it would wake a suspended dGPU)"`
+	GPUCursor            string   `query:"gpu_cursor" doc:"GPU cursor from previous request"`
+	CPUCursor            string   `query:"cpu_cursor" doc:"CPU cursor from previous request"`
+	ProcCursor           string   `query:"proc_cursor" doc:"Process cursor from previous request"`
+	NetRateCursor        string   `query:"net_rate_cursor" doc:"Network rate cursor from previous request"`
+	DiskRateCursor       string   `query:"disk_rate_cursor" doc:"Disk rate cursor from previous request"`
+	NetRateAllInterfaces bool     `query:"net_rate_all_interfaces" default:"false" doc:"Include all interfaces in net-rate"`
 }
 
 type MetaResponse struct {
@@ -49,16 +50,17 @@ func (self *HandlerGroup) Meta(ctx context.Context, input *MetaInput) (*MetaResp
 	}
 
 	params := gops.MetaParams{
-		SortBy:         input.SortBy,
-		ProcLimit:      input.Limit,
-		EnableCPU:      !input.DisableProcCPU,
-		MergeChildren:  input.MergeChildren,
-		GPUPciIds:      input.GPUPciIds,
-		GPUCursor:      input.GPUCursor,
-		CPUCursor:      input.CPUCursor,
-		ProcCursor:     input.ProcCursor,
-		NetRateCursor:  input.NetRateCursor,
-		DiskRateCursor: input.DiskRateCursor,
+		SortBy:               input.SortBy,
+		ProcLimit:            input.Limit,
+		EnableCPU:            !input.DisableProcCPU,
+		MergeChildren:        input.MergeChildren,
+		GPUPciIds:            input.GPUPciIds,
+		GPUCursor:            input.GPUCursor,
+		CPUCursor:            input.CPUCursor,
+		ProcCursor:           input.ProcCursor,
+		NetRateCursor:        input.NetRateCursor,
+		DiskRateCursor:       input.DiskRateCursor,
+		NetRateAllInterfaces: input.NetRateAllInterfaces,
 	}
 
 	metaInfo, err := self.srv.Gops.GetMeta(ctx, modules, params)
@@ -79,4 +81,28 @@ func (self *HandlerGroup) Modules(ctx context.Context, input *struct{}) (*Module
 	}
 
 	return &ModulesResponse{Body: modulesInfo}, nil
+}
+
+// pciIdsFromQuery reads gpu_pci_ids itself, comma-separated or repeated: huma
+// decodes an empty value as nil, which would read as "not provided".
+func pciIdsFromQuery(ctx huma.Context) []string {
+	u := ctx.URL()
+	vals, ok := u.Query()["gpu_pci_ids"]
+	if !ok {
+		return nil
+	}
+	ids := []string{}
+	for _, v := range vals {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+func (in *MetaInput) Resolve(ctx huma.Context) []error {
+	in.GPUPciIds = pciIdsFromQuery(ctx)
+	return nil
 }

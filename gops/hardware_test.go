@@ -1,9 +1,13 @@
 package gops
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/AvengeMedia/dgop/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInferVendorFromId(t *testing.T) {
@@ -170,4 +174,79 @@ func BenchmarkInferVendor(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		inferVendor("nvidia", "NVIDIA GeForce RTX 3080")
 	}
+}
+
+func TestGPUBusIdOmittedWhenEmpty(t *testing.T) {
+	out, err := json.Marshal(models.GPU{Driver: "amdgpu", PciId: "1002:744c"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "busId")
+	for _, key := range []string{"driver", "vendor", "displayName", "fullName", "pciId", "rawLine", "temperature", "hwmon"} {
+		assert.Contains(t, string(out), `"`+key+`"`)
+	}
+
+	out, err = json.Marshal(models.GPU{BusId: "0000:0c:00.0"})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `"busId":"0000:0c:00.0"`)
+}
+
+func TestGPULiveKeysOmittedUntilSampled(t *testing.T) {
+	out, err := json.Marshal(models.GPU{Driver: "amdgpu", PciId: "1002:744c"})
+	require.NoError(t, err)
+	for _, key := range []string{"usage", "gttUsed", "memoryBusy", "encoderUsage", "coreClockMax", "hotspot", "memoryTemperature", "powerLimit", "fanRpm", "fanPercent", "pcieLinkSpeed", "pcieLinkWidth"} {
+		assert.NotContains(t, string(out), `"`+key+`"`)
+	}
+
+	out, err = json.Marshal(models.GPU{Usage: new(0.0), FanRpm: new(0)})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `"usage":0`, "a known zero is not omitted")
+	assert.Contains(t, string(out), `"fanRpm":0`)
+}
+
+func TestGetGPUInfoWithStats_IdenticalGPUsToldApartByBusId(t *testing.T) {
+	var sampled []string
+	g := &GopsUtil{
+		detectGPUEntries: func() ([]gpuEntry, error) {
+			return []gpuEntry{
+				{Driver: "amdgpu", BusId: "0000:0c:00.0", RawLine: "0000:0c:00.0 Display controller: Navi 31 [1002:744c]"},
+				{Driver: "amdgpu", BusId: "0000:0d:00.0", RawLine: "0000:0d:00.0 Display controller: Navi 31 [1002:744c]"},
+			}, nil
+		},
+		sampleGPUs: func(entries []gpuEntry, _ gpuCursor, now time.Time) ([]gpuSample, gpuCursor) {
+			samples := make([]gpuSample, len(entries))
+			for i, e := range entries {
+				sampled = append(sampled, e.BusId)
+				samples[i] = gpuSample{State: models.GPUStateActive, Temperature: float64(len(sampled))}
+			}
+			return samples, newGPUCursor(now)
+		},
+	}
+
+	for name, ids := range map[string][]string{"nil": nil, "empty": {}} {
+		sampled = nil
+		info, err := g.GetGPUInfoWithStats(ids, "")
+		require.NoError(t, err, name)
+		assert.Empty(t, sampled, name)
+		assert.Len(t, info.GPUs, 2, name)
+	}
+
+	sampled = nil
+	info, err := g.GetGPUInfoWithStats([]string{"0000:0d:00.0"}, "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0000:0d:00.0"}, sampled)
+	assert.Empty(t, info.GPUs[0].State)
+	assert.Equal(t, models.GPUStateActive, info.GPUs[1].State)
+	assert.Equal(t, 1.0, info.GPUs[1].Temperature)
+
+	sampled = nil
+	info, _ = g.GetGPUInfoWithStats([]string{"1002:744c"}, "")
+	assert.Equal(t, []string{"0000:0c:00.0", "0000:0d:00.0"}, sampled, "a PCI ID selects every card of that model")
+	assert.Equal(t, []float64{1, 2}, []float64{info.GPUs[0].Temperature, info.GPUs[1].Temperature})
+}
+
+func TestGPUSelected(t *testing.T) {
+	gpu := models.GPU{PciId: "1002:744c", BusId: "0000:0c:00.0"}
+	assert.True(t, gpuSelected(gpu, nil), "nil selects all")
+	assert.False(t, gpuSelected(gpu, []string{}), "empty selects none")
+	assert.True(t, gpuSelected(gpu, []string{"00000000:0C:00.0"}))
+	assert.False(t, gpuSelected(gpu, []string{"10de:2684"}))
 }
